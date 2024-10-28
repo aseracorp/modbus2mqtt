@@ -10,8 +10,6 @@ ENV TZ=Europe/London
 RUN apk add --update --no-cache git py3-psutil \   
     openssh-client \
     patch 
-COPY rootfs.tar .
-RUN cd / && tar xf /usr/app/rootfs.tar
 RUN echo '{}' >package.json && \
     npm install -g npm 
 RUN npm install --omit-dev @modbus2mqtt/server@${BUILD_VERSION} 
