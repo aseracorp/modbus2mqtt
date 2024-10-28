@@ -1,5 +1,5 @@
 ARG BUILD_VERSION="head"
-FROM alpine:latest
+FROM node:current-alpine
 
 WORKDIR /usr/app
 
