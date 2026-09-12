@@ -12,6 +12,7 @@ import {
 import { MatListModule } from '@angular/material/list'
 
 import { ApiService } from '../services/api-service'
+import { TranslationService } from '../services/translation.service'
 import {
   getSpecificationI18nName,
   SpecificationStatus,
@@ -319,7 +320,8 @@ export class SelectSlaveComponent extends SessionStorage implements OnInit {
     private route: ActivatedRoute,
     private entityApiService: ApiService,
     private routes: Router,
-    private clipboard: Clipboard
+    private clipboard: Clipboard,
+    private translation: TranslationService
   ) {
     super()
     this.slaveNewForm = this._formBuilder.group({
@@ -330,6 +332,7 @@ export class SelectSlaveComponent extends SessionStorage implements OnInit {
       referenceSlaveId: [null as number | null],
     })
   }
+  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
   showAllPublicSpecs = new FormControl<boolean>(false)
   uiSlaves = signal<IuiSlave[]>([])
   config: Iconfiguration | undefined

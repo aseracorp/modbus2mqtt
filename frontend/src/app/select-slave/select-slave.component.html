@@ -14,7 +14,7 @@
         <mat-card class="width550pt card">
           <form (keydown.enter)="keyDown($event, uislave.slaveForm)" [formGroup]="uislave.slaveForm">
             <mat-card-header
-              ><mat-card-title matTooltip="Edit Specification" (click)="editSpecification(uislave.slave)" class="clickable">{{
+              ><mat-card-title [matTooltip]="t('slave.editSpec')" (click)="editSpecification(uislave.slave)" class="clickable">{{
                 uislave.label
               }}</mat-card-title>
               <div class="card-header-buttons">
@@ -22,7 +22,7 @@
                   <button
                     mat-icon-button
                     class="material-icons app-toolbar-menu save-button"
-                    matTooltip="Save Changes"
+                    [matTooltip]="t('bus.saveChanges')"
                     (click)="saveSlave(uislave)"
                     color="primary"
                     [disabled]="!needsSaving(i)"
@@ -32,7 +32,7 @@
                   <button
                     mat-icon-button
                     class="material-icons app-toolbar-menu cancel-button"
-                    matTooltip="Cancel Changes"
+                    [matTooltip]="t('bus.cancelChanges')"
                     color="warn"
                     [disabled]="!needsSaving(i)"
                     (click)="cancelSlave(uislave)"
@@ -47,11 +47,7 @@
                       mat-icon-button
                       class="material-icons app-toolbar-menu save-button"
                       matTooltipClass="tooltip-class"
-                      matTooltip="Poll this slave now
-
-                  Reads the device, publishes the MQTT state and runs the HTTP push - once, right now. Poll mode and poll interval are ignored, so a slave set to 'no poll' can be tested too.
-
-                  The result appears in Status & Errors below."
+                      [matTooltip]="t('slave.pollNow')"
                       color="primary"
                       [disabled]="isPolling(uislave)"
                       (click)="pollSlave(uislave)"
@@ -62,7 +58,7 @@
                   <button
                     mat-icon-button
                     class="material-icons app-toolbar-menu delete-button"
-                    matTooltip="Delete"
+                    [matTooltip]="t('common.delete')"
                     color="warn"
                     (click)="deleteSlave(uislave.slave)"
                   >
@@ -87,11 +83,7 @@
                       mat-icon-button
                       class="material-icons app-toolbar-menu save-button"
                       matTooltipClass="tooltip-class"
-                      matTooltip="Add a slave that takes its settings from this one
-
-                  Prepares the New Slave card below: enter the Slave Id (the device's Modbus address) and add it.
-
-                  The new slave inherits everything - specification, poll, HTTP push, discovery - and follows every change made here. Only its Slave Id, Slave Name and MQTT Root Topic are individual."
+                      [matTooltip]="t('slave.fromThisOne')"
                       color="primary"
                       (click)="addReferencingSlave(uislave)"
                     >
@@ -100,7 +92,7 @@
                     <button
                       mat-icon-button
                       class="material-icons app-toolbar-menu delete-button"
-                      matTooltip="Add New Specification"
+                      [matTooltip]="t('slave.addNewSpec')"
                       color="primary"
                       (click)="addSpecification(uislave.slave)"
                     >
@@ -110,7 +102,7 @@
                       <button
                         mat-icon-button
                         class="material-icons app-toolbar-menu delete-button"
-                        matTooltip="Edit Specification"
+                        [matTooltip]="t('slave.editSpec')"
                         color="primary"
                         (click)="editSpecification(uislave.slave)"
                       >
@@ -133,7 +125,7 @@
                   }
                 </p>
                 <mat-form-field class="width150pt">
-                  <mat-label>Slave Name</mat-label>
+                  <mat-label>{{ t('slave.slaveName') }}</mat-label>
                   <input matInput formControlName="name" [errorStateMatcher]="errorStateMatcher" />
                   @if (uislave.slaveForm.get('name')!.hasError('duplicates') != null) {
                     <mat-error> Must be unique </mat-error>
@@ -197,11 +189,11 @@
                 </mat-form-field>
                 <mat-expansion-panel>
                   <mat-expansion-panel-header>
-                    <mat-panel-title> Slave Settings </mat-panel-title>
+                    <mat-panel-title>{{ t('slave.slaveSettings') }}</mat-panel-title>
                   </mat-expansion-panel-header>
                   <ng-template matExpansionPanelContent>
                     <mat-form-field class="width150pt">
-                      <mat-label>Slave Name</mat-label>
+                      <mat-label>{{ t('slave.slaveName') }}</mat-label>
                       <input
                         matInput
                         matTooltipClass="tooltip-class"
@@ -222,12 +214,12 @@
                     @if ([0, 2, 4].includes(uislave.slaveForm.get('pollMode')!.value)) {
                       @if (!uislave.slaveForm.get('pollSchedule')!.value) {
                         <mat-form-field class="width150pt">
-                          <mat-label>Poll Interval [ms]</mat-label>
+                          <mat-label>{{ t('slave.pollInterval') }}</mat-label>
                           <input matInput formControlName="pollInterval" type="number" placeholder="1000" />
                         </mat-form-field>
                       }
                       <mat-form-field class="width200pt">
-                        <mat-label>Poll Schedule</mat-label>
+                        <mat-label>{{ t('slave.pollSchedule') }}</mat-label>
                         <mat-select
                           formControlName="pollSchedulePreset"
                           (selectionChange)="onPollSchedulePresetChange(uislave.slaveForm)"
@@ -272,7 +264,7 @@
                       }
                     </mat-form-field>
                     <mat-form-field class="width150pt">
-                      <mat-label>Poll Mode</mat-label>
+                      <mat-label>{{ t('slave.pollMode') }}</mat-label>
                       <mat-select matInput formControlName="pollMode">
                         <mat-option [value]="0">Interval</mat-option>
                         <mat-option [value]="2">Interval and Triggger</mat-option>
@@ -310,7 +302,7 @@
                       </mat-form-field>
                       <h2>Root Topic</h2>
                       <mat-form-field class="width150pt">
-                        <mat-label>Root Topic Name</mat-label>
+                        <mat-label>{{ t('slave.rootTopic') }}</mat-label>
                         <input
                           matInput
                           matTooltipClass="tooltip-class"
@@ -328,7 +320,7 @@
                       </mat-form-field>
                       <h2>Configuration URL</h2>
                       <mat-form-field class="width150pt">
-                        <mat-label>Configuration URL</mat-label>
+                        <mat-label>{{ t('slave.configUrl') }}</mat-label>
                         <input
                           matInput
                           matTooltipClass="tooltip-class"
@@ -344,13 +336,13 @@
                       <h2>State Topic</h2>
 
                       @if (config.rootUrl != undefined) {
-                        <div matTooltip="Use this URL inside of Home Assistant Addons (E.g.Nodered)">
+                        <div [matTooltip]="t('slave.configUrlHint')">
                           Web Service Root: <strong>{{ config.rootUrl }}</strong>
                         </div>
                         <mat-slide-toggle
                           class="width50"
                           formControlName="showUrl"
-                          matTooltip="Use this URL inside of Home Assistant Addons (E.g.Nodered)"
+                          [matTooltip]="t('slave.configUrlHint')"
                           >Show REST API Url instead of MQTT Topics</mat-slide-toggle
                         >
                       }
@@ -373,7 +365,7 @@
                         {{ getStatePayload(uislave) }}
                       </textarea>
                       @if ([1, 2].includes(uislave.slaveForm.get('pollMode')!.value)) {
-                        <h2>Trigger Poll Topic</h2>
+                        <h2>{{ t('slave.triggerPollTopic') }}</h2>
                         <div>
                           {{ getTriggerPollTopic(uislave)
                           }}<button
@@ -498,7 +490,7 @@
               }
               <mat-expansion-panel>
                 <mat-expansion-panel-header>
-                  <mat-panel-title>Status &amp; Errors </mat-panel-title>
+                  <mat-panel-title>{{ t('slave.statusErrors') }}</mat-panel-title>
                   <mat-panel-description>{{ getPollMessage(uislave) }}</mat-panel-description>
                 </mat-expansion-panel-header>
                 <ng-template matExpansionPanelContent>
@@ -512,13 +504,13 @@
       <mat-card class="width550pt card" #newSlaveCard>
         <form (keydown.enter)="keyDown($event, slaveNewForm)" [formGroup]="slaveNewForm">
           <mat-card-header
-            ><mat-card-title class="clickable">New Slave</mat-card-title>
+            ><mat-card-title class="clickable">{{ t('slave.newSlave') }}</mat-card-title>
 
             <div class="card-header-buttons">
               <button
                 mat-icon-button
                 class="material-icons app-toolbar-menu cancel-button"
-                matTooltip="Add Modbus Slave"
+                [matTooltip]="t('slave.addSlave')"
                 color="primary"
                 type="submit"
                 (click)="addSlave(slaveNewForm)"
@@ -530,7 +522,7 @@
           </mat-card-header>
           <mat-card-content>
             <mat-form-field class="field width150pt">
-              <mat-label>Slave Id</mat-label>
+              <mat-label>{{ t('slave.slaveId') }}</mat-label>
               <input matInput name="slaveId" formControlName="slaveId" type="number" #newSlaveIdInput />
             </mat-form-field>
             @if (!slaveNewForm.get('referenceSlaveId')!.value) {

@@ -1,9 +1,12 @@
-import { Component, inject } from '@angular/core'
+import { Component, computed, inject, signal } from '@angular/core'
 import { RouterLink, RouterLinkActive } from '@angular/router'
 import { CommonModule } from '@angular/common'
 import { MatIcon } from '@angular/material/icon'
 import { MatTooltip } from '@angular/material/tooltip'
+import { MatFormFieldModule } from '@angular/material/form-field'
+import { MatSelectModule } from '@angular/material/select'
 import { AuthService } from '../services/auth.service'
+import { TranslationService } from '../services/translation.service'
 
 function currentTheme(): string {
   try {
@@ -19,11 +22,16 @@ function currentTheme(): string {
   selector: 'app-header',
   templateUrl: './header.component.html',
   styleUrls: ['./header.component.css'],
-  imports: [CommonModule, RouterLink, RouterLinkActive, MatIcon, MatTooltip],
+  imports: [CommonModule, RouterLink, RouterLinkActive, MatIcon, MatTooltip, MatFormFieldModule, MatSelectModule],
 })
 export class HeaderComponent {
   auth = inject(AuthService)
+  private translation = inject(TranslationService)
+
   theme = currentTheme()
+  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  language = this.translation.language
+  languages = TranslationService.SUPPORTED.map((c) => ({ code: c, label: c.toUpperCase() }))
 
   toggleTheme(): void {
     this.theme = this.theme === 'dark' ? 'light' : 'dark'
@@ -33,5 +41,9 @@ export class HeaderComponent {
     } catch {
       /* ignore */
     }
+  }
+
+  setLanguage(lang: string): void {
+    this.translation.setLanguage(lang as any)
   }
 }

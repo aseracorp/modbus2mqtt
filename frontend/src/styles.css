@@ -34,6 +34,8 @@
   --text-muted: #8c8c8c;
   --primary: #b01419;
   --secondary: #690c0f;
+  --primary-text: #ff8890;   /* light red for dark bg (readable text/icon on primary-fill) */
+  --primary-contrast: #ffffff; /* white text on filled primary buttons */
   --gradient: linear-gradient(135deg, #b01419, #690c0f);
   --success: #54d62c;
   --danger: #ff4d4f;
@@ -61,6 +63,8 @@
   --text-muted: #8e8e93;
   --primary: #b01419;
   --secondary: #690c0f;
+  --primary-text: #b01419;   /* dark red text on light bg */
+  --primary-contrast: #ffffff;
   --gradient: linear-gradient(135deg, #b01419, #690c0f);
   --success: #2e9e2e;
   --danger: #e03131;
@@ -367,15 +371,20 @@ body {
   box-shadow: var(--shadow);
 }
 
-/* icon buttons */
+/* ================= buttons =================
+   Consistent height, radius and typography. Filled primary buttons use
+   the readable on-primary contrast colour (white), flat/text primary
+   uses --primary-text (light red in dark mode) so nothing is unreadable.
+*/
 .mat-mdc-icon-button,
 .mat-mdc-button {
   color: var(--text-secondary);
+  border-radius: var(--radius);
 }
 
 .mat-mdc-icon-button.mat-primary,
 .mat-mdc-button.mat-primary {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .mat-mdc-icon-button.mat-warn,
@@ -383,7 +392,37 @@ body {
   color: var(--danger);
 }
 
-/* inputs / selects (native) */
+.mat-mdc-unelevated-button.mat-primary,
+.mat-mdc-raised-button.mat-primary,
+.mat-mdc-fab.mat-primary,
+.mat-mdc-extended-fab.mat-primary {
+  color: var(--primary-contrast);
+  background: var(--primary);
+}
+
+.mat-mdc-unelevated-button.mat-primary:hover,
+.mat-mdc-raised-button.mat-primary:hover,
+.mat-mdc-fab.mat-primary:hover {
+  background: var(--secondary);
+}
+
+.mat-mdc-unelevated-button.mat-warn,
+.mat-mdc-raised-button.mat-warn {
+  color: #ffffff;
+  background: var(--danger);
+}
+
+.mat-mdc-button,
+.mat-mdc-unelevated-button,
+.mat-mdc-raised-button,
+.mat-mdc-outlined-button {
+  min-height: 36px;
+  font-size: 13.5px;
+  letter-spacing: 0;
+  border-radius: var(--radius);
+}
+
+/* ================= inputs / selects ================= */
 input,
 select,
 textarea {
@@ -391,9 +430,12 @@ textarea {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   color: var(--text);
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 13.5px;
   font-family: inherit;
+  line-height: 1.4;
+  min-height: 40px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 input:focus,
@@ -401,6 +443,7 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(176, 20, 25, 0.18);
 }
 
 select option {
@@ -410,6 +453,54 @@ select option {
 
 ::placeholder {
   color: var(--text-muted);
+  opacity: 1;
+}
+
+/* Material form field polish — taller, consistent, breathing room */
+.mat-mdc-form-field {
+  margin-top: 0.25rem;
+}
+
+.mat-mdc-form-field .mat-mdc-text-field-wrapper {
+  padding: 0 12px;
+  min-height: 44px;
+}
+
+.mat-mdc-form-field .mat-mdc-form-field-infix {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  min-height: 40px;
+}
+
+.mat-mdc-form-field-subscript-wrapper {
+  min-height: 0;
+}
+
+.mat-mdc-form-field .mat-mdc-floating-label {
+  font-size: 13.5px;
+}
+
+.mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper {
+  box-shadow: 0 0 0 3px rgba(176, 20, 25, 0.15);
+}
+
+/* Layout spacing — give cards and sections room to breathe */
+.mat-mdc-card,
+.mat-expansion-panel {
+  margin: 12px;
+}
+
+.mat-mdc-card-header {
+  padding: 16px 16px 8px;
+}
+
+.mat-mdc-card-content {
+  padding: 8px 16px 16px;
+}
+
+.mat-mdc-card-actions {
+  padding: 8px 16px 16px;
+  gap: 8px;
 }
 
 /* switch */
@@ -478,3 +569,78 @@ select option {
 .margins { margin-top: 5pt; margin-bottom: 10pt; }
 .marginsall { margin: 15pt; }
 .tooltip-class { white-space: pre-line; }
+
+/* ================= layout & typography polish ================= */
+/* Consistent heading scales */
+h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  margin: 1.25rem 1rem 1rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 1rem 0 0.75rem;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem;
+}
+
+p {
+  line-height: 1.5;
+}
+
+/* Give the router outlet content a bit more breathing room */
+.topmargin {
+  height: 12px;
+}
+
+/* Cards inside a grid / flex wrap shouldn't stack flush */
+.flexrows {
+  gap: 14px;
+  padding: 0 8px;
+}
+
+/* List rows: comfortable height & hover */
+app-select-modbus mat-card,
+app-select-slave mat-card {
+  margin: 8px;
+}
+
+.mat-mdc-list-item,
+.mat-mdc-row {
+  min-height: 48px;
+}
+
+/* Datatable cells get right padding so text doesn't hug the next column */
+.mat-mdc-cell,
+.mat-mdc-header-cell {
+  padding: 0 16px;
+}
+
+/* Dialogs: keep comfortable padding */
+.mat-mdc-dialog-content {
+  padding: 20px 24px;
+}
+
+.mat-mdc-dialog-title {
+  padding: 20px 24px 0;
+}
+
+/* Buttons inside toolbar/card actions get a little separation */
+.mat-mdc-card-actions button,
+.mat-mdc-card-actions .mat-mdc-button,
+.mat-mdc-card-actions .mat-mdc-icon-button {
+  margin-left: 4px;
+}
+
+/* Selection: option spacing */
+.mat-mdc-option {
+  min-height: 40px;
+  padding: 0 16px;
+}

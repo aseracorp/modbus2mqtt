@@ -11,6 +11,7 @@ import {
   FormGroup,
 } from '@angular/forms'
 import { ApiService } from '../services/api-service'
+import { TranslationService } from '../services/translation.service'
 import { Iconfiguration, IUserAuthenticationStatus } from '@shared/server'
 import { Observable } from 'rxjs'
 import { ActivatedRoute, Router } from '@angular/router'
@@ -67,7 +68,8 @@ export class ConfigureComponent implements OnInit {
     private _formBuilder: FormBuilder,
     private entityApiService: ApiService,
     private route: ActivatedRoute,
-    private router: Router
+    private router: Router,
+    private translation: TranslationService
   ) {
     this.ghPersonalAccessToken = _formBuilder.control([''])
     this.debugComponentsFormControl = _formBuilder.control([''])
@@ -105,6 +107,7 @@ export class ConfigureComponent implements OnInit {
   mqttConnectMessage: string = 'unknown'
   authStatus: IUserAuthenticationStatus | undefined = undefined
   configureMqttFormGroup: FormGroup
+  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
   ghPersonalAccessToken: FormControl
   debugComponentsFormControl: FormControl
   discoveryLanguageFormControl = new FormControl<string | null>(null)
