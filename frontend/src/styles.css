@@ -786,23 +786,24 @@ app-select-slave mat-card {
   margin-bottom: 24px !important;
   display: block;
 }
-/* ===== Fill-appearance fields: keep label ABOVE the box (never overlapping) ===== */
+/* Force a clean "outline" look that prevents label/input overlap */
 .mat-mdc-form-field.mat-form-field-appearance-fill .mat-mdc-text-field-wrapper {
-  margin-top: 10px;
+  background: transparent !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius);
+  padding: 8px 12px !important;
+  min-height: 52px !important;
 }
 
 .mat-mdc-form-field.mat-form-field-appearance-fill .mat-mdc-floating-label {
-  position: absolute;
-  top: 0;
-  left: 0;
-  font-size: 12px;
-  line-height: 14px;
-  transform: none !important;
+  top: 12px !important;
   color: var(--text-secondary) !important;
-  pointer-events: none;
 }
 
-/* prevent the floating label from covering the input */
-.mat-mdc-form-field.mat-form-field-appearance-fill .mat-mdc-form-field-focus-overlay {
-  display: none;
+.mat-mdc-form-field.mat-form-field-appearance-fill.mat-form-field-should-float .mat-mdc-floating-label {
+  top: 0px !important;
+  font-size: 12px;
+  background: var(--bg-paper);
+  padding: 0 4px;
 }
+
