@@ -10,8 +10,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
+  # ---- Job 1: amd64 + arm64 (guaranteed multi-arch) ----
   build-and-push-image:
     runs-on: ubuntu-latest
     permissions:
@@ -22,6 +24,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: amd64,arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -39,10 +46,10 @@ jobs:
         with:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha
+            type=sha,prefix=sha-
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-      - name: Build and push Docker image
+      - name: Build and push Docker image (amd64 + arm64)
         id: push
         uses: docker/build-push-action@v6
         with:
@@ -53,7 +60,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
+          platforms: ${{ env.PLATFORMS }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Generate artifact attestation
         if: ${{ github.event_name != 'pull_request' }}
@@ -62,3 +71,58 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+  # ---- Job 2 (best-effort): arm/v7, appended to the same tags ----
+  # arm/v7 builds are slow under QEMU emulation; if this job fails the
+  # amd64+arm64 image (Job 1) is still published and usable.
+  build-armv7-image:
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push arm/v7 image (temporary tag)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:armv7-${{ github.sha }}
+          platforms: linux/arm/v7
+          # Read-only cache: Job 1 owns the GHA cache writes; two jobs
+          # writing the same key race and corrupt it.
+          cache-from: type=gha
+
+      - name: Append arm/v7 to multi-arch tags
+        run: |
+          set -euo pipefail
+          IMG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          FULL="${{ github.sha }}"
+          SHORT="${FULL:0:7}"
+          for TAG in latest "sha-${SHORT}"; do
+            docker buildx imagetools create --append \
+              --tag "${IMG}:${TAG}" \
+              "${IMG}:armv7-${FULL}"
+          done
+          echo "Appended linux/arm/v7 to latest + sha-${SHORT}"
