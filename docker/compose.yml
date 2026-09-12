@@ -1,0 +1,20 @@
+services:
+  modbus2mqtt:
+    # Use locally built image tag from docker/build.sh
+    image: modbus2mqtt:latest
+    container_name: modbus2mqtt
+    ports:
+      - 3000:3000
+      - 3443:3443
+    restart: always
+    volumes:
+      - data:/home/volkmar/data
+      - config:/home/volkmar/config
+      - ssl:/home/volkmar/ssl
+    environment:
+      - TZ=Europe/Berlin
+      - MODBUS2MQTT_HTTPS_PORT=3443
+volumes:
+  data:
+  config:
+  ssl:

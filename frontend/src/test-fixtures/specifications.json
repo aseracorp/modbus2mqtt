@@ -1,0 +1,20 @@
+[
+  {
+    "filename": "dimplexpco5",
+    "status": 0,
+    "files": [],
+    "i18n": [{ "lang": "en", "texts": [{ "textId": "name", "text": "Specname" }] }]
+  },
+  {
+    "filename": "additional",
+    "status": 0,
+    "files": [],
+    "i18n": [{ "lang": "en", "texts": [{ "textId": "name", "text": "AdditionalTxt" }] }]
+  },
+  {
+    "filename": "second",
+    "status": 0,
+    "files": [],
+    "i18n": [{ "lang": "en", "texts": [{ "textId": "name", "text": "Second" }] }]
+  }
+]

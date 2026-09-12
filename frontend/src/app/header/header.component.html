@@ -1,0 +1,50 @@
+<header class="app-header">
+  <div class="header-left">
+    <img class="app-logo" src="assets/images/icon.png" alt="Modbus2MQTT logo" />
+    <span class="app-title">Modbus2MQTT</span>
+  </div>
+  <span class="header-actions">
+    <button
+      class="header-btn"
+      type="button"
+      aria-label="Configure MQTT/Github"
+      routerLink="/configure"
+      routerLinkActive="active"
+      [routerLinkActiveOptions]="{ exact: true }"
+      matTooltip="Configure MQTT/Github"
+    >
+      <mat-icon aria-hidden="true">settings</mat-icon>
+    </button>
+    <button
+      class="header-btn"
+      type="button"
+      aria-label="Contribute/Import/Export Specifications"
+      routerLink="/specifications"
+      routerLinkActive="active"
+      [routerLinkActiveOptions]="{ exact: true }"
+      matTooltip="Contribute/Import/Export Specifications"
+    >
+      <mat-icon aria-hidden="true">description</mat-icon>
+    </button>
+    <button
+      class="header-btn"
+      type="button"
+      aria-label="Show Busses"
+      routerLink="/busses"
+      routerLinkActive="active"
+      [routerLinkActiveOptions]="{ exact: true }"
+      matTooltip="Show Busses"
+    >
+      <mat-icon aria-hidden="true">device_hub</mat-icon>
+    </button>
+    @if (auth.isOidcEnabled && auth.isAuthenticated) {
+      <span class="auth-user" matTooltip="Logged in as {{ auth.user?.name || auth.user?.email || 'User' }}">
+        <mat-icon>person</mat-icon>
+        <span class="auth-username">{{ auth.user?.name || auth.user?.email || 'User' }}</span>
+      </span>
+      <button class="header-btn" type="button" aria-label="Logout" (click)="auth.logout()" matTooltip="Logout">
+        <mat-icon aria-hidden="true">logout</mat-icon>
+      </button>
+    }
+  </span>
+</header>

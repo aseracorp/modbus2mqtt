@@ -1,0 +1,24 @@
+name: "On pull request: Enable Auto-Merge"
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge (squash)
+    runs-on: ubuntu-latest
+    # Only for trusted contributors (not bots, not external)
+    if: >-
+      ${{ github.actor != 'github-actions[bot]'
+      && (github.event.pull_request.head.repo.full_name == github.repository
+      || github.actor == 'volkmarnissen') }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}

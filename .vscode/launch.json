@@ -3,38 +3,173 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Server",
-      "preLaunchTask": "npm: build.dev",
-      "timeout": 10000,
-      "program": "${workspaceFolder}/dist/modbus2mqtt.js",
-      "args": [  "-s", "../ssl", "-y" ,"../yaml-dir"],
+      "name": "Launch Program test",
+      "program": "${workspaceFolder}/e2e/servers/test.js",
+      "request": "launch",
+      "skipFiles": ["<node_internals>/**"],
+      "type": "node"
+    },
+    {
+      "address": "TCP/IP address of process to be debugged",
+      "localRoot": "${workspaceFolder}",
+      "name": "e2e/servers/test.js",
+      "port": 9229,
+      "remoteRoot": "Absolute path to the remote directory containing the program",
+      "request": "attach",
+      "skipFiles": ["<node_internals>/**"],
+      "type": "node"
+    },
+    {
+      "request": "attach",
+      "name": "Attach to Chrome(cypress)",
+      "type": "chrome",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}",
+      "sourceMaps": true,
+      "outFiles": ["${workspaceRoot}/dist/frontend/**/*.js"]
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Launch Chrome against localhost",
+      "preLaunchTask": "ng serve",
+      "cwd": "${workspaceFolder}",
+      "url": "http://localhost:3602",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
+      "name": "Python-Debugger: Aktuelle Datei mit Argumenten",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
       "console": "integratedTerminal",
+      "args": ["restartServers"],
+      "cwd": "${workspaceFolder}"
+    },
+
+    {
+      "name": "Run Modbus2mqtt Server",
+      "preLaunchTask": "npm: build",
+      "timeout": 10000,
+      "program": "${workspaceFolder}/dist/server/modbus2mqtt.js",
+      "args": ["-s", "certs", "-c", "../config-dir", "-d", "../data-dir"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
       "env": {
-        "DEBUG": "httpserver,HttpServerBaseUrl",
-        "NODE_OPTIONS": "--experimental-vm-modules npx jest"
+        "DEBUG": ""
       },
       "request": "launch",
-      "skipFiles": [
-        "<node_internals>/**"
+      "skipFiles": ["<node_internals>/**"],
+      "sourceMaps": true,
+      "type": "node"
+    },
+    {
+      "name": "Run Validator",
+      "preLaunchTask": "npm: build.dev",
+      "timeout": 10000,
+      "program": "${workspaceFolder}/validator/dist/specification/validate.js",
+      "args": ["-p", "69", "-o", "volkmarnissen"],
+      "console": "integratedTerminal",
+      "env": {
+        "DEBUG": "",
+        "GITHUB_TOKEN": "${GH_MQTT_CONFIG_KEY}",
+        "NODE_OPTIONS": "--experimental-vm-modules"
+      },
+      "cwd": "${workspaceFolder}/validator",
+      "request": "launch",
+      "skipFiles": ["<node_internals>/**"],
+      "sourceMaps": true,
+      "type": "node"
+    },
+    {
+      "name": "Run TCP Bridge",
+      "preLaunchTask": "npm: build.dev",
+      "timeout": 10000,
+      "program": "${workspaceFolder}/dist/server/modbus2mqtt.js",
+      "args": ["-s", "certs", "-y", "../yaml-dir-bridge"],
+      "console": "integratedTerminal",
+      "env": {
+        "DEBUG": ""
+      },
+      "request": "launch",
+      "skipFiles": ["<node_internals>/**"],
+      "sourceMaps": true,
+      "type": "node"
+    },
+    {
+      "name": "Test ModbusRTU",
+      "timeout": 10000,
+      "program": "${workspaceFolder}/__tests__/testmodbus.js",
+      "console": "integratedTerminal",
+      "env": {
+        "DEBUG": ""
+      },
+      "request": "launch",
+      "skipFiles": ["<node_internals>/**"],
+      "type": "node"
+    },
+    {
+      "name": "Run Addon Server simple 3005(cypress)",
+      "preLaunchTask": "npm: e2e:server.debug",
+      "postDebugTask": "npm: e2e:end.debug",
+      "timeout": 10000,
+      "args": [
+        "-c",
+        "${workspaceFolder}/e2e/modbus2mqtt.temp",
+        "-d",
+        "${workspaceFolder}/e2e/modbus2mqtt.temp",
+        "-s",
+        "${workspaceFolder}/e2e/modbus2mqtt.temp"
       ],
-      "sourceMaps": true,  
+      "console": "integratedTerminal",
+      "env": {
+        "NODE_OPTIONS": "--experimental-vm-modules"
+      },
+      "program": "${workspaceFolder}/dist/server/modbus2mqtt.js",
+      "request": "launch",
+      "skipFiles": ["<node_internals>/**"],
+      "sourceMaps": true,
+      "type": "node"
+    },
+    {
+      "name": "Run Addon Server ingress 3004(cypress)",
+      "preLaunchTask": "npm: e2e:server.debug.ingress",
+      "postDebugTask": "npm: e2e:end.debug",
+
+      "timeout": 10000,
+      "program": "${workspaceFolder}/dist/server/server/modbus2mqtt.js",
+      "args": [
+        "-c",
+        "${workspaceFolder}/e2e/modbus2mqtt.temp",
+        "-d",
+        "${workspaceFolder}/e2e/modbus2mqtt.temp",
+        "-s",
+        "${workspaceFolder}/e2e/modbus2mqtt.temp"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "HASSIO_TOKEN": "abcd1234",
+        "program": "${workspaceFolder}/dist/server/runModbusTCPserver.js",
+        "NODE_OPTIONS": "--experimental-vm-modules"
+      },
+      "request": "launch",
+      "skipFiles": ["<node_internals>/**"],
+      "sourceMaps": true,
       "type": "node"
     },
     {
       "name": "Run Server TCP",
       "preLaunchTask": "npm: build.dev",
       "timeout": 10000,
-      "program": "${workspaceFolder}/dist/modbus2mqtt.js",
-      "args": [  "-s", "../ssl", "-y" ,"../yaml-dir", "--busid", "0"],
+      "program": "${workspaceFolder}/dist/server/server/runModbusTCPserver.js",
+      "args": ["-y", "e2e/servers/modbustcp.conf/yaml-dir", "--busid", "0"],
       "console": "integratedTerminal",
       "env": {
-        "DEBUG": "config",
-        "NODE_OPTIONS": "--experimental-vm-modules npx jest"
+        "program": "${workspaceFolder}/dist/server/runModbusTCPserver.js",
+        "NODE_OPTIONS": "--experimental-vm-modules"
       },
       "request": "launch",
-      "skipFiles": [
-        "<node_internals>/**"
-      ],
+      "skipFiles": ["<node_internals>/**"],
       "sourceMaps": true,
       "type": "node"
     },
@@ -42,24 +177,29 @@
       "name": "Run TestServer TCP",
       "preLaunchTask": "npm: build.dev",
       "timeout": 10000,
-      "program": "${workspaceFolder}/dist/modbus2mqtt.js",
-      "args": [  "-s", "${workspaceFolder}/e2e/temp/ssl", "-y" ,"${workspaceFolder}/e2e/temp/yaml-dir", "--busid", "${workspaceFolder}/e2e/temp/yaml-dir-tcp:0"],
+      "program": "${workspaceFolder}/dist/server/server/runModbusTCPserver.js",
+      "args": [
+        "-s",
+        "${workspaceFolder}/e2e/temp/ssl",
+        "-y",
+        "${workspaceFolder}/e2e/temp/yaml-dir",
+        "--busid",
+        "${workspaceFolder}/e2e/temp/yaml-dir-tcp:0"
+      ],
       "console": "integratedTerminal",
       "env": {
         "DEBUG": "config",
-        "NODE_OPTIONS": "--experimental-vm-modules npx jest"
+        "NODE_OPTIONS": "--experimental-vm-modules"
       },
       "request": "launch",
-      "skipFiles": [
-        "<node_internals>/**"
-      ],
+      "skipFiles": ["<node_internals>/**"],
       "sourceMaps": true,
       "type": "node"
     },
-    
+
     {
       "name": "Attach to homeassistant(local)",
-      "address": "localhost",
+      "address": "homeassistant.lan",
       "localRoot": "${workspaceFolder}/..",
       "port": 9229,
       "remoteRoot": "/usr/app/node_modules/@modbus2mqtt",
@@ -68,12 +208,10 @@
         "server/*/*": "${workspaceFolder}/*",
         "specification.shared/*/*": "${workspaceFolder}../specification.shared/*/*",
         "server.shared/*/*": "${workspaceFolder}../server.shared/*/*",
-        "specification/*/*": "${workspaceFolder}../specification/*/*",
+        "specification/*/*": "${workspaceFolder}../specification/*/*"
       },
       "request": "attach",
-      "skipFiles": [
-        "<node_internals>/**"
-      ],
+      "skipFiles": ["<node_internals>/**"],
       "type": "node"
     },
     {
@@ -83,7 +221,7 @@
       "remoteRoot": "/usr/app/node_modules/@modbus2mqtt/server/dist/",
       "localRoot": "${workspaceFolder}/dist",
       "port": 9229,
-      "address": "localhost",
+      "address": "localhost"
     },
 
     {
@@ -93,8 +231,8 @@
       "request": "launch",
       "program": "${workspaceFolder}/node_modules/.bin/jest",
       "env": {
-        "DEBUG": "bus.mutex",
-        "NODE_OPTIONS": "--experimental-vm-modules npx jest"
+        "DEBUG": "httpserver",
+        "NODE_OPTIONS": "--experimental-vm-modules"
       },
       "args": [
         "--runInBand",
@@ -107,8 +245,7 @@
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-    },
-
+      "internalConsoleOptions": "neverOpen"
+    }
   ]
 }

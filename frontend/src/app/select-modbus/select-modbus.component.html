@@ -1,0 +1,191 @@
+<h1>List of Modbus Controllers</h1>
+<form [formGroup]="configureModbusFormGroup" novalidate>
+  <ng-container formArrayName="bussesFormArray">
+    <div class="flexrows">
+      @for (bus of busses.data; track $index; let i = $index) {
+        <mat-card [formGroup]="getBusFormGroup(i)">
+          <mat-card-header
+            ><mat-card-title matTooltip="List or Add Slaves" (click)="listSlaves(i)" class="clickable">{{
+              getConnectionTitle(i)
+            }}</mat-card-title>
+            <div class="card-header-buttons">
+              @if (bus != null) {
+                @if (needsSaving(i)) {
+                  <button
+                    mat-icon-button
+                    class="material-icons app-toolbar-menu save-button"
+                    matTooltip="Save Changes"
+                    (click)="saveBus(i)"
+                    color="primary"
+                    [disabled]="!needsSaving(i)"
+                  >
+                    <mat-icon>check_circle</mat-icon>
+                  </button>
+                  <button
+                    mat-icon-button
+                    class="material-icons app-toolbar-menu cancel-button"
+                    matTooltip="Cancel Changes"
+                    color="warn"
+                    [disabled]="!needsSaving(i)"
+                    (click)="cancelBus(i)"
+                  >
+                    <mat-icon>cancel</mat-icon>
+                  </button>
+                }
+                @if (!needsSaving(i)) {
+                  <button
+                    mat-icon-button
+                    type="button"
+                    class="width100pt material-icons app-toolbar-menu delete-button"
+                    matTooltip="Delete"
+                    color="warn"
+                    (click)="deleteBus(bus)"
+                    [disabled]="needsSaving(i)"
+                  >
+                    <mat-icon>delete</mat-icon>
+                  </button>
+                  <button
+                    mat-icon-button
+                    type="submit"
+                    class="material-icons app-toolbar-menu delete-button"
+                    [disabled]="needsSaving(i)"
+                    matTooltip="List or add Slaves"
+                    color="primary"
+                    (click)="listSlaves(i)"
+                  >
+                    <mat-icon> list</mat-icon>
+                  </button>
+                }
+              }
+              @if (bus == null) {
+                <button
+                  mat-icon-button
+                  class="material-icons app-toolbar-menu cancel-button"
+                  matTooltip="Add Modbus Controller"
+                  color="primary"
+                  (click)="saveBus(i)"
+                  [disabled]="!needsSaving(i) || !addEnabled(i)"
+                >
+                  <mat-icon>add_box</mat-icon>
+                </button>
+              }
+            </div>
+          </mat-card-header>
+          <mat-card-content>
+            <mat-tab-group (selectedTabChange)="selectedTypeChanged($event, i)" [selectedIndex]="isRTU(i) ? 0 : 1">
+              <mat-tab label="RTU" formGroupName="rtu">
+                <div class="flexcolumns">
+                  <div>
+                    @if (getSerialDevices().length == 0) {
+                      <mat-form-field>
+                        <mat-label>Modbus Serial Device</mat-label>
+                        <input #serial matInput formControlName="serial" />
+                      </mat-form-field>
+                    } @else {
+                      <mat-form-field>
+                        <mat-label>Serial Port</mat-label>
+                        <mat-select matInput formControlName="serial">
+                          @for (device of getSerialDevices(bus); track $index) {
+                            <mat-option [value]="device">{{ device }}</mat-option>
+                          }
+                        </mat-select>
+                      </mat-form-field>
+                    }
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Baud Rate</mat-label>
+                      <mat-select matInput formControlName="selectBaudRate">
+                        @for (baudRate of baudRates; track $index) {
+                          <mat-option [value]="baudRate">{{ baudRate }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Data Bits</mat-label>
+                      <mat-select
+                        matInput
+                        formControlName="dataBits"
+                        matTooltip="Serial framing. Together with parity and stop bits this is the '8N1' of the device's manual. Change it only if the device asks for it."
+                      >
+                        @for (dataBits of dataBitsOptions; track $index) {
+                          <mat-option [value]="dataBits">{{ dataBits }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Parity</mat-label>
+                      <mat-select
+                        matInput
+                        formControlName="parity"
+                        matTooltip="The Modbus specification asks for even parity (8E1), but most devices ship with none (8N1). Use what the device's manual says."
+                      >
+                        @for (parity of parityOptions; track parity.value) {
+                          <mat-option [value]="parity.value">{{ parity.label }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Stop Bits</mat-label>
+                      <mat-select matInput formControlName="stopBits">
+                        @for (stopBits of stopBitsOptions; track $index) {
+                          <mat-option [value]="stopBits">{{ stopBits }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Timeout</mat-label>
+                      <input type="number" matInput formControlName="timeout" />
+                    </mat-form-field>
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>TCP Bridge Port</mat-label>
+                      <input
+                        type="number"
+                        matInput
+                        formControlName="tcpBridgePort"
+                        matTooltip="Leer lassen, um die TCP-Bridge zu deaktivieren"
+                      />
+                    </mat-form-field>
+                  </div>
+                </div>
+              </mat-tab>
+              <mat-tab label="TCP" formGroupName="tcp">
+                <div class="flexcolumns">
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Host</mat-label>
+                      <input #host matInput formControlName="host" />
+                    </mat-form-field>
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Port</mat-label>
+                      <input #port matInput formControlName="port" />
+                    </mat-form-field>
+                  </div>
+                  <div>
+                    <mat-form-field>
+                      <mat-label>Timeout</mat-label>
+                      <input type="number" matInput formControlName="timeout" />
+                    </mat-form-field>
+                  </div>
+                </div>
+              </mat-tab>
+            </mat-tab-group>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  </ng-container>
+  <!-- FormArray -->
+</form>

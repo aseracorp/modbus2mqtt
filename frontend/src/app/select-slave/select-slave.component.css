@@ -1,0 +1,41 @@
+.mat-mdc-card-header {
+  font-weight: bold;
+  background-color: rgb(199, 240, 186);
+  display: flex;
+  min-height: 4em;
+  padding-top: 1em;
+}
+
+.mat-mdc-card-title {
+  left: 1em;
+  top: 2em;
+  position: absolute;
+}
+dt {
+  font-weight: bold;
+}
+dd {
+  margin-inline-start: 10px;
+  margin-block-start: 0px;
+  margin-block-end: 0px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.poll-schedule-hint {
+  margin: -4px 0 8px 4px;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.reference-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 8px 0;
+  font-size: 0.85em;
+  opacity: 0.85;
+}

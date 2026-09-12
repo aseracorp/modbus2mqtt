@@ -1,0 +1,216 @@
+import { ImodbusValues, IModbusResultOrError, LogLevelEnum } from '../specification/index.js'
+import { ModbusRegisterType } from '../shared/specification/index.js'
+import { IQueueOptions, ModbusRTUQueue } from './modbusRTUqueue.js'
+import { Logger } from '../specification/index.js'
+import Debug from 'debug'
+import { ImodbusAddress, MAX_REGISTERS_PER_REQUEST_DEFAULT, ModbusTasks } from '../shared/server/index.js'
+
+const debug = Debug('modbusrtuprocessor')
+const debugResult = Debug('modbusrtuprocessor:result')
+const debugLog = Debug('modbusrtuprocessor.log')
+const log = new Logger('modbusrtuprocessor')
+
+const maxAddressDelta = 10
+const logNoticeMaxWaitTime = 1000 * 60 * 30 // 30 minutes
+
+export interface IexecuteOptions extends IQueueOptions {
+  printLogs?: boolean
+  maxRegistersPerRequest?: number
+  errorHandling: {
+    split?: boolean
+    retry?: boolean
+  }
+}
+interface ImodbusAddressesWithSlave {
+  slave: number
+  addresses: ImodbusAddress[]
+}
+
+export class ModbusRTUProcessor {
+  private static lastNoticeMessageTime: number
+  private static lastNoticeMessage: string
+
+  constructor(private queue: ModbusRTUQueue) {}
+  private prepare(slaveId: number, addresses: Set<ImodbusAddress>, maxRegistersPerRequest: number): ImodbusAddressesWithSlave {
+    const preparedAddresses: ImodbusAddress[] = []
+
+    let previousAddress = {
+      address: -1,
+      registerType: ModbusRegisterType.IllegalFunctionCode,
+    }
+    let startAddress = {
+      address: -1,
+      registerType: ModbusRegisterType.IllegalFunctionCode,
+    }
+    const sortedAddresses = Array.from<ImodbusAddress>(addresses.values()).sort(function (a, b) {
+      const v = a.registerType - b.registerType
+      if (v) return v
+      return a.address - b.address
+    })
+    
+    for (const addr of sortedAddresses) {
+      if (startAddress.address == -1) {
+        startAddress = addr
+        previousAddress = addr
+        continue
+      }
+      const spanIfMerged = addr.address - startAddress.address + 1
+      if (
+        addr.registerType != previousAddress.registerType ||
+        addr.address - previousAddress.address > maxAddressDelta ||
+        spanIfMerged > maxRegistersPerRequest
+      ) {
+        preparedAddresses.push({
+          address: startAddress.address,
+          length: previousAddress.address - startAddress.address + 1,
+          registerType: previousAddress.registerType,
+        })
+        previousAddress = addr
+        startAddress = addr
+      } else previousAddress = addr
+    }
+    if (startAddress.address >= 0)
+      preparedAddresses.push({
+        address: startAddress.address,
+        length: previousAddress.address - startAddress.address + 1,
+        registerType: previousAddress.registerType,
+      })
+    return { slave: slaveId, addresses: preparedAddresses }
+  }
+  private logNotice(msg: string, options?: IexecuteOptions) {
+    if (options == undefined || !options.printLogs) {
+      debugLog(msg)
+      return
+    }
+    // suppress similar duplicate messages
+    const repeatMessage =
+      ModbusRTUProcessor.lastNoticeMessageTime != undefined &&
+      ModbusRTUProcessor.lastNoticeMessageTime + logNoticeMaxWaitTime < Date.now()
+    if (repeatMessage || msg != ModbusRTUProcessor.lastNoticeMessage) {
+      ModbusRTUProcessor.lastNoticeMessage = msg
+      ModbusRTUProcessor.lastNoticeMessageTime = Date.now()
+      log.log(LogLevelEnum.info, options.task ? options.task + ' ' : '' + msg)
+    }
+  }
+
+  private countResults(results: ImodbusValues): number {
+    let size: number = results.analogInputs.size
+    size += results.coils.size
+    size += results.discreteInputs.size
+    return size + results.holdingRegisters.size
+  }
+  private countAddresses(addresses: ImodbusAddress[]): number {
+    let size: number = 0
+    addresses.forEach((address) => {
+      size += address.length != undefined ? address.length : 1
+    })
+    return size
+  }
+  private getTask(options: IexecuteOptions): ModbusTasks {
+    return options.task
+  }
+  execute(slaveId: number, addresses: Set<ImodbusAddress>, options: IexecuteOptions): Promise<ImodbusValues> {
+    return new Promise<ImodbusValues>((resolve) => {
+      const maxRegistersPerRequest = options.maxRegistersPerRequest ?? MAX_REGISTERS_PER_REQUEST_DEFAULT
+      const preparedAddresses = this.prepare(slaveId, addresses, maxRegistersPerRequest)
+
+      debug(ModbusTasks[options.task] + ': slaveId: ' + slaveId + '=====================')
+      for (const a of preparedAddresses.addresses) {
+        debug(a.registerType + ':' + a.address + '(' + (a.length ? a.length : 1) + ')')
+      }
+      debug('=====================')
+
+      const addressCount = this.countAddresses(preparedAddresses.addresses)
+      const values: ImodbusValues = {
+        holdingRegisters: new Map<number, IModbusResultOrError>(),
+        analogInputs: new Map<number, IModbusResultOrError>(),
+        coils: new Map<number, IModbusResultOrError>(),
+        discreteInputs: new Map<number, IModbusResultOrError>(),
+      }
+      const resultMaps = new Map<ModbusRegisterType, Map<number, IModbusResultOrError>>()
+      resultMaps.set(ModbusRegisterType.AnalogInputs, values.analogInputs)
+      resultMaps.set(ModbusRegisterType.HoldingRegister, values.holdingRegisters)
+      resultMaps.set(ModbusRegisterType.Coils, values.coils)
+      resultMaps.set(ModbusRegisterType.DiscreteInputs, values.discreteInputs)
+      preparedAddresses.addresses.forEach((address) => {
+        this.queue.enqueue(
+          preparedAddresses.slave,
+          address,
+          (queueEntry, data) => {
+            if (data == undefined || undefined != queueEntry.address.write)
+              throw new Error(
+                'Only read results expected for slave: ' +
+                  slaveId +
+                  ' function code: ' +
+                  queueEntry.address.registerType +
+                  ' address: ' +
+                  queueEntry.address.address
+              )
+            if (queueEntry.address.length != undefined)
+              for (let idx = 0; idx < queueEntry.address.length; idx++) {
+                const r: IModbusResultOrError = structuredClone({
+                  data: [data[idx]],
+                })
+                resultMaps.get(queueEntry.address.registerType)!.set(queueEntry.address.address + idx, r)
+              }
+            else resultMaps.get(queueEntry.address.registerType)!.set(queueEntry.address.address, { data: data })
+            const valueCount = this.countResults(values)
+            debug(
+              ModbusTasks[options.task] +
+                ': ' +
+                slaveId +
+                '/' +
+                valueCount +
+                '/' +
+                addressCount +
+                ') startaddress: ' +
+                queueEntry.address.address +
+                '(' +
+                (queueEntry.address.length ? queueEntry.address.length : 1) +
+                ')' +
+                ': ' +
+                data[0]
+            )
+            if (valueCount == addressCount) {
+              debugResult(
+                ModbusTasks[options.task] + ': slaveId: ' + slaveId + ' addresses.length:' + preparedAddresses.addresses.length
+              )
+              resolve(values)
+            }
+          },
+          (currentEntry, error) => {
+            const errObj: Error = error instanceof Error ? error : new Error(String(error))
+            const r: IModbusResultOrError = { error: errObj }
+
+            const id =
+              ModbusTasks[options.task] +
+              ' slave: ' +
+              currentEntry.slaveId +
+              ' Reg: ' +
+              currentEntry.address.registerType +
+              ' Address: ' +
+              currentEntry.address.address +
+              ' (l: ' +
+              (currentEntry.address.length ? currentEntry.address.length : 1) +
+              ')'
+
+            debug(id + ': Failure not handled: ' + errObj.message)
+            // error is not handled by the error handler
+
+            if (currentEntry.address.length != undefined)
+              for (let idx = 0; idx < currentEntry.address.length; idx++)
+                resultMaps.get(currentEntry.address.registerType)!.set(currentEntry.address.address + idx, r)
+            else resultMaps.get(currentEntry.address.registerType)!.set(currentEntry.address.address, r)
+
+            const valueCount = this.countResults(values)
+            if (valueCount == addressCount) {
+              debugResult('Finished ' + id)
+              resolve(values)
+            }
+          },
+          options
+        )
+      })
+    })
+  }
+}
