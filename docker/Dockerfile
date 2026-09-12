@@ -9,10 +9,10 @@ WORKDIR /src
 RUN apk add --no-cache git jq
 RUN corepack enable
 
-# Layer-cache friendly: copy manifests first
+# Layer-cache friendly: copy manifests first (incl. per-package lockfiles)
 COPY package.json pnpm-lock.yaml .npmrc .nvmrc ./
-COPY backend/package.json backend/
-COPY frontend/package.json frontend/
+COPY backend/package.json backend/pnpm-lock.yaml backend/
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/
 
 RUN pnpm install --frozen-lockfile --ignore-scripts
 RUN cd backend && pnpm install --frozen-lockfile --ignore-scripts
@@ -21,7 +21,7 @@ RUN cd frontend && pnpm install --frozen-lockfile --ignore-scripts
 # Source
 COPY . .
 
-# Shamefully hoist for the backend's flat node_modules layout
+# Build backend (tsc) + frontend (Angular)
 RUN pnpm run build
 
 # ---- stage 2: runtime ----
