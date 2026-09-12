@@ -30,7 +30,7 @@
 
         <ng-template matStepLabel>{{ t('configure.enterMqtt') }}</ng-template>
         <mat-form-field class="width250pt">
-          <mat-label>MQTT server URL</mat-label>
+          <mat-label>{{ t('configure.mqttUrl') }}</mat-label>
           <input matInput formControlName="mqttserverurl" (change)="onChangekMqttConfig()" placeholder="mqtt://mosquitto:1883" />
           @if (configureMqttFormGroup.hasError('invalidConnection') != null) {
             <mat-error> Invalid Connection Data </mat-error>

@@ -47,7 +47,7 @@
       </button>
     }
     <mat-form-field class="lang-select" appearance="outline" subscriptSizing="dynamic">
-      <mat-select [value]="language" (selectionChange)="setLanguage($event.value)" [attr.aria-label]="t('header.language')">
+      <mat-select [value]="currentLang" (selectionChange)="setLanguage($event.value)" [attr.aria-label]="t('header.language')">
         @for (lang of languages; track lang.code) {
           <mat-option [value]="lang.code">{{ lang.label }}</mat-option>
         }

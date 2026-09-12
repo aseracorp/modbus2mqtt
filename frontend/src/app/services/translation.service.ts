@@ -63,6 +63,7 @@ const DICT: Dict = {
   // ---- configure ----
   'configure.title': { en: 'Configuration', de: 'Konfiguration', fr: 'Configuration', it: 'Configurazione' },
   'configure.mqtt': { en: 'MQTT settings', de: 'MQTT-Einstellungen', fr: 'Paramètres MQTT', it: 'Impostazioni MQTT' },
+  'configure.mqttUrl': { en: 'MQTT server URL', de: 'MQTT-Server-URL', fr: 'URL du serveur MQTT', it: 'URL del server MQTT' },
   'configure.github': { en: 'GitHub settings', de: 'GitHub-Einstellungen', fr: 'Paramètres GitHub', it: 'Impostazioni GitHub' },
 
   // ---- bus form labels ----
@@ -123,6 +124,39 @@ const DICT: Dict = {
   'configure.pat': { en: 'Personal Access Token', de: 'Persönliches Zugriffstoken', fr: 'Jeton d\'accès personnel', it: 'Token di accesso personale' },
   'configure.debugTitle': { en: 'Configure Debug', de: 'Debug konfigurieren', fr: 'Configurer le débogage', it: 'Configura debug' },
   'configure.debugComponents': { en: 'Debug components', de: 'Debug-Komponenten', fr: 'Composants de débogage', it: 'Componenti di debug' },
+
+  // ---- select-slave (extended) ----
+  'slave.showAllPublicSpecs': { en: 'Show all public specifications', de: 'Alle öffentlichen Spezifikationen anzeigen', fr: 'Afficher toutes les spécifications publiques', it: 'Mostra tutte le specifiche pubbliche' },
+  'slave.mqttRootTopic': { en: 'MQTT Root Topic', de: 'MQTT-Root-Topic', fr: 'Sujet racine MQTT', it: 'Topic radice MQTT' },
+  'slave.specification': { en: 'Specification', de: 'Spezifikation', fr: 'Spécification', it: 'Specifica' },
+  'slave.customCron': { en: 'Custom cron', de: 'Benutzerdefinierter Cron', fr: 'Cron personnalisé', it: 'Cron personalizzato' },
+  'slave.maxRegisters': { en: 'Max Registers Per Request', de: 'Max. Register pro Anfrage', fr: 'Max. registres par requête', it: 'Max registri per richiesta' },
+  'slave.maxRegistersHint': { en: 'Maximum number of Modbus registers read per request (1–125). Some devices support fewer than the Modbus spec maximum of 125.', de: 'Maximale Anzahl Modbus-Register pro Anfrage (1–125). Manche Geräte unterstützen weniger als das Modbus-Maximum von 125.', fr: 'Nombre maximal de registres Modbus par requête (1–125). Certains appareils en supportent moins que le maximum Modbus de 125.', it: 'Numero massimo di registri Modbus letti per richiesta (1–125). Alcuni dispositivi ne supportano meno del massimo Modbus di 125.' },
+  'slave.interval': { en: 'Interval', de: 'Intervall', fr: 'Intervalle', it: 'Intervallo' },
+  'slave.intervalTrigger': { en: 'Interval and Trigger', de: 'Intervall und Trigger', fr: 'Intervalle et déclencheur', it: 'Intervallo e trigger' },
+  'slave.triggerOnly': { en: 'Trigger only', de: 'Nur Trigger', fr: 'Déclencheur uniquement', it: 'Solo trigger' },
+  'slave.noPolling': { en: 'No polling', de: 'Kein Polling', fr: 'Pas d\'interrogation', it: 'Nessun polling' },
+  'slave.qos': { en: 'Quality of Service', de: 'Dienstgüte (QoS)', fr: 'Qualité de service', it: 'Qualità del servizio' },
+  'slave.stateTopic': { en: 'State Topic', de: 'State-Topic', fr: 'Sujet d\'état', it: 'Topic di stato' },
+  'slave.showRestUrl': { en: 'Show REST API Url instead of MQTT Topics', de: 'REST-API-URL statt MQTT-Topics anzeigen', fr: 'Afficher l\'URL de l\'API REST au lieu des sujets MQTT', it: 'Mostra URL API REST invece dei topic MQTT' },
+  'slave.statePayloadExample': { en: 'State Payload Example', de: 'Beispiel für State-Payload', fr: 'Exemple de payload d\'état', it: 'Esempio payload di stato' },
+  'slave.commandTopics': { en: 'Command Topics', de: 'Command-Topics', fr: 'Sujets de commande', it: 'Topic di comando' },
+  'slave.clickToToggle': { en: 'Click to toggle', de: 'Zum Umschalten klicken', fr: 'Cliquer pour basculer', it: 'Clicca per attivare' },
+  'slave.deselectExclude': { en: 'Deselect to exclude from Discovery', de: 'Abwählen, um von Discovery auszuschließen', fr: 'Désélectionner pour exclure de la découverte', it: 'Deseleziona per escludere dalla discovery' },
+  'slave.bearerPat': { en: 'Bearer PAT', de: 'Bearer-PAT', fr: 'PAT porteur', it: 'Bearer PAT' },
+  'slave.selectEntitiesPush': { en: 'Select entities to push', de: 'Entitäten zum Pushen auswählen', fr: 'Sélectionner les entités à pousser', it: 'Seleziona entità da inviare' },
+  'slave.postBodyExample': { en: 'POST Body Example', de: 'POST-Body-Beispiel', fr: 'Exemple de corps POST', it: 'Esempio corpo POST' },
+  'slave.takeSettingsFrom': { en: 'Take settings from', de: 'Einstellungen übernehmen von', fr: 'Reprendre les réglages de', it: 'Prendi impostazioni da' },
+  'slave.copyToClipboard': { en: 'Copy to Clipboard', de: 'In Zwischenablage kopieren', fr: 'Copier dans le presse-papiers', it: 'Copia negli appunti' },
+  'slave.subtreeHint': { en: 'Send only this subtree of the payload, e.g. \'orbis\' to post just the orbis array. Same path format as the entity MQTT name.', de: 'Nur diesen Teilbaum der Payload senden, z. B. \'orbis\', um nur das orbis-Array zu posten. Gleiches Pfadformat wie der Entity-MQTT-Name.', fr: 'N\'envoyer que cette sous-arborescence du payload, p. ex. \'orbis\' pour poster uniquement le tableau orbis. Même format de chemin que le nom MQTT de l\'entité.', it: 'Invia solo questo sottoalbero del payload, es. \'orbis\' per inviare solo l\'array orbis. Stesso formato del nome MQTT dell\'entità.' },
+  'slave.storedEncrypted': { en: 'Stored encrypted. Leave empty to keep the currently stored token.', de: 'Verschlüsselt gespeichert. Leer lassen, um das aktuelle Token zu behalten.', fr: 'Stocké chiffré. Laisser vide pour conserver le jeton actuel.', it: 'Memorizzato crittografato. Lascia vuoto per mantenere il token corrente.' },
+  'slave.unhideSpecs': { en: 'Unhides unmatching specifications in the specification selection list', de: 'Nicht passende Spezifikationen in der Auswahlliste einblenden', fr: 'Affiche les spécifications non correspondantes dans la liste de sélection', it: 'Mostra specifiche non corrispondenti nell\'elenco di selezione' },
+  'slave.setSpecAfterAdd': { en: 'Please set the specification for the new slave after adding it', de: 'Bitte legen Sie die Spezifikation für den neuen Slave nach dem Hinzufügen fest', fr: 'Veuillez définir la spécification du nouvel esclave après l\'avoir ajouté', it: 'Imposta la specifica per il nuovo slave dopo averlo aggiunto' },
+  'slave.everyDayMidnight': { en: 'Every day at midnight', de: 'Täglich um Mitternacht', fr: 'Tous les jours à minuit', it: 'Ogni giorno a mezzanotte' },
+
+  // ---- announcement ----
+  'ann.dismiss': { en: 'Dismiss', de: 'Ausblenden', fr: 'Rejeter', it: 'Ignora' },
+  'ann.dismissAll': { en: 'Dismiss all announcements', de: 'Alle Hinweise ausblenden', fr: 'Rejeter toutes les annonces', it: 'Ignora tutti gli annunci' },
 
   // ---- modbus-error ----
   'error.queueLength': { en: 'Number of entries in the queue', de: 'Anzahl der Einträge in der Warteschlange', fr: 'Nombre d\'entrées dans la file d\'attente', it: 'Numero di voci in coda' },

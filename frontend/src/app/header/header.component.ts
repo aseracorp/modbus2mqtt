@@ -30,8 +30,14 @@ export class HeaderComponent {
 
   theme = currentTheme()
   t = (key: string) => { this.translation.language(); return this.translation.t(key) }
-  language = this.translation.language
   languages = TranslationService.SUPPORTED.map((c) => ({ code: c, label: c.toUpperCase() }))
+
+  /** Plain string for select [value]; the signal access keeps the template
+      reactive so it re-renders on switch (zoneless change detection). */
+  get currentLang(): string {
+    this.translation.language() // track signal
+    return this.translation.language()
+  }
 
   toggleTheme(): void {
     this.theme = this.theme === 'dark' ? 'light' : 'dark'

@@ -202,6 +202,67 @@ body {
   min-height: 100vh;
 }
 
+/* Typography: Public Sans everywhere — no element falls back to a
+   different font stack (buttons, inputs, selects, tables, etc). */
+*,
+*::before,
+*::after {
+  font-family: inherit;
+}
+
+body,
+button,
+input,
+select,
+textarea,
+.mat-mdc-button,
+.mat-mdc-raised-button,
+.mat-mdc-unelevated-button,
+.mat-mdc-outlined-button,
+.mat-mdc-icon-button,
+.mat-mdc-input-element,
+.mat-mdc-select,
+.mat-mdc-option,
+.mat-mdc-table,
+.mat-mdc-cell,
+.mat-mdc-header-cell,
+.mat-mdc-card-title,
+.mat-mdc-card-subtitle,
+.mat-tooltip {
+  font-family: 'Public Sans', 'Segoe UI', Roboto, -apple-system, sans-serif;
+}
+/* Force Material 3 typography tokens to Public Sans (Material's prebuilt
+   azure-blue.css sets them to Roboto; overriding here makes every
+   component — selects, menus, dialog titles, buttons — use our font). */
+:root {
+  --mat-sys-body-large-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-body-medium-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-body-small-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-title-large-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-title-medium-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-title-small-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-label-large-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-label-medium-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-label-small-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-headline-large-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-headline-medium-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-headline-small-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-display-large-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-display-medium-font: 'Public Sans', Roboto, sans-serif;
+  --mat-sys-display-small-font: 'Public Sans', Roboto, sans-serif;
+}
+
+.mat-mdc-select-trigger,
+.mat-mdc-form-field,
+.mat-mdc-dialog-title,
+.mat-mdc-dialog-content,
+.mat-mdc-dialog-actions,
+.mat-mdc-menu-item,
+.mat-mdc-tab,
+.mat-mdc-paginator {
+  font-family: 'Public Sans', 'Segoe UI', Roboto, -apple-system, sans-serif;
+}
+
 /* slim scrollbars in dark mode */
 :root[data-theme="dark"] * {
   scrollbar-color: #444 #141414;
@@ -255,6 +316,7 @@ body {
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper {
@@ -456,20 +518,25 @@ select option {
   opacity: 1;
 }
 
-/* Material form field polish — taller, consistent, breathing room */
+/* Material form field polish — taller, consistent, breathing room.
+   The wrapper (the visible box) gets padding so the text/control never
+   touches the 1px border ("fields encroaching the box border"). */
 .mat-mdc-form-field {
-  margin-top: 0.25rem;
+  display: block;
+  margin: 0 0 18px;
+  width: 100%;
 }
 
 .mat-mdc-form-field .mat-mdc-text-field-wrapper {
-  padding: 0 12px;
-  min-height: 44px;
+  padding: 0 14px;
+  min-height: 48px;
+  border-radius: var(--radius);
 }
 
 .mat-mdc-form-field .mat-mdc-form-field-infix {
-  padding-top: 10px;
-  padding-bottom: 10px;
-  min-height: 40px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  min-height: 44px;
 }
 
 .mat-mdc-form-field-subscript-wrapper {
@@ -484,23 +551,64 @@ select option {
   box-shadow: 0 0 0 3px rgba(176, 20, 25, 0.15);
 }
 
-/* Layout spacing — give cards and sections room to breathe */
+.mat-mdc-form-field .mat-mdc-input-element,
+.mat-mdc-form-field .mat-mdc-select {
+  padding: 2px 0;
+}
+
+/* Layout spacing — HA_enoceanmqtt cards: glass, radius-lg, generous padding */
 .mat-mdc-card,
 .mat-expansion-panel {
-  margin: 12px;
+  margin: 0 0 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-paper);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: var(--shadow);
+}
+
+.mat-mdc-card:hover {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
 }
 
 .mat-mdc-card-header {
-  padding: 16px 16px 8px;
+  padding: 18px 22px 6px;
+}
+
+.mat-mdc-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
 }
 
 .mat-mdc-card-content {
-  padding: 8px 16px 16px;
+  padding: 10px 22px 22px;
 }
 
 .mat-mdc-card-actions {
-  padding: 8px 16px 16px;
-  gap: 8px;
+  padding: 8px 22px 20px;
+  gap: 10px;
+}
+
+/* Buttons inside card actions get clean separation */
+.mat-mdc-card-actions button,
+.mat-mdc-card-actions .mat-mdc-button,
+.mat-mdc-card-actions .mat-mdc-icon-button {
+  margin-left: 6px;
+}
+
+/* make grid/flex rows not touch edges, give fields breathing room */
+.flexrows,
+.flexcolumns,
+.mat-mdc-card-content > div,
+.mat-mdc-card-content form > div {
+  gap: 16px;
+}
+
+.mat-mdc-card-content .mat-mdc-form-field,
+.mat-mdc-card-content mat-form-field {
+  margin-bottom: 18px;
 }
 
 /* switch */
@@ -620,7 +728,16 @@ app-select-slave mat-card {
 /* Datatable cells get right padding so text doesn't hug the next column */
 .mat-mdc-cell,
 .mat-mdc-header-cell {
-  padding: 0 16px;
+  padding: 14px 16px;
+  border-bottom-color: var(--border);
+}
+
+.mat-mdc-header-cell {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 /* Dialogs: keep comfortable padding */
