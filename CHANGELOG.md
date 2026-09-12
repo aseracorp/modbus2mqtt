@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.33.0](https://github.com/aseracorp/modbus2mqtt/compare/modbus2mqtt-v0.32.1...modbus2mqtt-v0.33.0) (2026-09-12)
+
+
+### Features
+
+* **modbus2mqtt:** update Docker image references and documentation ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+
+
+### Bug Fixes
+
+* **announcements:** update breaking change message for OIDC transition ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+* **ci:** use GITHUB_TOKEN for release-please action ([055fc19](https://github.com/aseracorp/modbus2mqtt/commit/055fc1998f0b560260795301406b9dcfe543c0ef))
+* **zitadel-script:** update default callback URLs for OIDC ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+
+
+### Miscellaneous
+
+* merge upstream v0.32.1, retheme webui to HA_enoceanmqtt style, add daily upstream sync ([#1](https://github.com/aseracorp/modbus2mqtt/issues/1)) ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+* **package:** update repository links in package.json ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+* **workspace:** add build task for modbus2mqtt ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+
+
+### Documentation
+
+* **authentication:** add comprehensive authentication setup guide ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+* **getting-started:** correct GitHub issue links ([d633e13](https://github.com/aseracorp/modbus2mqtt/commit/d633e13b48dc3cb2f532518fea29404e84eadb88))
+
 ## [0.32.1](https://github.com/modbus2mqtt/modbus2mqtt/compare/modbus2mqtt-v0.32.0...modbus2mqtt-v0.32.1) (2026-07-14)
 
 
