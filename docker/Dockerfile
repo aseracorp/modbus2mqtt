@@ -1,6 +1,10 @@
-# Multi-stage build: compile backend + frontend (matching upstream's CI),
-# then package a minimal runtime. Keeps the fork's self-contained GHCR
-# image without depending on the npm @modbus2mqtt/server package.
+# Multi-stage build for the modbus2mqtt fork.
+#
+# Stage 1 compiles backend (tsc) + frontend (Angular) in the pnpm monorepo.
+# Stage 2 installs the backend's production dependencies with npm (flat,
+# real files — required because the compiled code imports 'serialport',
+# a native-binding package that must be resolvable at /app/node_modules).
+# pnpm's isolated/symlinked store is NOT copied to runtime (broken).
 
 # ---- stage 1: build ----
 FROM node:22-alpine AS build
@@ -14,9 +18,9 @@ COPY package.json pnpm-lock.yaml .npmrc .nvmrc ./
 COPY backend/package.json backend/pnpm-lock.yaml backend/
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/
 
-RUN pnpm install --frozen-lockfile --ignore-scripts
-RUN cd backend && pnpm install --frozen-lockfile --ignore-scripts
-RUN cd frontend && pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm install --frozen-lockfile
+RUN cd backend && pnpm install --frozen-lockfile
+RUN cd frontend && pnpm install --frozen-lockfile
 
 # Source
 COPY . .
@@ -25,13 +29,19 @@ COPY . .
 RUN pnpm run build
 
 # ---- stage 2: runtime ----
-FROM node:22-alpine
+FROM node:22-alpine AS runtime
+RUN apk add --no-cache tzdata git jq
+ENV TZ=Europe/London
 WORKDIR /app
 
+# Fresh flat production install of the backend deps (includes serialport
+# + its native bindings, compiled for the target arch at build time).
+COPY backend/package.json /app/package.json
+RUN npm install --omit=dev --no-audit --no-fund
+
+# Compiled app + static frontend
 COPY --from=build /src/dist /app/dist
 COPY --from=build /src/docker/rootfs /app/rootfs
-COPY --from=build /src/backend/node_modules /app/node_modules
-COPY --from=build /src/package.json /app/package.json
 
 ENV NODE_ENV=production
 
