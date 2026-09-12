@@ -529,14 +529,14 @@ select option {
 
 .mat-mdc-form-field .mat-mdc-text-field-wrapper {
   padding: 0 14px;
-  min-height: 48px;
+  min-height: 56px;
   border-radius: var(--radius);
 }
 
 .mat-mdc-form-field .mat-mdc-form-field-infix {
-  padding-top: 12px;
-  padding-bottom: 12px;
-  min-height: 44px;
+  padding-top: 20px;
+  padding-bottom: 8px;
+  min-height: 48px;
 }
 
 .mat-mdc-form-field-subscript-wrapper {
@@ -780,4 +780,10 @@ app-select-slave mat-card {
 .mat-mdc-option {
   min-height: 40px;
   padding: 0 16px;
+}
+
+/* Ensure dialog fields always have space below them */
+.mat-mdc-dialog-content mat-form-field {
+  margin-bottom: 24px !important;
+  display: block;
 }
