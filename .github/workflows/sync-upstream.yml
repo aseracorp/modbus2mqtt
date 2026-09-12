@@ -30,35 +30,52 @@ jobs:
         id: changes
         run: |
           BEHIND=$(git rev-list --count HEAD..upstream/main)
-          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
           echo "Fork is $BEHIND commit(s) behind upstream/main"
-          echo "behind=$BEHIND"
 
       - name: Merge upstream/main
         if: steps.changes.outputs.behind != '0'
         id: merge
-        continue-on-error: true
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git merge upstream/main --no-edit --no-ff -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)"
+
+          # Merge upstream. On conflict: resolve the one known
+          # modify/delete (.github/release.yml — fork removed it,
+          # upstream keeps it), then commit.
+          if ! git merge upstream/main --no-edit --no-ff \
+               -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)"; then
+            echo "Merge had conflicts — resolving."
+            git checkout --theirs .github/release.yml 2>/dev/null || git rm -f .github/release.yml
+            git add .github/release.yml
+            git commit --no-edit \
+              -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)"
+          fi
           git push origin main
 
-      - name: Create fallback PR on conflict
+      - name: Create fallback PR on unexpected conflict
         if: steps.changes.outputs.behind != '0' && steps.merge.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git merge --abort 2>/dev/null || true
           git checkout -b sync-upstream main
-          git merge upstream/main --no-edit --no-ff -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)" || true
-          git add -A
-          git commit -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)" --no-edit || true
-          git push origin sync-upstream
+          if git merge upstream/main --no-edit --no-ff \
+             -m "chore: sync-upstream WIP (${{ steps.changes.outputs.behind }} new commits) — resolve conflicts"; then
+            git push origin sync-upstream
+          else
+            # Break the conflict; the PR is a review vehicle. Commit both
+            # sides with markers so a human can resolve on the branch.
+            git add -A
+            git -c core.editor=true commit -m "chore: sync-upstream WIP (${{ steps.changes.outputs.behind }} new commits) — resolve conflicts"
+            git push origin sync-upstream
+          fi
           gh pr create \
             --base main \
             --head sync-upstream \
             --title "chore: sync with upstream/main (${{ steps.changes.outputs.behind }} new commits)" \
-            --body "Automated sync from the daily upstream check. This merge had conflicts and needs a manual review." \
+            --body "Automated sync from the daily upstream check. An unexpected conflict occurred — please review and resolve." \
             || echo "PR already exists or could not be created"
 
       - name: Nothing to do
