@@ -1,9 +1,10 @@
 .mat-mdc-card-header {
   font-weight: bold;
-  background-color: rgb(199, 240, 186);
+  background: var(--bg-surface);
   display: flex;
   min-height: 4em;
   padding-top: 1em;
+  color: var(--text);
 }
 
 .mat-mdc-card-title {

@@ -1,0 +1,6 @@
+version: "1"
+rules:
+  - base: main
+    upstream: modbus2mqtt:main
+    mergeMethod: merge
+    mergeUnstable: true

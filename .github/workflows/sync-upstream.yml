@@ -1,0 +1,66 @@
+name: "Daily sync with upstream"
+
+on:
+  schedule:
+    # Once a day at 04:17 UTC — random minute to reduce GitHub cron congestion
+    - cron: "17 4 * * *"
+  workflow_dispatch: # allow manual runs
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-upstream:
+    name: "Merge upstream/main into fork"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/modbus2mqtt/modbus2mqtt.git
+          git fetch upstream main --tags
+
+      - name: Check for upstream changes
+        id: changes
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          echo "Fork is $BEHIND commit(s) behind upstream/main"
+          echo "behind=$BEHIND"
+
+      - name: Merge upstream/main
+        if: steps.changes.outputs.behind != '0'
+        id: merge
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge upstream/main --no-edit --no-ff -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)"
+          git push origin main
+
+      - name: Create fallback PR on conflict
+        if: steps.changes.outputs.behind != '0' && steps.merge.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git checkout -b sync-upstream main
+          git merge upstream/main --no-edit --no-ff -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)" || true
+          git add -A
+          git commit -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)" --no-edit || true
+          git push origin sync-upstream
+          gh pr create \
+            --base main \
+            --head sync-upstream \
+            --title "chore: sync with upstream/main (${{ steps.changes.outputs.behind }} new commits)" \
+            --body "Automated sync from the daily upstream check. This merge had conflicts and needs a manual review." \
+            || echo "PR already exists or could not be created"
+
+      - name: Nothing to do
+        if: steps.changes.outputs.behind == '0'
+        run: echo "Already up to date with upstream."

@@ -46,5 +46,15 @@
         <mat-icon aria-hidden="true">logout</mat-icon>
       </button>
     }
+    <button
+      class="theme-toggle"
+      type="button"
+      aria-label="Toggle light / dark mode"
+      matTooltip="Toggle light / dark mode"
+      (click)="toggleTheme()"
+    >
+      <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+      <span class="theme-icon theme-icon-moon" aria-hidden="true">☾</span>
+    </button>
   </span>
 </header>
