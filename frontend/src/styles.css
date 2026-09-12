@@ -528,13 +528,12 @@ select option {
 }
 
 .mat-mdc-form-field .mat-mdc-text-field-wrapper {
-  padding: 0 14px;
-  min-height: 56px;
+  padding: 0 12px;
   border-radius: var(--radius);
 }
 
 .mat-mdc-form-field .mat-mdc-form-field-infix {
-  padding-top: 20px;
+  padding-top: 8px;
   padding-bottom: 8px;
   min-height: 48px;
 }
@@ -786,4 +785,24 @@ app-select-slave mat-card {
 .mat-mdc-dialog-content mat-form-field {
   margin-bottom: 24px !important;
   display: block;
+}
+/* ===== Fill-appearance fields: keep label ABOVE the box (never overlapping) ===== */
+.mat-mdc-form-field.mat-form-field-appearance-fill .mat-mdc-text-field-wrapper {
+  margin-top: 10px;
+}
+
+.mat-mdc-form-field.mat-form-field-appearance-fill .mat-mdc-floating-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 12px;
+  line-height: 14px;
+  transform: none !important;
+  color: var(--text-secondary) !important;
+  pointer-events: none;
+}
+
+/* prevent the floating label from covering the input */
+.mat-mdc-form-field.mat-form-field-appearance-fill .mat-mdc-form-field-focus-overlay {
+  display: none;
 }
