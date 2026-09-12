@@ -583,7 +583,7 @@ select option {
 }
 
 .mat-mdc-card-content {
-  padding: 10px 22px 22px;
+  padding: 24px;
 }
 
 .mat-mdc-card-actions {
