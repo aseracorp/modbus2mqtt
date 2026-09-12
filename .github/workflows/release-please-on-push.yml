@@ -1,8 +1,21 @@
 name: "On push: Release Please"
 
+# DISABLED on this fork.
+#
+# Upstream's release automation (release-please + release-assets) is built
+# around a GitHub PAT and a release-tag anchor — neither of which exists
+# here. Running it on the fork's history (which predates conventional
+# commits) hard-fails with "commit could not be parsed", and its version-
+# bump PRs would fight the daily upstream auto-merge.
+#
+# The fork publishes its image via .github/workflows/docker-image.yml
+# (GHCR, every push to main). If versioned GHCR tags are ever needed,
+# re-enable release-please AFTER creating the first release tag on the fork.
 on:
+  # workflow_dispatch:  # manual re-enable when the fork gets a release tag
   push:
-    branches: [main]
+    branches-ignore:
+      - "**"   # never runs
 
 permissions:
   contents: write
