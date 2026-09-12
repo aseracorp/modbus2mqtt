@@ -4,7 +4,8 @@
       <mat-card-header>
         <mat-card-title class="width200pt">{{ t('configure.mqttTitle') }}</mat-card-title>
       </mat-card-header>
-      <mat-card-content> </mat-card-content>
+      <mat-card-content>
+        <div class="mqtt-form-wrap">
       <form class="flexcolumns" [formGroup]="configureMqttFormGroup">
         <div class="saveCancel">
           <button
@@ -91,6 +92,8 @@
           >{{ mqttConnectMessage }}
         </div>
       </form>
+        </div>
+      </mat-card-content>
     </mat-card>
     <div class="flexcols">
       <mat-card class="width350pt card">
