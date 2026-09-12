@@ -638,6 +638,26 @@ select option {
 .clickable { cursor: pointer; }
 .centered { margin: 10pt; position: relative; left: 25%; }
 .field { margin-left: 10pt; margin-right: 10pt; padding-left: 10pt; padding-right: 10pt; gap: unset; }
+
+/* Small fixed-width fields (150/200/250px) inside cards/panels: add
+   consistent gaps so they never sit flush or overlap. */
+.mat-mdc-form-field.width150pt,
+.mat-mdc-form-field.width200pt,
+.mat-mdc-form-field.width250pt,
+.mat-mdc-form-field.width300pt {
+  margin-right: 12px;
+}
+
+/* ONLY in the slave-settings card: expansion panel body uses flex wrap
+   so the small fields flow with gaps instead of edge-to-edge. */
+app-select-slave .mat-expansion-panel-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 8px;
+  column-gap: 4px;
+  padding-top: 8px;
+}
 .toggleField { margin-top: 10pt; margin-bottom: 20pt; }
 .smallfield { margin-left: 1pt; margin-right: 1pt; padding-left: 3pt; padding-right: 3pt; gap: unset; }
 .nodistance { margin: 0pt; padding: 0pt; gap: unset; }

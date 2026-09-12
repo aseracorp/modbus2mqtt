@@ -41,9 +41,26 @@ dd {
   opacity: 0.85;
 }
 
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-  margin-top: 10px;
+/* Slave cards: keep normal block flow but give fields breathing room.
+   (Do NOT grid the whole card — the template nests an expansion panel
+   with fixed-width fields inside card content, and a grid mangles it.) */
+
+/* gap between direct children of the card content (spec field, panel,
+   new-slave fields, hints) */
+mat-card-content > * + * {
+  margin-top: 16px;
+}
+
+/* inside the "Slave Settings" expansion panel content, stack fields
+   with clear vertical spacing so nothing overlaps */
+.mat-expansion-panel-content mat-form-field {
+  display: block;
+  margin: 12px 0;
+}
+
+/* keep narrow-width hints from colliding */
+.width150pt,
+.width50,
+.width50pt {
+  min-width: 0;
 }

@@ -9,7 +9,7 @@
         >{{ t('slave.showAllPublicSpecs') }}</mat-slide-toggle
       >
     </p>
-    <div class="field-grid">
+    <div class="flexrows">
       @for (uislave of uiSlaves(); track $index; let i = $index) {
         <mat-card class="width550pt card">
           <form (keydown.enter)="keyDown($event, uislave.slaveForm)" [formGroup]="uislave.slaveForm">
