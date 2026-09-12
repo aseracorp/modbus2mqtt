@@ -200,4 +200,18 @@ export class TranslationService {
     }
     document.documentElement.dataset['lang'] = lang
   }
+
+  /**
+   * A single reactive dictionary for the current language. Components can
+   * expose `t = (k) => this.translation.map()[k] ?? k` — there is exactly
+   * ONE signal dependency per component (not one per template binding), so
+   * unrelated change-detection rounds (focus, input events) in the zoneless
+   * engine don't re-render every translated label on the page.
+   */
+  readonly map = computed(() => {
+    const lang = this.language()
+    const out: Record<string, string> = {}
+    for (const [key, vals] of Object.entries(DICT)) out[key] = vals[lang] ?? vals['en'] ?? key
+    return out
+  })
 }

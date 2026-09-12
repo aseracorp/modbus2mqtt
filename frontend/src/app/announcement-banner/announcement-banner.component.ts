@@ -27,7 +27,7 @@ export class AnnouncementBannerComponent implements OnInit {
   announcements: Announcement[] = []
 
   constructor(private announcementService: AnnouncementService, private translation: TranslationService) {}
-  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  t = (key: string) => this.translation.map()[key] ?? key
 
   ngOnInit(): void {
     this.announcements = this.announcementService.getActiveAnnouncements()

@@ -57,7 +57,7 @@ export class SpecificationsComponent implements OnInit {
     private translation: TranslationService
   ) {
   }
-  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  t = (key: string) => this.translation.map()[key] ?? key
   contributing: boolean = false
   fillSpecifications(specs: IspecificationSummary[]) {
     if (!this.config) return

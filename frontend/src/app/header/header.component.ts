@@ -5,6 +5,7 @@ import { MatIcon } from '@angular/material/icon'
 import { MatTooltip } from '@angular/material/tooltip'
 import { MatFormFieldModule } from '@angular/material/form-field'
 import { MatSelectModule } from '@angular/material/select'
+import { MatMenuModule } from '@angular/material/menu'
 import { AuthService } from '../services/auth.service'
 import { TranslationService } from '../services/translation.service'
 
@@ -22,14 +23,14 @@ function currentTheme(): string {
   selector: 'app-header',
   templateUrl: './header.component.html',
   styleUrls: ['./header.component.css'],
-  imports: [CommonModule, RouterLink, RouterLinkActive, MatIcon, MatTooltip, MatFormFieldModule, MatSelectModule],
+  imports: [CommonModule, RouterLink, RouterLinkActive, MatIcon, MatTooltip, MatFormFieldModule, MatSelectModule, MatMenuModule],
 })
 export class HeaderComponent {
   auth = inject(AuthService)
   private translation = inject(TranslationService)
 
   theme = currentTheme()
-  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  t = (key: string) => this.translation.map()[key] ?? key
   languages = TranslationService.SUPPORTED.map((c) => ({ code: c, label: c.toUpperCase() }))
 
   /** Plain string for select [value]; the signal access keeps the template

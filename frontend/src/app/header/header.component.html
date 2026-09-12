@@ -46,13 +46,26 @@
         <mat-icon aria-hidden="true">logout</mat-icon>
       </button>
     }
-    <mat-form-field class="lang-select" appearance="outline" subscriptSizing="dynamic">
-      <mat-select [value]="currentLang" (selectionChange)="setLanguage($event.value)" [attr.aria-label]="t('header.language')">
-        @for (lang of languages; track lang.code) {
-          <mat-option [value]="lang.code">{{ lang.label }}</mat-option>
-        }
-      </mat-select>
-    </mat-form-field>
+    <button
+      class="lang-select"
+      type="button"
+      (click)="langMenu?.open($event)"
+      [attr.aria-label]="t('header.language') + ': ' + currentLang.toUpperCase()"
+      [matMenuTriggerFor]="langMenu"
+      [matTooltip]="t('header.language') + ' · ' + currentLang.toUpperCase()"
+    >
+      <mat-icon aria-hidden="true">language</mat-icon>
+    </button>
+    <mat-menu #langMenu="matMenu" class="lang-menu">
+      @for (lang of languages; track lang.code) {
+        <button mat-menu-item (click)="setLanguage(lang.code)">
+          <span class="lang-opt">{{ lang.label }}</span>
+          @if (currentLang === lang.code) {
+            <mat-icon>check</mat-icon>
+          }
+        </button>
+      }
+    </mat-menu>
     <button
       class="theme-toggle"
       type="button"

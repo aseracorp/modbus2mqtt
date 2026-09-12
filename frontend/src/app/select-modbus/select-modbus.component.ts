@@ -80,7 +80,7 @@ export class SelectModbusComponent implements AfterViewInit, OnDestroy {
       bussesFormArray: this.bussesFormArray,
     })
   }
-  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  t = (key: string) => this.translation.map()[key] ?? key
   displayedBusIdColumns: string[] = ['select', 'busid', 'connectionData', 'deviceCount']
   busname: string | undefined = undefined
   paramSubscription: Subscription | undefined = undefined

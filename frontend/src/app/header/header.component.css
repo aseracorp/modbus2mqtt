@@ -108,17 +108,37 @@
 
 /* language selector */
 .lang-select {
-  width: 76px;
-  margin: 0;
-}
-
-.lang-select .mat-mdc-text-field-wrapper {
-  padding: 0 4px;
-}
-
-.lang-select .mat-mdc-select-trigger {
-  font-size: 0.85rem;
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  min-width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-surface);
   color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  transition: all 0.15s ease;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.lang-select:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+.lang-select .mat-icon {
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+}
+
+:root .mat-menu-panel.lang-menu .mat-mdc-menu-item {
+  min-height: 36px;
 }
 
 /* theme toggle (Material icon) */

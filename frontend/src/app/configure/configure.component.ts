@@ -107,7 +107,7 @@ export class ConfigureComponent implements OnInit {
   mqttConnectMessage: string = 'unknown'
   authStatus: IUserAuthenticationStatus | undefined = undefined
   configureMqttFormGroup: FormGroup
-  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  t = (key: string) => this.translation.map()[key] ?? key
   ghPersonalAccessToken: FormControl
   debugComponentsFormControl: FormControl
   discoveryLanguageFormControl = new FormControl<string | null>(null)

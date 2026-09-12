@@ -227,7 +227,7 @@ export class SelectSlaveComponent extends SessionStorage implements OnInit {
 
   // Common schedules offered in the preset dropdown ('' = no schedule, use the interval).
   readonly pollScheduleCustom = '__custom__'
-  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  t = (key: string) => this.translation.map()[key] ?? key
   readonly pollSchedulePresets: { label: string; value: string }[] = [
     { label: 'No schedule (use interval)', value: '' },
     { label: 'Every 5 min (:00, :05, …)', value: '*/5 * * * *' },

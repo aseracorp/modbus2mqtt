@@ -23,7 +23,7 @@ export class ModbusErrorComponent implements OnInit, OnDestroy {
   tasksToLog: ModbusTasks[] = [ModbusTasks.poll, ModbusTasks.specification, ModbusTasks.mqttPublish, ModbusTasks.httpPush]
   private refreshInterval: ReturnType<typeof setInterval> | undefined
   constructor(private entityApiService: ApiService, private translation: TranslationService) {}
-  t = (key: string) => { this.translation.language(); return this.translation.t(key) }
+  t = (key: string) => this.translation.map()[key] ?? key
   ngOnInit(): void {
     // Pin the reference time up front. Without it getCurrentDate() fell back to Date.now() on every
     // call, so the same "x seconds ago" expression yielded a different value in the two change

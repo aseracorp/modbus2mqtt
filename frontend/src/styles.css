@@ -271,8 +271,6 @@ textarea,
 /* ================= Material polish ================= */
 .mat-mdc-card {
   background: var(--bg-paper);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
@@ -294,7 +292,6 @@ textarea,
 
 .mat-expansion-panel {
   background: var(--bg-paper);
-  backdrop-filter: blur(8px);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   color: var(--text);
@@ -316,7 +313,6 @@ textarea,
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper {
@@ -547,7 +543,7 @@ select option {
 }
 
 .mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper {
-  box-shadow: 0 0 0 3px rgba(176, 20, 25, 0.15);
+  border-color: var(--primary);
 }
 
 .mat-mdc-form-field .mat-mdc-input-element,
@@ -555,20 +551,20 @@ select option {
   padding: 2px 0;
 }
 
-/* Layout spacing — HA_enoceanmqtt cards: glass, radius-lg, generous padding */
+/* Layout spacing — HA_enoceanmqtt cards: radius-lg, generous padding.
+   NOTE: no backdrop-filter here — it forces a GPU re-blur of every card
+   on each focus interaction, causing input lag on low-end devices. */
 .mat-mdc-card,
 .mat-expansion-panel {
   margin: 0 0 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-paper);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   box-shadow: var(--shadow);
 }
 
 .mat-mdc-card:hover {
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  border-color: var(--primary);
 }
 
 .mat-mdc-card-header {
