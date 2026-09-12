@@ -3,6 +3,19 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "cypress open (local)",
+      "type": "shell",
+      "command": "npm run cypress:open",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "type": "npm",
       "script": "start",
       "isBackground": true,
@@ -149,11 +162,20 @@
       }
     },
     {
-      "type": "npm",
-      "script": "ng",
+      "label": "ng serve modbus2mqtt 3005",
+      "type": "shell",
+      "command": "npx ng serve --configuration 3005",
       "problemMatcher": [],
-      "label": "npm: ng",
-      "detail": "ng"
+      "detail": "ng",
+      "isBackground": true
+    },
+    {
+      "label": "ng serve",
+      "type": "shell",
+      "command": "npx ng serve --configuration development",
+      "problemMatcher": [],
+      "detail": "ng",
+      "isBackground": true
     },
     {
       "label": "Start Home Assistant",
@@ -191,6 +213,13 @@
       "problemMatcher": [],
       "label": "npm: build.dev",
       "detail": "npm run build.ui.dev && npm run build.server &&npm run copy.assets"
+    },
+    {
+      "type": "npm",
+      "script": "e2e:start",
+      "problemMatcher": [],
+      "label": "npm: e2e:start",
+      "detail": "./e2e/servers/testall.py startServers"
     }
   ]
 }

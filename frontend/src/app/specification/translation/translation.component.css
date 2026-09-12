@@ -1,0 +1,14 @@
+.rightAligned {
+  right: 0;
+  margin-left: auto;
+  background: var(--success);
+}
+
+.scrollable {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.margin {
+  padding-left: 30px;
+}

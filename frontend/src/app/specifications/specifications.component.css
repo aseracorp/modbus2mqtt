@@ -1,0 +1,17 @@
+.mat-mdc-card-header {
+  font-weight: bold;
+  background: var(--bg-surface);
+  display: flex;
+  height: 45pt;
+  color: var(--text);
+}
+.mdc-button__label {
+  text-align: left;
+  align-items: left;
+}
+img {
+  height: auto;
+  width: 200pt;
+  /*maintain aspect ratio*/
+  max-height: 500pt;
+}

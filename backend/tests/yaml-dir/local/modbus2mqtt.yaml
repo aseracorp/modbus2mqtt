@@ -1,0 +1,14 @@
+version: '0.1'
+mqttbasetopic: modbus2mqtt
+mqttdiscoveryprefix: homeassistant
+mqttdiscoverylanguage: en
+mqttconnect:
+  connectTimeout: 60000
+  clientId: modbus2mqtt
+  clean: false
+httpport: 3000
+fakeModbus: false
+filelocation: __tests__/yaml-dir
+tcpBridgePort: 502
+mqttusehassio: false
+supervisor_host: supervisor

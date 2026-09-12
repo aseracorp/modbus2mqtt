@@ -1,30 +1,44 @@
-ARG BUILD_VERSION="head"
-FROM node:current-alpine
+# Multi-stage build: compile backend + frontend (matching upstream's CI),
+# then package a minimal runtime. Keeps the fork's self-contained GHCR
+# image without depending on the npm @modbus2mqtt/server package.
 
-WORKDIR /usr/app
+# ---- stage 1: build ----
+FROM node:22-alpine AS build
+WORKDIR /src
 
-##add timezone-support
-RUN apk add --no-cache tzdata
-ENV TZ=Europe/London
+RUN apk add --no-cache git jq
+RUN corepack enable
 
-RUN apk add --update --no-cache git py3-psutil \   
-    openssh-client \
-    patch 
-RUN echo '{}' >package.json && \
-    npm install -g npm 
-RUN npm install --omit-dev @modbus2mqtt/server@${BUILD_VERSION} 
+# Layer-cache friendly: copy manifests first (incl. per-package lockfiles)
+COPY package.json pnpm-lock.yaml .npmrc .nvmrc ./
+COPY backend/package.json backend/pnpm-lock.yaml backend/
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/
 
-# @serialport/bindings-cpp might need recompilation. 
-# Otherwise one could use npx @modbus2mqtt/server directly
-RUN apk --print-arch && \
-    alpineArch="$(apk --print-arch)" && \
-    if [ "x86_64" != "${alpineArch}"  ] ; then \
-    apk update && \
-    apk upgrade && \
-    apk add  --update --no-cache && \
-    apk add g++ make build-base linux-headers udev  && \
-    npm rebuild @serialport/bindings-cpp --build-from-source; \
-    fi
+RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN cd backend && pnpm install --frozen-lockfile --ignore-scripts
+RUN cd frontend && pnpm install --frozen-lockfile --ignore-scripts
+
+# Source
+COPY . .
+
+# Build backend (tsc) + frontend (Angular)
+RUN pnpm run build
+
+# ---- stage 2: runtime ----
+FROM node:22-alpine
+WORKDIR /app
+
+COPY --from=build /src/dist /app/dist
+COPY --from=build /src/docker/rootfs /app/rootfs
+COPY --from=build /src/backend/node_modules /app/node_modules
+COPY --from=build /src/package.json /app/package.json
+
+ENV NODE_ENV=production
+
 # Health check
-HEALTHCHECK --start-period=10m \
-    CMD curl --fail http://127.0.0.1:3000 || exit 1
+HEALTHCHECK --interval=5s --timeout=5s --start-period=30s --retries=3 \
+    CMD wget -q --tries=1 -O /dev/null http://127.0.0.1:3000/index.html || exit 1
+
+EXPOSE 3000 3443
+
+CMD ["node", "dist/server/modbus2mqtt.js"]

@@ -1,0 +1,46 @@
+{
+  "name": "@modbus2mqtt/specification",
+  "version": "0.15.34",
+  "description": "File access, GitHub access and validation for specifications",
+  "keywords": [
+    "modbus2mqtt",
+    "specification",
+    "validation"
+  ],
+  "bugs": "https://github.com/modbus2mqtt/server/issues",
+  "type": "module",
+  "main": "./dist/specification/validate.js",
+  "bin": {
+    "m2m-validate": "./bin/m2m-validate.js"
+  },
+  "exports": {
+    ".": "./dist/specification/validate.js",
+    "./shared/specification": "./dist/shared/specification/index.js"
+  },
+  "author": "Volkmar Nissen <volkmar.nissen@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/modbus2mqtt/specification"
+  },
+  "scripts": {
+    "test": "bash ./test-spec-install.sh"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "async-mutex": "^0.5.0",
+    "commander": "^14.0.2",
+    "debug": "^4.3.7",
+    "rxjs": "^7.8.2",
+    "yaml": "^2.5.0",
+    "winston": "^3.18.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "shared/specification/index.js",
+    "bin/m2m-validate.js"
+  ]
+}

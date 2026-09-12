@@ -1,0 +1,60 @@
+<div>
+  <div>Number of entries in the queue: {{ modbusErrors ? modbusErrors.queueLength : '' }}</div>
+  @for (task of tasksToLog; track $index) {
+    <div class="icon-text">
+      <mat-icon [class]="filterNewerThan(filterTask(modbusErrors.errors, task), getMinAgo(60)).length > 0 ? 'red' : 'green'"
+        >circle</mat-icon
+      >
+      <span>Task: {{ getTaskName(task) }} ({{ modbusErrors.requestCount[task] }} processed calls) </span>
+    </div>
+    @for (state of getErrorStates(filterNewerThan(filterTask(modbusErrors.errors, task), getMinAgo(60))); track $index) {
+      <div class="indent">
+        <div>{{ getErrorStateName(state) }}</div>
+        <ng-container
+          [ngTemplateOutlet]="errorStates"
+          [ngTemplateOutletContext]="{
+            stateErrors: filterNewerThan(filterErrorState(filterTask(modbusErrors.errors, task), state), getMinAgo(60)),
+          }"
+        />
+      </div>
+    }
+  }
+  <ng-template #errorStates let-stateErrors="stateErrors">
+    <ng-container
+      [ngTemplateOutlet]="errors"
+      [ngTemplateOutletContext]="{ errorlist: filterLast(stateErrors), timeHeader: 'Last', timeSince: true }"
+    />
+    <ng-container
+      [ngTemplateOutlet]="errors"
+      [ngTemplateOutletContext]="{
+        errorlist: filterNewerThan(stateErrors, getMinAgo(5)),
+        timeHeader: '5 minutes',
+        timeSince: false,
+      }"
+    />
+    <ng-container
+      [ngTemplateOutlet]="errors"
+      [ngTemplateOutletContext]="{ errorlist: filterNewerThan(stateErrors, getMinAgo(60)), timeHeader: '1 hour', timeSince: false }"
+    />
+  </ng-template>
+  <ng-template #errors let-errorlist="errorlist" let-timeHeader="timeHeader" let-timeSince="timeSince" let-task="task">
+    <mat-expansion-panel>
+      <mat-expansion-panel-header>
+        <mat-panel-title> {{ timeHeader }}</mat-panel-title>
+        <mat-panel-description
+          >{{ timeSince ? getSinceTimeString(errorlist) : '' + errorlist.length + ' errors' }}
+        </mat-panel-description>
+      </mat-expansion-panel-header>
+      <div>
+        @for (e of getErrors(errorlist); track $index) {
+          <div>{{ e }}</div>
+        }
+        <!-- The url a failing http push was actually sent to, the topic of a failed publish: too
+             volatile to group by, but it is what one needs to act on the failure. -->
+        @if (getLastDetail(errorlist); as detail) {
+          <div class="error-detail">{{ detail }}</div>
+        }
+      </div>
+    </mat-expansion-panel>
+  </ng-template>
+</div>

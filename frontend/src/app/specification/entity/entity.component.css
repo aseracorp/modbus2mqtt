@@ -1,0 +1,6 @@
+.mat-mdc-card-header {
+  font-weight: bold;
+  background: var(--bg-surface);
+  display: flex;
+  color: var(--text);
+}

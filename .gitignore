@@ -76,10 +76,11 @@ web_modules/
 
 # dotenv environment variable files
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
+
+# Local SSL certificates and key material
+ssl/
+certs/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -132,4 +133,36 @@ dist
 .pnp.*
 **/.DS_Store
 .jest/
+.angular/
 **/secrets.txt
+e2e/test-results/
+e2e/servers/logs/
+e2e/servers/e2e/
+e2e/servers/tmpfiles
+e2e/servers/tmpdir.*
+e2e/servers/__pycache__/
+e2e/modbus2mqtt.temp/
+e2e/*.out
+coverage-summary.json
+coverage.txt
+__tests__/backendTCP/public/**/*
+nginx.conf
+nohup.out
+.angular/**/*
+bin/.pycache/**/* */
+stderr.out
+alpine/package/modbus2mqtt/build/
+alpine/package/modbus2mqtt/work/
+alpine/package/modbus2mqtt/packages/
+alpine/repo/
+alpine-package/
+alpine-repo/
+distprod
+
+# Local toggle to skip pre-commit hooks
+.skip-precommit
+__tests__/server/tmp-httpserver**/*
+__tests__/server/*_single_*.tsx.*
+
+# pnpm store
+.pnpm-store
