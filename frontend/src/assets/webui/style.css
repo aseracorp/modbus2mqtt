@@ -660,6 +660,12 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   overflow-y: auto;
 }
 
+.modal.modal-wide, .modal.modal.modal-wide {
+  width: 640px;
+  max-width: calc(100vw - 40px);
+}
+
+
 
 /* device image + datasheet columns in the bus device list */
 .slave-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
