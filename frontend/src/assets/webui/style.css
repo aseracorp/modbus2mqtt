@@ -344,6 +344,20 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   transition: border-color 0.15s;
 }
 .field input[type="text"]:focus { border-color: var(--primary); }
+.field input[type="password"] {
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 13.5px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.field input[type="password"]:focus { border-color: var(--primary); }
+.field input[type="password"]::placeholder { color: var(--text-muted); }
+
 .field input[type="text"]::placeholder { color: var(--text-muted); }
 
 /* EEP search dropdown */
@@ -528,7 +542,26 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 
 
 .form-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+
 .modal-wide { width: 640px; max-width: calc(100vw - 40px); }
+.modal-xlg {
+  width: 1120px;
+  max-width: calc(100vw - 40px);
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.modal-xlg .add-form { max-width: 1080px; }
+.modal-xlg .add-form.add-stack {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px 16px; align-items: end;
+}
+.modal-xlg .add-form.add-stack .field { width: 100%; min-width: 0; }
+.modal-xlg .add-form.add-stack .field-grow, .modal-xlg .add-form.add-stack .field[style*="min-width:110px"], .modal-xlg .add-form.add-stack .field[style*="min-width:90px"] { flex: none; }
+
+.modal-xlg .field input[type="text"], .modal-xlg .field input[type="password"], .modal-xlg .field select { width: 100%; }
+.modal-tall { max-height: 86vh; overflow-y: auto; }
+
 .graph-wrap { width: 100%; overflow: hidden; }
 .graph-legend { margin-top: 10px; color: var(--text-secondary); font-size: 14px; font-weight: 600; padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .graph-hoverctl { margin-top: 4px; color: var(--text); font-size: 13px; padding: 4px 10px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius); }
@@ -538,6 +571,30 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .val-link:hover { text-decoration: underline; }
 .latest-val a:hover { text-decoration: underline; }
 
+/* help icon (i) with themed tooltip */
+.help-icon {
+  cursor: help; font-size: 13px; color: var(--primary);
+  opacity: 0.85; margin-left: 4px; user-select: none; position: relative; top: -1px;
+}
+.help-icon:hover { opacity: 1; }
+
+/* file combobox (text + datalist + browse) mirrors .eep-combo */
+.file-combo .file-browse {
+  flex: 0 0 auto; padding: 6px 10px; font-size: 14px; line-height: 1;
+  background: var(--bg-surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); color: var(--text-secondary); cursor: pointer;
+}
+.file-combo .file-browse:hover { background: var(--bg-hover); color: var(--text); }
+.btn-sm { padding: 4px 8px; font-size: 12px; }
+
+/* clickable MQTT status pill */
+.pill-btn {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: inherit;
+}
+.pill-btn:hover { filter: brightness(1.1); }
+.pill-btn:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
 /* themed tooltip */
 .ui-tooltip {
   position: fixed; z-index: 1000; pointer-events: none;
@@ -546,6 +603,26 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   box-shadow: var(--shadow); padding: 6px 10px; font-size: 12.5px;
   max-width: 320px; white-space: pre-line;
 }
+
+/* device image + datasheet columns in the bus device list */
+.slave-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.slave-img { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; overflow: hidden; background: var(--bg-surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+.slave-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.slave-img.no-img { opacity: 0.4; }
+.slave-img.no-img::after { content: '◫'; color: var(--text-muted); font-size: 15px; }
+.slave-doc { flex: 0 0 auto; display: inline-flex; }
+.slave-doc a { color: var(--primary); text-decoration: none; font-size: 15px; opacity: 0.85; }
+.slave-doc a:hover { opacity: 1; }
+
+/* template table image + datasheet columns */
+.template-table-wrap .tpl-img { width: 44px; height: 44px; }
+.tpl-img { text-align: center; }
+.tpl-img img { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; background: var(--bg-surface); border: 1px solid var(--border); padding: 2px; }
+.tpl-img.no-img { opacity: 0.4; }
+.tpl-img.no-img::after { content: '◫'; color: var(--text-muted); }
+.tpl-doc { text-align: center; }
+.tpl-doc a { color: var(--primary); text-decoration: none; font-size: 15px; opacity: 0.85; }
+.tpl-doc a:hover { opacity: 1; text-decoration: underline; }
 
 /* ---------------- footer ---------------- */
 .footer {
@@ -574,6 +651,35 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .modal h3 { margin: 0 0 8px; font-size: 16px; }
 .modal p { margin: 0 0 18px; color: var(--text-secondary); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; padding-top: 4px; }
+
+/* modal-xlg must come AFTER the base .modal rule so it wins (same specificity). */
+.modal.modal-xlg, .modal.modal.modal-xlg {
+  width: 1120px;
+  max-width: calc(100vw - 40px);
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+
+/* device image + datasheet columns in the bus device list */
+.slave-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.slave-img { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; overflow: hidden; background: var(--bg-surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+.slave-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.slave-img.no-img { opacity: 0.4; }
+.slave-img.no-img::after { content: '◫'; color: var(--text-muted); font-size: 15px; }
+.slave-doc { flex: 0 0 auto; display: inline-flex; }
+.slave-doc a { color: var(--primary); text-decoration: none; font-size: 15px; opacity: 0.85; }
+.slave-doc a:hover { opacity: 1; }
+
+/* template table image + datasheet columns */
+.template-table-wrap .tpl-img { width: 44px; height: 44px; }
+.tpl-img { text-align: center; }
+.tpl-img img { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; background: var(--bg-surface); border: 1px solid var(--border); padding: 2px; }
+.tpl-img.no-img { opacity: 0.4; }
+.tpl-img.no-img::after { content: '◫'; color: var(--text-muted); }
+.tpl-doc { text-align: center; }
+.tpl-doc a { color: var(--primary); text-decoration: none; font-size: 15px; opacity: 0.85; }
+.tpl-doc a:hover { opacity: 1; text-decoration: underline; }
 
 /* ---------------- footer ---------------- */
 .footer-links { display: inline-flex; align-items: center; gap: 8px; margin-left: 12px; }

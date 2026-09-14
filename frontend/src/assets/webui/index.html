@@ -37,7 +37,7 @@
       </div>
       <div class="gateway">
         <span class="pill" id="gw-status"><span class="dot"></span><span data-i18n="gateway">Busses</span></span>
-        <span class="pill" id="mqtt-status"><span class="dot"></span>MQTT</span>
+        <button type="button" class="pill pill-btn" id="mqtt-status" title="MQTT" aria-label="MQTT"><span class="dot"></span>MQTT</button>
         <button type="button" class="theme-toggle" id="btn-top-config" title="Configuration" aria-label="Configuration">⚙</button>
         <select class="lang-select" id="lang-select" title="Language / Sprache / Langue / Lingua" aria-label="Language">
           <option value="en">EN</option>
@@ -100,9 +100,11 @@
         <table class="sensor-table">
           <thead>
             <tr>
+              <th data-i18n="col_img">Image</th>
               <th data-i18n="col_name">Name</th>
               <th data-i18n="col_model">Model</th>
               <th data-i18n="col_manufacturer">Manufacturer</th>
+              <th data-i18n="col_doc">Datasheet</th>
               <th data-i18n="col_status">Status</th>
               <th></th>
             </tr>
@@ -121,7 +123,7 @@
         <span class="footer-sep">·</span>
         <a href="https://github.com/aseracorp/modbus2mqtt/blob/main/LICENSE" target="_blank" rel="noopener">Licence</a>
         <span class="footer-sep">·</span>
-        <a href="https://github.com/modbus2mqtt/specifications" target="_blank" rel="noopener">Specifications</a>
+        <a href="https://www.modbus.org/file/secure/modbusprotocolspecification.pdf" target="_blank" rel="noopener" data-i18n="footer_specs">Modbus specification</a>
       </span>
       <span id="footer-error" class="error-text"></span>
     </footer>
@@ -140,9 +142,21 @@
   </div>
 </div>
 
-<!-- Config edit popup -->
+<!-- MQTT server popup (separate from main config; accessed via the MQTT pill in the header) -->
+<div class="modal-overlay" id="mqttedit-overlay" hidden>
+  <div class="modal modal-xlg">
+    <h3 data-i18n="mqtt_server">MQTT server</h3>
+    <div class="config-grid" id="mqtt-grid"></div>
+    <div class="modal-actions">
+      <button class="btn" id="mqttedit-cancel" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-primary" id="mqttedit-save" data-i18n="save_config">Save configuration</button>
+    </div>
+  </div>
+</div>
+
+<!-- Config edit popup (general settings only; MQTT lives in its own popup) -->
 <div class="modal-overlay" id="configedit-overlay" hidden>
-  <div class="modal modal-wide">
+  <div class="modal modal-xlg">
     <h3 data-i18n="edit_config">Edit configuration</h3>
     <div class="config-grid" id="config-grid"></div>
     <div class="modal-actions">
@@ -154,7 +168,7 @@
 
 <!-- edit connection modal -->
 <div class="modal-overlay" id="busedit-overlay" hidden>
-  <div class="modal modal-wide">
+  <div class="modal modal-xlg">
     <h3 id="busedit-title" data-i18n="edit_bus">Edit Modbus connection</h3>
     <div class="add-form add-stack">
       <div class="field"><label data-i18n="bus_type">Type</label>

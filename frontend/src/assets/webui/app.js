@@ -184,6 +184,26 @@ function getSlaveTemplateManufacturer(filename) {
   return s ? s.manufacturer : '';
 }
 
+function getTemplateFiles(filename) {
+  const s = state.specs.find((sp) => sp.filename === filename);
+  return (s && s.files) ? s.files : [];
+}
+function resolveFileUrl(f) {
+  if (!f) return '';
+  if (f.data) return f.data; // base64 local content
+  return f.url || '';
+}
+function getTemplateImageUrl(filename) {
+  const files = getTemplateFiles(filename);
+  const img = files.find((f) => f.usage === 'img') || files.find((f) => f.usage === 'icon');
+  return img ? resolveFileUrl(img) : '';
+}
+function getTemplateDocUrl(filename) {
+  const files = getTemplateFiles(filename);
+  const doc = files.find((f) => f.usage === 'doc');
+  return doc ? resolveFileUrl(doc) : '';
+}
+
 /* ---------------- render busses ---------------- */
 function renderBusses() {
   const list = $('bus-list');
@@ -196,17 +216,28 @@ function renderBusses() {
     return;
   }
   list.innerHTML = state.busses.map((bus) => {
-    const slaves = (bus.slaves || []).map((s) => `
+    const slaves = (bus.slaves || []).map((s) => {
+      const imgUrl = getTemplateImageUrl(s.specificationid);
+      const docUrl = getTemplateDocUrl(s.specificationid);
+      const imgCell = imgUrl
+        ? '<span class="slave-img"><img src="' + escapeHtml(imgUrl) + '" alt="" loading="lazy"></span>'
+        : '<span class="slave-img no-img"></span>';
+      const docCell = docUrl
+        ? '<span class="slave-doc"><a href="' + escapeHtml(docUrl) + '" target="_blank" rel="noopener" title="' + escapeHtml(t('datasheet')) + '">📄</a></span>'
+        : '<span class="slave-doc"></span>';
+      return `
       <div class="slave-row" data-busid="${bus.busId}" data-slaveid="${s.slaveid}">
+        ${imgCell}
         <span class="slave-name">${escapeHtml(getSlaveName(s))}</span>
         <span class="slave-tpl">${escapeHtml(getSlaveTemplateName(s.specificationid))}</span>
         <span class="slave-id">#${s.slaveid}</span>
+        ${docCell}
         <span class="slave-actions">
           <button class="icon-btn slave-poll" title="${t('poll_now')}" data-busid="${bus.busId}" data-slaveid="${s.slaveid}">⚡</button>
           <button class="icon-btn slave-edit" title="${t('edit_device')}" data-busid="${bus.busId}" data-slaveid="${s.slaveid}">✎</button>
           <button class="icon-btn slave-del" title="${t('remove_device')}" data-busid="${bus.busId}" data-slaveid="${s.slaveid}">✕</button>
         </span>
-      </div>`).join('');
+      </div>`;}).join('');
     return `
       <div class="bus-block" data-busid="${bus.busId}">
         <div class="bus-block-header">
@@ -275,20 +306,31 @@ function renderTemplates() {
   const countEl = $('template-count');
   if (countEl) countEl.textContent = (state.specs || []).length + ' ' + t('templates_sub');
   if (!state.specs || state.specs.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">' + t('no_templates') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + t('no_templates') + '</td></tr>';
     return;
   }
-  tbody.innerHTML = state.specs.map((s) => `
+  tbody.innerHTML = state.specs.map((s) => {
+    const imgUrl = getTemplateImageUrl(s.filename);
+    const docUrl = getTemplateDocUrl(s.filename);
+    const imgCell = imgUrl
+      ? '<td class="tpl-img"><img src="' + escapeHtml(imgUrl) + '" alt="" loading="lazy"></td>'
+      : '<td class="tpl-img no-img"></td>';
+    const docCell = docUrl
+      ? '<td class="tpl-doc"><a href="' + escapeHtml(docUrl) + '" target="_blank" rel="noopener" title="' + escapeHtml(t('datasheet')) + '">📄</a></td>'
+      : '<td class="tpl-doc"></td>';
+    return `
     <tr data-filename="${escapeHtml(s.filename)}">
+      ${imgCell}
       <td>${escapeHtml(s.model || s.filename)}</td>
       <td>${escapeHtml(s.model || '')}</td>
       <td>${escapeHtml(s.manufacturer || '')}</td>
+      ${docCell}
       <td><span class="status-badge ${tplStatusClass(s.status)}">${escapeHtml(tplStatusText(s.status))}</span></td>
       <td><div class="row-actions">
         <button class="icon-btn tpl-edit" title="${t('edit_device')}" data-filename="${escapeHtml(s.filename)}">✎</button>
         <button class="icon-btn tpl-del" title="${t('remove_device')}" data-filename="${escapeHtml(s.filename)}">✕</button>
       </div></td>
-    </tr>`).join('');
+    </tr>`;}).join('');
   tbody.querySelectorAll('.tpl-edit').forEach((b) => {
     b.addEventListener('click', () => openEditTemplate(b.getAttribute('data-filename')));
   });
@@ -326,6 +368,7 @@ function openAddBus() {
   updateBusTypeFields();
   loadSerialDevices();
   $('busedit-overlay').hidden = false;
+  applyHelpIcons();
 }
 function openEditBus(busid) {
   const bus = (state.busses || []).find((b) => b.busId === Number(busid));
@@ -349,6 +392,7 @@ function openEditBus(busid) {
   updateBusTypeFields();
   loadSerialDevices();
   $('busedit-overlay').hidden = false;
+  applyHelpIcons();
 }
 function updateBusTypeFields() {
   const isRtu = $('be-type').value === 'rtu';
@@ -458,6 +502,7 @@ function openAddSlave(busid) {
   populateSlaveSelect();
   updatePollModeFields();
   $('slaveedit-overlay').hidden = false;
+  applyHelpIcons();
 }
 function openEditSlave(busid, slaveid) {
   const bus = (state.busses || []).find((b) => b.busId === Number(busid));
@@ -484,6 +529,7 @@ function openEditSlave(busid, slaveid) {
   if (slave.referenceSlaveId != null) $('se-reference').value = String(slave.referenceSlaveId);
   updatePollModeFields();
   $('slaveedit-overlay').hidden = false;
+  applyHelpIcons();
 }
 function updatePollModeFields() {
   const pm = $('se-pollmode').value;
@@ -627,6 +673,7 @@ async function openAddTemplate() {
   $('te-filename').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
   renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
+  applyHelpIcons();
 }
 async function openEditTemplate(filename) {
   const sp = (state.specs || []).find((s) => s.filename === filename);
@@ -646,6 +693,7 @@ async function openEditTemplate(filename) {
   }
   renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
+  applyHelpIcons();
 }
 $('tpledit-cancel')?.addEventListener('click', () => { $('tpledit-overlay').hidden = true; templateSpec = null; });
 $('te-reg-add')?.addEventListener('click', () => openRegEdit(null));
@@ -719,6 +767,7 @@ function openRegEdit(idx) {
   regConverterShown();
   $('regedit-title').textContent = idx == null ? t('reg_add') : t('reg_edit');
   $('regedit-overlay').hidden = false;
+  applyHelpIcons($('regedit-form'));
 }
 $('re-converter')?.addEventListener('change', regConverterShown);
 $('regedit-cancel')?.addEventListener('click', () => { $('regedit-overlay').hidden = true; });
@@ -869,18 +918,20 @@ const CONFIG_HIDDEN = new Set([
   'githubPersonalToken', 'filelocation', 'fakeModbus'
 ]);
 // Ordered MQTT + general fields shown in the config modal (single MQTT server assumption).
+const MQTT_FIELDS = [
+  { key: 'mqttserverurl', labelKey: 'cfg_mqtt_url', type: 'text', placeholder: 'mqtt://mosquitto:1883', helpKey: 'cfg_mqtt_url_help' },
+  { key: 'mqttuser', labelKey: 'cfg_mqtt_user', type: 'text', helpKey: 'cfg_mqtt_user_help' },
+  { key: 'mqttpassword', labelKey: 'cfg_mqtt_password', type: 'password', helpKey: 'cfg_mqtt_password_help' },
+  { key: 'mqttbasetopic', labelKey: 'cfg_mqtt_base_topic', type: 'text', placeholder: 'modbus2mqtt', helpKey: 'cfg_mqtt_base_topic_help' },
+  { key: 'mqttdiscoveryprefix', labelKey: 'cfg_mqtt_discovery_prefix', type: 'text', placeholder: 'homeassistant', helpKey: 'cfg_mqtt_discovery_prefix_help' },
+  { key: 'mqttdiscoverylanguage', labelKey: 'cfg_mqtt_discovery_lang', type: 'text', placeholder: 'en', helpKey: 'cfg_mqtt_discovery_lang_help' },
+  { key: 'mqttcafile', labelKey: 'cfg_mqtt_ca_file', type: 'file-combo', helpKey: 'cfg_mqtt_ca_file_help' },
+  { key: 'mqttcertfile', labelKey: 'cfg_mqtt_cert_file', type: 'file-combo', helpKey: 'cfg_mqtt_cert_file_help' },
+  { key: 'mqttkeyfile', labelKey: 'cfg_mqtt_key_file', type: 'file-combo', helpKey: 'cfg_mqtt_key_file_help' }
+];
 const CONFIG_FIELDS = [
-  { key: 'mqttserverurl', labelKey: 'cfg_mqtt_url', type: 'text', section: 'mqtt', placeholder: 'mqtt://mosquitto:1883' },
-  { key: 'mqttuser', labelKey: 'cfg_mqtt_user', type: 'text', section: 'mqtt' },
-  { key: 'mqttpassword', labelKey: 'cfg_mqtt_password', type: 'password', section: 'mqtt' },
-  { key: 'mqttbasetopic', labelKey: 'cfg_mqtt_base_topic', type: 'text', section: 'mqtt', placeholder: 'modbus2mqtt' },
-  { key: 'mqttdiscoveryprefix', labelKey: 'cfg_mqtt_discovery_prefix', type: 'text', section: 'mqtt', placeholder: 'homeassistant' },
-  { key: 'mqttdiscoverylanguage', labelKey: 'cfg_mqtt_discovery_lang', type: 'text', section: 'mqtt', placeholder: 'en' },
-  { key: 'mqttcafile', labelKey: 'cfg_mqtt_ca_file', type: 'file-select', section: 'mqtt' },
-  { key: 'mqttcertfile', labelKey: 'cfg_mqtt_cert_file', type: 'file-select', section: 'mqtt' },
-  { key: 'mqttkeyfile', labelKey: 'cfg_mqtt_key_file', type: 'file-select', section: 'mqtt' },
-  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'text', section: 'general' },
-  { key: 'displayHex', labelKey: 'cfg_display_hex', type: 'bool', section: 'general' }
+  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'text', helpKey: 'cfg_debug_components_help' },
+  { key: 'displayHex', labelKey: 'cfg_display_hex', type: 'bool', helpKey: 'cfg_display_hex_help' }
 ];
 const CONFIG_KEYMAP = {
   mqttuser: 'mqttconnect.username',
@@ -919,83 +970,131 @@ async function loadConfig() {
     toast(t('err_load_config') + e.message, 'error');
   }
 }
-function renderConfigField(flatGet, field) {
+function helpIcon(field) {
+  if (!field.helpKey) return '';
+  return '<span class="help-icon" data-tip="' + escapeHtml(t(field.helpKey)) + '" title="' + escapeHtml(t(field.helpKey)) + '">ⓘ</span>';
+}
+function labelWithHelp(field, id) {
+  return '<label for="' + id + '">' + escapeHtml(t(field.labelKey)) + ' ' + helpIcon(field) + '</label>';
+}
+function renderConfigField(flatGet, field, idPrefix) {
   const val = configGet(flatGet, configDottedKey(field.key));
   const label = t(field.labelKey);
-  const id = 'cfg-' + field.key;
+  const id = (idPrefix || 'cfg-') + field.key;
   if (field.type === 'password') {
-    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
       '<input type="password" id="' + id + '" data-cfgkey="' + field.key + '" value="' + escapeHtml(String(val == null ? '' : val)) + '" autocomplete="new-password"></div>';
   }
   if (field.type === 'bool') {
     const checked = ['1', 'true', 'yes', 'on'].includes(String(val == null ? '' : val).trim().toLowerCase());
-    return '<div class="field config-bool"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
+    return '<div class="field config-bool"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
       '<input type="checkbox" id="' + id + '" data-cfgkey="' + field.key + '"' + (checked ? ' checked' : '') + '>' +
       '<input type="hidden" data-cfgkey="' + field.key + '" data-boolhidden="' + field.key + '" value="' + (checked ? '1' : '0') + '"></div>';
   }
-  if (field.type === 'file-select') {
-    const opts = ['<option value="">—</option>'].concat(
-      (stateSslFiles || []).map((f) => '<option value="' + escapeHtml(f) + '"' + (String(val) === f ? ' selected' : '') + '>' + escapeHtml(f) + '</option>')
-    ).join('');
-    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
-      '<select id="' + id + '" data-cfgkey="' + field.key + '">' + opts + '</select></div>';
+  if (field.type === 'file-combo') {
+    // text input + datalist + browse button (combobox like the EEP field); shows current value
+    const opts = (stateSslFiles || []).map((f) => '<option value="' + escapeHtml(f) + '"></option>').join('');
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
+      '<div class="eep-combo file-combo">' +
+        '<input type="text" id="' + id + '" data-cfgkey="' + field.key + '" list="' + id + '-list" value="' + escapeHtml(String(val == null ? '' : val)) + '" placeholder="cert.pem">' +
+        '<datalist id="' + id + '-list">' + opts + '</datalist>' +
+        '<button type="button" class="btn btn-sm file-browse" data-for="' + field.key + '" title="' + escapeHtml(t('cfg_browse_files')) + '">📂</button>' +
+      '</div></div>';
   }
   const ph = field.placeholder ? ' placeholder="' + escapeHtml(field.placeholder) + '"' : '';
-  return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
+  return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
     '<input type="text" id="' + id + '" data-cfgkey="' + field.key + '" value="' + escapeHtml(String(val == null ? '' : val)) + '"' + ph + '></div>';
 }
-async function openConfigEdit() {
-  const grid = $('config-grid');
-  if (!grid || !state.config) return;
-  await loadSslFiles();
-  const mqttFields = CONFIG_FIELDS.filter((f) => f.section === 'mqtt');
-  const generalFields = CONFIG_FIELDS.filter((f) => f.section === 'general');
-  const getter = state.config;
-  grid.classList.add('config-two-col');
-  const section = (titleKey, fields) => '<h4 class="config-section-title">' + escapeHtml(t(titleKey)) + '</h4>' +
-    '<div class="config-section">' + fields.map((f) => renderConfigField(getter, f)).join('') + '</div>';
-  grid.innerHTML = section('cfg_section_mqtt', mqttFields) + section('cfg_section_general', generalFields);
+function bindConfigCheckboxes(grid) {
   grid.querySelectorAll('input[type=checkbox][data-cfgkey]').forEach((cb) => {
     cb.addEventListener('change', () => {
       const hidden = grid.querySelector('input[data-boolhidden="' + cb.getAttribute('data-cfgkey') + '"]');
       if (hidden) hidden.value = cb.checked ? '1' : '0';
     });
   });
-  $('configedit-overlay').hidden = false;
 }
-// load ssl file list once at boot as well
-loadSslFiles();
-$('btn-top-config')?.addEventListener('click', openConfigEdit);
-$('configedit-cancel')?.addEventListener('click', () => { $('configedit-overlay').hidden = true; });
-function configPayloadFromGrid() {
+// ---- MQTT popup ----
+async function openMqttEdit() {
+  const grid = $('mqtt-grid');
+  if (!grid || !state.config) return;
+  await loadSslFiles();
+  const getter = state.config;
+  grid.classList.add('config-two-col');
+  grid.innerHTML = MQTT_FIELDS.map((f) => renderConfigField(getter, f, 'mcfg-')).join('');
+  bindConfigCheckboxes(grid);
+  grid.querySelectorAll('.file-browse').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const key = btn.getAttribute('data-for');
+      const target = grid.querySelector('input[data-cfgkey="' + key + '"]');
+      // Use the picked file from the ssl files list (the combobox datalist already lists them).
+      // If a native file picker is available (input type=file overlay), we'd use it; here we
+      // cycle through the known ssl files as the "file browser".
+      if (!target || !stateSslFiles.length) return;
+      const cur = (stateSslFiles || []).indexOf(target.value);
+      const next = stateSslFiles[(cur + 1) % stateSslFiles.length];
+      target.value = next || '';
+    });
+  });
+  $('mqttedit-overlay').hidden = false;
+  applyHelpIcons($('mqtt-grid'));
+}
+$('mqtt-status')?.addEventListener('click', openMqttEdit);
+$('mqttedit-cancel')?.addEventListener('click', () => { $('mqttedit-overlay').hidden = true; });
+$('mqttedit-save')?.addEventListener('click', async () => {
+  const merged = JSON.parse(JSON.stringify(state.config || {}));
   const fieldMap = {
     mqttuser: 'mqttconnect.username',
     mqttpassword: 'mqttconnect.password',
     mqttserverurl: 'mqttconnect.mqttserverurl',
     mqttcafile: 'mqttcaFile', mqttcertfile: 'mqttcertFile', mqttkeyfile: 'mqttkeyFile'
   };
+  document.querySelectorAll('#mqtt-grid [data-cfgkey]').forEach((inp) => {
+    if (inp.type === 'checkbox') return;
+    const k = inp.getAttribute('data-cfgkey');
+    let v = inp.value.trim();
+    if (fieldMap[k]) { configSet(merged, fieldMap[k], v === '' ? undefined : v); return; }
+    if (v === '') v = undefined;
+    configSet(merged, k, v);
+  });
+  try {
+    await api('/api/configuration', { method: 'POST', body: JSON.stringify(merged) });
+    toast(t('config_saved'), 'success');
+    $('mqttedit-overlay').hidden = true;
+    state.config = merged;
+    renderGateway();
+  } catch (e) {
+    toast(t('err_save_config') + e.message, 'error');
+  }
+});
+// ---- General config popup (MQTT removed — separate popup) ----
+async function openConfigEdit() {
+  const grid = $('config-grid');
+  if (!grid || !state.config) return;
+  const getter = state.config;
+  grid.classList.add('config-two-col');
+  grid.innerHTML = CONFIG_FIELDS.map((f) => renderConfigField(getter, f, 'cfg-')).join('');
+  bindConfigCheckboxes(grid);
+  $('configedit-overlay').hidden = false;
+  applyHelpIcons();
+}
+// load ssl file list once at boot as well
+loadSslFiles();
+$('btn-top-config')?.addEventListener('click', openConfigEdit);
+$('configedit-cancel')?.addEventListener('click', () => { $('configedit-overlay').hidden = true; });
+$('configedit-save')?.addEventListener('click', async () => {
   const merged = JSON.parse(JSON.stringify(state.config || {}));
   document.querySelectorAll('#config-grid [data-cfgkey]').forEach((inp) => {
-    if (inp.type === 'checkbox') return; // handled by hidden sibling
+    if (inp.type === 'checkbox') return;
     const k = inp.getAttribute('data-cfgkey');
-    let v = inp.value;
-    if (fieldMap[k]) {
-      configSet(merged, fieldMap[k], v === '' ? undefined : v);
-      return;
-    }
+    let v = inp.value.trim();
     if (v === '') v = undefined;
     else if (v === 'true' || v === 'false') v = (v === 'true');
     else {
       const n = Number(v);
       if (v.trim() !== '' && !isNaN(n) && /^-?\d+(\.\d+)?$/.test(v.trim())) v = n;
     }
-    // top-level keys (mqttbasetopic, mqttdiscoveryprefix/language, debugComponents, displayHex)
     configSet(merged, k, v);
   });
-  return merged;
-}
-$('configedit-save')?.addEventListener('click', async () => {
-  const merged = configPayloadFromGrid();
   try {
     await api('/api/configuration', { method: 'POST', body: JSON.stringify(merged) });
     toast(t('config_saved'), 'success');
@@ -1006,6 +1105,41 @@ $('configedit-save')?.addEventListener('click', async () => {
     toast(t('err_save_config') + e.message, 'error');
   }
 });
+// Auto-open the MQTT popup if no MQTT server is configured yet (first load).
+async function maybeAutoOpenMqtt() {
+  await loadConfig();
+  const cfg = state.config || {};
+  const url = cfg.mqttconnect && cfg.mqttconnect.mqttserverurl ? cfg.mqttconnect.mqttserverurl : null;
+  const hassio = state.auth && state.auth.mqttConfigured;
+  if (!url && !hassio) openMqttEdit();
+}
+
+/* ---------------- help icons on all configurable settings ---------------- */
+/* Adds a themed ⓘ per field: looks up "help_<fieldId>" (or help_<i18nKey>)
+   in the lang tables. Call after each modal is opened/populated. */
+function applyHelpIcons(root) {
+  const scope = root || document;
+  scope.querySelectorAll('.field').forEach((f) => {
+    if (f.querySelector('.help-icon')) return; // already done
+    const label = f.querySelector('label');
+    if (!label) return;
+    const input = f.querySelector('input[id], select[id], textarea[id]');
+    let key = null;
+    if (input) key = 'help_' + input.id;
+    if (!key || !t(key) || t(key) === key) {
+      // fall back to the label's data-i18n to find a "help_<key>" translation
+      const i18n = label.getAttribute('data-i18n');
+      if (i18n && t('help_' + i18n) && t('help_' + i18n) !== 'help_' + i18n) key = 'help_' + i18n;
+    }
+    if (!key || !t(key) || t(key) === key) return;
+    const icon = document.createElement('span');
+    icon.className = 'help-icon';
+    icon.setAttribute('data-tip', t(key));
+    icon.setAttribute('title', t(key));
+    icon.textContent = '\u24d8';
+    label.appendChild(icon);
+  });
+}
 
 /* ---------------- themed tooltip ---------------- */
 (function () {
@@ -1163,5 +1297,6 @@ function initCustomSelect(selectId) {
   initTemplateCombo();
   applyTranslations();
   loadAll();
+  maybeAutoOpenMqtt();
   setInterval(loadAll, 5000);
 })();
