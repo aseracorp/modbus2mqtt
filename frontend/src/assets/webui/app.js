@@ -309,7 +309,7 @@ async function loadSerialDevices() {
       return;
     }
     sel.innerHTML = devices.map((d) => '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>').join('');
-    if (cur) sel.value = cur;
+    if (cur !== '') sel.value = cur;
   } catch (e) { /* ignore */ }
 }
 
@@ -424,7 +424,7 @@ function populateBusSelect() {
   sel.innerHTML = (state.busses || []).map((b) =>
     '<option value="' + b.busId + '">' + escapeHtml(getBusName(b)) + '</option>').join('') ||
     '<option value="">' + t('no_busses') + '</option>';
-  if (cur) sel.value = cur;
+  if (cur !== '') sel.value = cur;
 }
 function populateSlaveSelect() {
   const sel = $('se-reference');
@@ -493,8 +493,9 @@ function updatePollModeFields() {
 $('se-pollmode')?.addEventListener('change', updatePollModeFields);
 $('slaveedit-cancel')?.addEventListener('click', () => { $('slaveedit-overlay').hidden = true; });
 $('slaveedit-ok')?.addEventListener('click', async () => {
-  const busid = Number($('se-busselect').value);
-  if (!busid) return toast(t('err_no_bus'), 'error');
+  const busidRaw = $('se-busselect').value;
+  if (busidRaw === '' || busidRaw == null) return toast(t('err_no_bus'), 'error');
+  const busid = Number(busidRaw);
   const slaveid = parseInt($('se-slaveid').value, 10);
   if (isNaN(slaveid)) return toast(t('err_no_slaveid'), 'error');
   const name = $('se-name').value.trim();

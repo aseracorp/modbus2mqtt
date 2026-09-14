@@ -1,10 +1,6 @@
-import { NextFunction, Request, RequestHandler, Response } from 'express'
+import { Request, RequestHandler, Response } from 'express'
 import { join, basename } from 'path'
 import * as fs from 'fs'
-import { LogLevelEnum, Logger } from '../../specification/index.js'
-
-const log = new Logger('HttpServerBase')
-
 /**
  * Serves the static Modbus2MQTT webui (the HA_enoceanmqtt-style configurator).
  *
@@ -57,9 +53,15 @@ export class WebuiStatics {
     res.send(content)
   }
 
-  private processStaticWebuiFiles(req: Request, res: Response, next: NextFunction): void {
+  private processStaticWebuiFiles(req: Request, res: Response): void {
     try {
-      const file = join(this.webuidir, req.url)
+      // Resolve the request inside the webui dir and refuse path traversal.
+      const webuiRoot = join(this.webuidir)
+      const file = join(webuiRoot, req.url.replace(/^\/+/, ''))
+      if (file !== webuiRoot && !file.startsWith(webuiRoot + '/')) {
+        res.status(404).send('Not Found')
+        return
+      }
       if (fs.existsSync(file) && !fs.lstatSync(file).isDirectory()) {
         if (req.url.endsWith('index.html') || req.url === '/') {
           this.sendIndexFile(req, res)
@@ -74,10 +76,11 @@ export class WebuiStatics {
           return
         }
       }
-      next()
+      // Missing webui asset: 404 instead of falling through to the Angular SPA catch-all.
+      res.status(404).send('Not Found')
       return
     } catch {
-      next()
+      res.status(404).send('Not Found')
       return
     }
   }
