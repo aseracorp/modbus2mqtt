@@ -232,16 +232,109 @@
 
 <!-- edit template modal -->
 <div class="modal-overlay" id="tpledit-overlay" hidden>
-  <div class="modal modal-wide">
+  <div class="modal modal-wide modal-tall">
     <h3 id="tpledit-title" data-i18n="add_template">Add Modbus template</h3>
     <div class="add-form add-stack">
       <div class="field"><label data-i18n="template_filename">Filename</label><input type="text" id="te-filename" placeholder="mytemplate"></div>
       <div class="field"><label data-i18n="template_model">Model</label><input type="text" id="te-model" placeholder="SDM120-M"></div>
       <div class="field"><label data-i18n="template_manufacturer">Manufacturer</label><input type="text" id="te-manufacturer" placeholder="Eastron"></div>
     </div>
+    <hr class="modal-divider">
+    <h4 class="config-section-title" data-i18n="template_registers">Registers / entities</h4>
+    <div class="reg-table-wrap">
+      <table class="reg-table" id="te-reg-table">
+        <thead>
+          <tr>
+            <th data-i18n="reg_name">Name</th>
+            <th data-i18n="reg_mqtt_id">MQTT ID</th>
+            <th data-i18n="reg_type">Type</th>
+            <th data-i18n="reg_addr">Address</th>
+            <th data-i18n="reg_rw">R/W</th>
+            <th data-i18n="reg_converter">Converter</th>
+            <th data-i18n="reg_uom">Unit</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="te-reg-body"><tr class="empty-row"><td colspan="8" data-i18n="reg_none">No registers yet</td></tr></tbody>
+      </table>
+    </div>
     <div class="modal-actions">
+      <button class="btn" id="te-reg-add" data-i18n="reg_add">Add register</button>
       <button class="btn" id="tpledit-cancel" data-i18n="cancel">Cancel</button>
       <button class="btn btn-primary" id="tpledit-ok" data-i18n="save_template">Save template</button>
+    </div>
+  </div>
+</div>
+
+<!-- register (entity) editor modal -->
+<div class="modal-overlay" id="regedit-overlay" hidden>
+  <div class="modal modal-wide">
+    <h3 id="regedit-title" data-i18n="reg_edit">Edit register</h3>
+    <div class="add-form add-stack" id="regedit-form">
+      <div class="field"><label data-i18n="reg_name">Name</label><input type="text" id="re-name"></div>
+      <div class="field"><label data-i18n="reg_mqtt_id">MQTT ID</label><input type="text" id="re-mqttname"></div>
+      <div class="field"><label data-i18n="reg_type">Type</label>
+        <select id="re-registertype">
+          <option value="3">Holding register</option>
+          <option value="4">Input register</option>
+          <option value="1">Coil</option>
+          <option value="2">Discrete input</option>
+        </select>
+      </div>
+      <div class="field"><label data-i18n="reg_addr">Modbus address</label><input type="text" id="re-modbusaddress" placeholder="0"></div>
+      <div class="field config-bool"><label data-i18n="reg_readonly">Readonly</label><input type="checkbox" id="re-readonly"></div>
+      <div class="field"><label data-i18n="reg_category">Category</label>
+        <select id="re-category">
+          <option value="">—</option>
+          <option value="diagnostic">diagnostic</option>
+          <option value="config">config</option>
+        </select>
+      </div>
+      <div class="field"><label data-i18n="reg_converter">Converter</label>
+        <select id="re-converter">
+          <option value="number">number</option>
+          <option value="text">text</option>
+          <option value="select">select</option>
+          <option value="binary">binary</option>
+          <option value="value">value</option>
+        </select>
+      </div>
+      <div class="reg-conv reg-conv-number" id="reg-conv-number">
+        <div class="field"><label data-i18n="reg_multiplier">Multiplier</label><input type="text" id="re-multiplier" placeholder="1"></div>
+        <div class="field"><label data-i18n="reg_offset">Offset</label><input type="text" id="re-offset" placeholder="0"></div>
+        <div class="field"><label data-i18n="reg_decimals">Decimals</label><input type="text" id="re-decimals" placeholder="1"></div>
+        <div class="field"><label data-i18n="reg_number_format">Number format</label>
+          <select id="re-numberformat">
+            <option value="0">default</option>
+            <option value="1">float32</option>
+            <option value="2">signedInt16</option>
+            <option value="3">signedInt32</option>
+            <option value="4">unsignedInt32</option>
+          </select>
+        </div>
+        <div class="field"><label data-i18n="reg_uom">Unit</label><input type="text" id="re-uom" placeholder="V"></div>
+        <div class="field"><label data-i18n="reg_device_class">Device class</label><input type="text" id="re-deviceclass" placeholder="voltage"></div>
+        <div class="field"><label data-i18n="reg_state_class">State class</label>
+          <select id="re-stateclass">
+            <option value="">—</option>
+            <option value="1">measurement</option>
+            <option value="2">total</option>
+            <option value="3">total_increasing</option>
+          </select>
+        </div>
+        <div class="field"><label data-i18n="reg_min">Min (identification)</label><input type="text" id="re-min" placeholder=""></div>
+        <div class="field"><label data-i18n="reg_max">Max (identification)</label><input type="text" id="re-max" placeholder=""></div>
+        <div class="field"><label data-i18n="reg_step">Step</label><input type="text" id="re-step" placeholder=""></div>
+        <div class="field config-bool"><label data-i18n="reg_swap_words">Swap words</label><input type="checkbox" id="re-swapwords"></div>
+        <div class="field config-bool"><label data-i18n="reg_swap_bytes">Swap bytes</label><input type="checkbox" id="re-swapbytes"></div>
+      </div>
+      <div class="reg-conv reg-conv-text" id="reg-conv-text">
+        <div class="field"><label data-i18n="reg_stringlength">String length</label><input type="text" id="re-stringlength" placeholder="2"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="regedit-cancel" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-primary" id="regedit-ok" data-i18n="save">Save</button>
     </div>
   </div>
 </div>

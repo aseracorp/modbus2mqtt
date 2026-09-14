@@ -501,6 +501,32 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .config-bool label { flex: 1; }
 .config-bool input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--primary); flex: 0 0 auto; }
 
+/* config sections inside the config modal */
+.config-section-title {
+  margin: 14px 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-strong); padding-bottom: 4px;
+}
+.config-section:not(:last-child) { margin-bottom: 8px; }
+.modal-tall .modal { max-height: 88vh; overflow-y: auto; }
+.modal-divider { border: 0; border-top: 1px solid var(--border-strong); margin: 14px 0; }
+
+/* register table in the template modal */
+.reg-table-wrap { max-height: 320px; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); }
+.reg-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.reg-table th, .reg-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.reg-table th { position: sticky; top: 0; background: var(--bg-strong, var(--bg-elevated)); font-weight: 600; color: var(--text-secondary); z-index: 2; }
+.reg-table tr:last-child td { border-bottom: 0; }
+.reg-table tr:hover td { background: var(--bg-hover); }
+.reg-table .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.reg-table .icon-btn { background: none; border: 0; cursor: pointer; color: var(--text-secondary); font-size: 14px; padding: 2px 4px; border-radius: 6px; }
+.reg-table .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+
+/* converter-specific groups in the register editor */
+.reg-conv { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; width: 100%; margin-top: 4px; }
+.reg-conv .config-bool { display: flex; }
+
+
 .form-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .modal-wide { width: 640px; max-width: calc(100vw - 40px); }
 .graph-wrap { width: 100%; overflow: hidden; }
