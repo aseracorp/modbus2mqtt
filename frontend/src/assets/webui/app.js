@@ -613,13 +613,22 @@ function confirmRemoveSlave(busid, slaveid) {
 
 /* ---------------- templates add/edit/remove ---------------- */
 let editingTemplate = null;
-function openAddTemplate() {
+// working copy of the template being added/edited (full ImodbusSpecification)
+let templateSpec = null;
+
+function emptyTemplateSpec() {
+  return { filename: '', model: undefined, manufacturer: undefined, files: [], entities: [], i18n: [], identified: 0, status: 3, nextEntityId: 1 };
+}
+
+async function openAddTemplate() {
   editingTemplate = null;
+  templateSpec = emptyTemplateSpec();
   $('tpledit-title').textContent = t('add_template');
   $('te-filename').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
+  renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
 }
-function openEditTemplate(filename) {
+async function openEditTemplate(filename) {
   const sp = (state.specs || []).find((s) => s.filename === filename);
   if (!sp) return;
   editingTemplate = filename;
@@ -627,23 +636,163 @@ function openEditTemplate(filename) {
   $('te-filename').value = sp.filename.replace(/\.yaml$/, '');
   $('te-model').value = sp.model || '';
   $('te-manufacturer').value = sp.manufacturer || '';
+  try {
+    const full = await api('/api/specification?spec=' + encodeURIComponent(sp.filename));
+    templateSpec = full || emptyTemplateSpec();
+    templateSpec.filename = sp.filename;
+  } catch (e) {
+    templateSpec = emptyTemplateSpec();
+    templateSpec.filename = sp.filename;
+  }
+  renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
 }
-$('tpledit-cancel')?.addEventListener('click', () => { $('tpledit-overlay').hidden = true; });
+$('tpledit-cancel')?.addEventListener('click', () => { $('tpledit-overlay').hidden = true; templateSpec = null; });
+$('te-reg-add')?.addEventListener('click', () => openRegEdit(null));
+function renderTemplateRegisters() {
+  const tbody = $('te-reg-body');
+  const ents = (templateSpec && templateSpec.entities) || [];
+  if (!ents.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + t('reg_none') + '</td></tr>';
+    return;
+  }
+  tbody.innerHTML = ents.map((en, i) => {
+    const cp = en.converterParameters || {};
+    const isNum = en.converter === 'number';
+    const rw = en.readonly ? 'R' : 'R/W';
+    return '<tr data-idx="' + i + '">' +
+      '<td>' + escapeHtml(en.name || '') + '</td>' +
+      '<td>' + escapeHtml(en.mqttname || '') + '</td>' +
+      '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
+      '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
+      '<td>' + escapeHtml(rw) + '</td>' +
+      '<td>' + escapeHtml(en.converter || '') + '</td>' +
+      '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
+      '<td><div class="row-actions">' +
+        '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
+        '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
+      '</div></td></tr>';
+  }).join('');
+  tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => openRegEdit(Number(b.getAttribute('data-idx')))));
+  tbody.querySelectorAll('.reg-del').forEach((b) => {
+    b.addEventListener('click', () => {
+      const i = Number(b.getAttribute('data-idx'));
+      (templateSpec.entities || []).splice(i, 1);
+      renderTemplateRegisters();
+    });
+  });
+}
+function regTypeName(rt) {
+  switch (rt) { case 1: return 'coil'; case 2: return 'discrete'; case 3: return 'holding'; case 4: return 'input'; default: return String(rt == null ? '' : rt); }
+}
+function regConverterShown() {
+  const cv = $('re-converter') ? $('re-converter').value : 'number';
+  $('reg-conv-number').hidden = cv !== 'number';
+  $('reg-conv-text').hidden = cv !== 'text';
+}
+let editingRegIdx = null;
+function openRegEdit(idx) {
+  editingRegIdx = idx;
+  const ents = (templateSpec && templateSpec.entities) || [];
+  const en = idx == null ? { converter: 'number', converterParameters: {}, registerType: 3, readonly: true } : (ents[idx] || {});
+  const cp = en.converterParameters || {};
+  $('re-name').value = en.name || '';
+  $('re-mqttname').value = en.mqttname || '';
+  $('re-registertype').value = String(en.registerType == null ? 3 : en.registerType);
+  $('re-modbusaddress').value = en.modbusAddress == null ? '' : String(en.modbusAddress);
+  $('re-readonly').checked = !!en.readonly;
+  $('re-category').value = en.entityCategory || '';
+  $('re-converter').value = en.converter || 'number';
+  $('re-multiplier').value = cp.multiplier == null ? '' : String(cp.multiplier);
+  $('re-offset').value = cp.offset == null ? '' : String(cp.offset);
+  $('re-decimals').value = cp.decimals == null ? '' : String(cp.decimals);
+  $('re-numberformat').value = cp.numberFormat == null ? '0' : String(cp.numberFormat);
+  $('re-uom').value = cp.uom || '';
+  $('re-deviceclass').value = cp.device_class || '';
+  $('re-stateclass').value = cp.state_class == null ? '' : String(cp.state_class);
+  $('re-min').value = (cp.identification && cp.identification.min != null) ? String(cp.identification.min) : '';
+  $('re-max').value = (cp.identification && cp.identification.max != null) ? String(cp.identification.max) : '';
+  $('re-step').value = cp.step == null ? '' : String(cp.step);
+  $('re-swapwords').checked = !!cp.swapWords;
+  $('re-swapbytes').checked = !!cp.swapBytes;
+  $('re-stringlength').value = cp.stringlength == null ? '' : String(cp.stringlength);
+  regConverterShown();
+  $('regedit-title').textContent = idx == null ? t('reg_add') : t('reg_edit');
+  $('regedit-overlay').hidden = false;
+}
+$('re-converter')?.addEventListener('change', regConverterShown);
+$('regedit-cancel')?.addEventListener('click', () => { $('regedit-overlay').hidden = true; });
+$('regedit-ok')?.addEventListener('click', () => {
+  const name = $('re-name').value.trim();
+  const mqttname = $('re-mqttname').value.trim();
+  const registerType = parseInt($('re-registertype').value, 10);
+  const modbusAddress = $('re-modbusaddress').value.trim() === '' ? undefined : parseInt($('re-modbusaddress').value.trim(), 10);
+  const readonly = $('re-readonly').checked;
+  const entityCategory = $('re-category').value || undefined;
+  const converter = $('re-converter').value;
+  const cp = {};
+  if (converter === 'number') {
+    const setNum = (k, v) => { if (v !== '') { const n = Number(v); if (!isNaN(n)) cp[k] = n; } };
+    setNum('multiplier', $('re-multiplier').value); setNum('offset', $('re-offset').value); setNum('decimals', $('re-decimals').value);
+    setNum('numberFormat', $('re-numberformat').value);
+    const uom = $('re-uom').value.trim(); if (uom) cp.uom = uom;
+    const dc = $('re-deviceclass').value.trim(); if (dc) cp.device_class = dc;
+    if ($('re-stateclass').value !== '') cp.state_class = parseInt($('re-stateclass').value, 10);
+    const min = $('re-min').value.trim(), max = $('re-max').value.trim();
+    if (min !== '' || max !== '') {
+      cp.identification = {};
+      if (min !== '') cp.identification.min = Number(min);
+      if (max !== '') cp.identification.max = Number(max);
+    }
+    setNum('step', $('re-step').value);
+    if ($('re-swapwords').checked) cp.swapWords = true;
+    if ($('re-swapbytes').checked) cp.swapBytes = true;
+  } else if (converter === 'text') {
+    const sl = $('re-stringlength').value.trim();
+    if (sl !== '') cp.stringlength = parseInt(sl, 10);
+  } else if (converter === 'select') {
+    // options preserved from existing entity
+    const old = editingRegIdx != null && templateSpec.entities[editingRegIdx] ? templateSpec.entities[editingRegIdx].converterParameters || {} : {};
+    cp.options = old.options;
+  }
+  const ents = templateSpec.entities || (templateSpec.entities = []);
+  const en = {
+    id: editingRegIdx != null ? (ents[editingRegIdx].id) : (templateSpec.nextEntityId || (templateSpec.nextEntityId = 1)),
+    name: name || undefined,
+    mqttname: mqttname || undefined,
+    registerType, modbusAddress, readonly, converter,
+    converterParameters: cp,
+    valid: true
+  };
+  if (entityCategory) en.entityCategory = entityCategory;
+  if (editingRegIdx != null) {
+    const old = ents[editingRegIdx];
+    en.id = old.id;
+    if (old.converter === 'select' && converter === 'select') en.converterParameters = Object.assign({}, old.converterParameters, cp);
+    ents[editingRegIdx] = en;
+  } else {
+    if (typeof templateSpec.nextEntityId === 'number') templateSpec.nextEntityId++;
+    ents.push(en);
+  }
+  $('regedit-overlay').hidden = true;
+  renderTemplateRegisters();
+});
 $('tpledit-ok')?.addEventListener('click', async () => {
   const filename = $('te-filename').value.trim().replace(/\.yaml$/, '');
   const model = $('te-model').value.trim();
   const manufacturer = $('te-manufacturer').value.trim();
   if (!filename) return toast(t('err_no_name'), 'error');
+  const spec = Object.assign({}, templateSpec || emptyTemplateSpec(), {
+    filename: filename + '.yaml',
+    model: model || undefined,
+    manufacturer: manufacturer || undefined
+  });
+  if (!Array.isArray(spec.entities)) spec.entities = [];
+  if (typeof spec.files !== 'object' || spec.files === null) spec.files = [];
+  if (!Array.isArray(spec.i18n)) spec.i18n = [];
+  if (spec.identified == null) spec.identified = 0;
+  if (spec.status == null) spec.status = 3;
   try {
-    const spec = {
-      filename: filename + '.yaml',
-      model: model || undefined,
-      manufacturer: manufacturer || undefined,
-      files: [], entities: [], i18n: [],
-      identified: 0,
-      status: 3
-    };
     // A template needs a home slave to be saved via the specification route. Find the first connection/slave.
     const bus = (state.busses || [])[0];
     const slave = bus && bus.slaves && bus.slaves[0];
@@ -655,6 +804,7 @@ $('tpledit-ok')?.addEventListener('click', async () => {
       encodeURIComponent(editingTemplate || filename + '.yaml'), { method: 'POST', body: JSON.stringify(spec) });
     toast(editingTemplate ? t('template_updated') : t('template_added'), 'success');
     $('tpledit-overlay').hidden = true;
+    templateSpec = null;
     await loadAll();
   } catch (e) {
     toast(t('err_save_template') + e.message, 'error');
@@ -716,52 +866,50 @@ document.querySelectorAll('.add-option').forEach((el) => {
 const CONFIG_HIDDEN = new Set([
   'version', 'appVersion', 'httpport', 'httpsPort', 'httpsCertFile', 'httpsKeyFile',
   'rootUrl', 'frontendDir', 'supervisor_host', 'tcpBridgePort', 'mqttusehassio',
-  'mqttcaFile', 'mqttkeyFile', 'mqttcertFile', 'githubPersonalToken', 'filelocation'
+  'githubPersonalToken', 'filelocation', 'fakeModbus'
 ]);
-const CONFIG_LABELS = {
-  mqttbasetopic: 'MQTT base topic', mqttdiscoveryprefix: 'MQTT discovery prefix',
-  mqttdiscoverylanguage: 'MQTT discovery language',
-  mqttserverurl: 'MQTT server URL', username: 'MQTT username', password: 'MQTT password',
-  clientId: 'MQTT client ID', connectTimeout: 'MQTT connect timeout (ms)', keepalive: 'MQTT keepalive (s)',
-  ssl: 'MQTT SSL', clean: 'MQTT clean session', protocol: 'MQTT protocol',
-  fakeModbus: 'Fake Modbus', debugComponents: 'Debug components', displayHex: 'Display hex',
-  host: 'MQTT host', port: 'MQTT port'
+// Ordered MQTT + general fields shown in the config modal (single MQTT server assumption).
+const CONFIG_FIELDS = [
+  { key: 'mqttserverurl', labelKey: 'cfg_mqtt_url', type: 'text', section: 'mqtt', placeholder: 'mqtt://mosquitto:1883' },
+  { key: 'mqttuser', labelKey: 'cfg_mqtt_user', type: 'text', section: 'mqtt' },
+  { key: 'mqttpassword', labelKey: 'cfg_mqtt_password', type: 'password', section: 'mqtt' },
+  { key: 'mqttbasetopic', labelKey: 'cfg_mqtt_base_topic', type: 'text', section: 'mqtt', placeholder: 'modbus2mqtt' },
+  { key: 'mqttdiscoveryprefix', labelKey: 'cfg_mqtt_discovery_prefix', type: 'text', section: 'mqtt', placeholder: 'homeassistant' },
+  { key: 'mqttdiscoverylanguage', labelKey: 'cfg_mqtt_discovery_lang', type: 'text', section: 'mqtt', placeholder: 'en' },
+  { key: 'mqttcafile', labelKey: 'cfg_mqtt_ca_file', type: 'file-select', section: 'mqtt' },
+  { key: 'mqttcertfile', labelKey: 'cfg_mqtt_cert_file', type: 'file-select', section: 'mqtt' },
+  { key: 'mqttkeyfile', labelKey: 'cfg_mqtt_key_file', type: 'file-select', section: 'mqtt' },
+  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'text', section: 'general' },
+  { key: 'displayHex', labelKey: 'cfg_display_hex', type: 'bool', section: 'general' }
+];
+const CONFIG_KEYMAP = {
+  mqttuser: 'mqttconnect.username',
+  mqttpassword: 'mqttconnect.password',
+  mqttserverurl: 'mqttconnect.mqttserverurl',
+  mqttbasetopic: 'mqttbasetopic',
+  mqttdiscoveryprefix: 'mqttdiscoveryprefix',
+  mqttdiscoverylanguage: 'mqttdiscoverylanguage',
+  mqttcafile: 'mqttcaFile', mqttcertfile: 'mqttcertFile', mqttkeyfile: 'mqttkeyFile',
+  debugComponents: 'debugComponents', displayHex: 'displayHex'
 };
-function configLabel(key) {
-  return CONFIG_LABELS[key] || key;
+function configDottedKey(fieldKey) {
+  return CONFIG_KEYMAP[fieldKey] || fieldKey;
 }
-const CONFIG_BOOL = new Set(['fakeModbus', 'ssl', 'clean', 'mqttusehassio', 'displayHex']);
-function isBoolConf(k, v) {
-  if (CONFIG_BOOL.has(k)) return true;
-  const sv = String(v == null ? '' : v).trim().toLowerCase();
-  return ['0', '1', 'true', 'false', 'yes', 'no', 'on', 'off'].includes(sv) && /^(0|1|true|false|yes|no|on|off)$/i.test(sv);
+// ssl file list cache
+let stateSslFiles = [];
+async function loadSslFiles() {
+  try { stateSslFiles = await api('/api/sslfiles'); } catch (e) { stateSslFiles = []; }
 }
-function flattenConfig(conf, prefix) {
-  const out = {};
-  const walk = (obj, path) => {
-    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-      Object.entries(obj).forEach(([k, v]) => {
-        if (v && typeof v === 'object' && !Array.isArray(v)) walk(v, path ? path + '.' + k : k);
-        else out[path ? path + '.' + k : k] = v;
-      });
-    } else {
-      out[path] = obj;
-    }
-  };
-  walk(conf, prefix || '');
-  return out;
+// lookup helpers for the current config
+function configGet(conf, dottedKey) {
+  return dottedKey.split('.').reduce((o, k) => (o == null ? o : o[k]), conf);
 }
-function unflattenConfig(flat) {
-  const out = {};
-  Object.entries(flat).forEach(([k, v]) => {
-    const parts = k.split('.');
-    let cur = out;
-    parts.forEach((p, i) => {
-      if (i === parts.length - 1) { cur[p] = v; }
-      else { cur[p] = cur[p] || {}; cur = cur[p]; }
-    });
-  });
-  return out;
+function configSet(conf, dottedKey, val) {
+  const parts = dottedKey.split('.');
+  let cur = conf;
+  parts.slice(0, -1).forEach((p) => { cur[p] = cur[p] || {}; cur = cur[p]; });
+  if (val === undefined || val === '') { delete cur[parts[parts.length - 1]]; }
+  else { cur[parts[parts.length - 1]] = val; }
 }
 async function loadConfig() {
   try {
@@ -771,24 +919,42 @@ async function loadConfig() {
     toast(t('err_load_config') + e.message, 'error');
   }
 }
-function openConfigEdit() {
+function renderConfigField(flatGet, field) {
+  const val = configGet(flatGet, configDottedKey(field.key));
+  const label = t(field.labelKey);
+  const id = 'cfg-' + field.key;
+  if (field.type === 'password') {
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
+      '<input type="password" id="' + id + '" data-cfgkey="' + field.key + '" value="' + escapeHtml(String(val == null ? '' : val)) + '" autocomplete="new-password"></div>';
+  }
+  if (field.type === 'bool') {
+    const checked = ['1', 'true', 'yes', 'on'].includes(String(val == null ? '' : val).trim().toLowerCase());
+    return '<div class="field config-bool"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
+      '<input type="checkbox" id="' + id + '" data-cfgkey="' + field.key + '"' + (checked ? ' checked' : '') + '>' +
+      '<input type="hidden" data-cfgkey="' + field.key + '" data-boolhidden="' + field.key + '" value="' + (checked ? '1' : '0') + '"></div>';
+  }
+  if (field.type === 'file-select') {
+    const opts = ['<option value="">—</option>'].concat(
+      (stateSslFiles || []).map((f) => '<option value="' + escapeHtml(f) + '"' + (String(val) === f ? ' selected' : '') + '>' + escapeHtml(f) + '</option>')
+    ).join('');
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
+      '<select id="' + id + '" data-cfgkey="' + field.key + '">' + opts + '</select></div>';
+  }
+  const ph = field.placeholder ? ' placeholder="' + escapeHtml(field.placeholder) + '"' : '';
+  return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + '</label>' +
+    '<input type="text" id="' + id + '" data-cfgkey="' + field.key + '" value="' + escapeHtml(String(val == null ? '' : val)) + '"' + ph + '></div>';
+}
+async function openConfigEdit() {
   const grid = $('config-grid');
   if (!grid || !state.config) return;
-  const flat = flattenConfig(state.config, '');
-  const keys = Object.keys(flat).filter((k) => !CONFIG_HIDDEN.has(k));
+  await loadSslFiles();
+  const mqttFields = CONFIG_FIELDS.filter((f) => f.section === 'mqtt');
+  const generalFields = CONFIG_FIELDS.filter((f) => f.section === 'general');
+  const getter = state.config;
   grid.classList.add('config-two-col');
-  grid.innerHTML = keys.map((k) => {
-    const label = configLabel(k);
-    const raw = flat[k];
-    if (isBoolConf(k, raw)) {
-      const checked = ['1', 'true', 'yes', 'on'].includes(String(raw == null ? '' : raw).trim().toLowerCase());
-      return '<div class="field config-bool"><label for="cfg-' + escapeHtml(k) + '">' + escapeHtml(label) + '</label>' +
-        '<input type="checkbox" id="cfg-' + escapeHtml(k) + '" data-cfgkey="' + escapeHtml(k) + '"' + (checked ? ' checked' : '') + '>' +
-        '<input type="hidden" data-cfgkey="' + escapeHtml(k) + '" data-boolhidden="' + escapeHtml(k) + '" value="' + (checked ? '1' : '0') + '"></div>';
-    }
-    return '<div class="field"><label for="cfg-' + escapeHtml(k) + '">' + escapeHtml(label) + '</label>' +
-      '<input type="text" id="cfg-' + escapeHtml(k) + '" data-cfgkey="' + escapeHtml(k) + '" value="' + escapeHtml(String(raw)) + '"></div>';
-  }).join('');
+  const section = (titleKey, fields) => '<h4 class="config-section-title">' + escapeHtml(t(titleKey)) + '</h4>' +
+    '<div class="config-section">' + fields.map((f) => renderConfigField(getter, f)).join('') + '</div>';
+  grid.innerHTML = section('cfg_section_mqtt', mqttFields) + section('cfg_section_general', generalFields);
   grid.querySelectorAll('input[type=checkbox][data-cfgkey]').forEach((cb) => {
     cb.addEventListener('change', () => {
       const hidden = grid.querySelector('input[data-boolhidden="' + cb.getAttribute('data-cfgkey') + '"]');
@@ -797,29 +963,39 @@ function openConfigEdit() {
   });
   $('configedit-overlay').hidden = false;
 }
+// load ssl file list once at boot as well
+loadSslFiles();
 $('btn-top-config')?.addEventListener('click', openConfigEdit);
 $('configedit-cancel')?.addEventListener('click', () => { $('configedit-overlay').hidden = true; });
 function configPayloadFromGrid() {
-  const flat = {};
+  const fieldMap = {
+    mqttuser: 'mqttconnect.username',
+    mqttpassword: 'mqttconnect.password',
+    mqttserverurl: 'mqttconnect.mqttserverurl',
+    mqttcafile: 'mqttcaFile', mqttcertfile: 'mqttcertFile', mqttkeyfile: 'mqttkeyFile'
+  };
+  const merged = JSON.parse(JSON.stringify(state.config || {}));
   document.querySelectorAll('#config-grid [data-cfgkey]').forEach((inp) => {
     if (inp.type === 'checkbox') return; // handled by hidden sibling
     const k = inp.getAttribute('data-cfgkey');
     let v = inp.value;
+    if (fieldMap[k]) {
+      configSet(merged, fieldMap[k], v === '' ? undefined : v);
+      return;
+    }
     if (v === '') v = undefined;
     else if (v === 'true' || v === 'false') v = (v === 'true');
     else {
       const n = Number(v);
       if (v.trim() !== '' && !isNaN(n) && /^-?\d+(\.\d+)?$/.test(v.trim())) v = n;
     }
-    flat[k] = v;
+    // top-level keys (mqttbasetopic, mqttdiscoveryprefix/language, debugComponents, displayHex)
+    configSet(merged, k, v);
   });
-  return unflattenConfig(flat);
+  return merged;
 }
 $('configedit-save')?.addEventListener('click', async () => {
-  const payload = configPayloadFromGrid();
-  // merge the edited mqttconnect + top-level into the current config
-  const merged = JSON.parse(JSON.stringify(state.config || {}));
-  Object.assign(merged, payload);
+  const merged = configPayloadFromGrid();
   try {
     await api('/api/configuration', { method: 'POST', body: JSON.stringify(merged) });
     toast(t('config_saved'), 'success');
@@ -879,6 +1055,102 @@ $('theme-toggle')?.addEventListener('click', () => {
   setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
 });
 
+
+/* ---------------- custom select (language) ----------------
+   The native <select> stays in the DOM (hidden) so existing code that
+   reads/writes lang-select keeps working. The visible round trigger +
+   dropdown mirror HA_enoceanmqtt: theme-aware, uppercase, checkmark on
+   the selected language. */
+function initCustomSelect(selectId) {
+  const sel = $(selectId);
+  if (!sel || sel.dataset.csInit === '1') return;
+  sel.dataset.csInit = '1';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'custom-select' + (selectId === 'lang-select' ? ' cs-lang-select' : ' cs-sender-select');
+  sel.parentNode.insertBefore(wrap, sel);
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'cs-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  wrap.appendChild(trigger);
+
+  const list = document.createElement('ul');
+  list.className = 'cs-list';
+  list.setAttribute('role', 'listbox');
+  wrap.appendChild(list);
+
+  sel.classList.add('cs-native');
+  sel.setAttribute('aria-hidden', 'true');
+  sel.tabIndex = -1;
+
+  const syncTrigger = () => {
+    const o = sel.selectedOptions && sel.selectedOptions[0];
+    trigger.textContent = (o ? o.textContent : sel.value) || '\u2014';
+  };
+
+  const rebuild = () => {
+    const cur = sel.value;
+    const opts = Array.from(sel.querySelectorAll('option'));
+    list.innerHTML = opts.map((o) => {
+      const label = o.textContent;
+      const dis = o.disabled;
+      const cls = dis ? ' disabled' : (o.value === cur || o.selected ? ' selected' : '');
+      return '<li data-value="' + escapeHtml(o.value) + '" class="' + cls.trim() + '">' +
+        '<span>' + escapeHtml(label) + '</span></li>';
+    }).join('');
+    syncTrigger();
+  };
+  const open = () => { syncTrigger(); list.hidden = false; };
+  const close = () => { list.hidden = true; };
+  syncTrigger();
+  rebuild();
+  close();
+
+  const mo = new MutationObserver(() => rebuild());
+  mo.observe(sel, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected'] });
+  sel.addEventListener('change', syncTrigger);
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (list.hidden) open(); else close();
+  });
+  trigger.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault(); open();
+      const first = list.querySelector('li:not(.disabled)');
+      if (first) first.focus();
+    } else if (e.key === 'Escape') {
+      close(); trigger.focus();
+    }
+  });
+  list.addEventListener('click', (e) => {
+    const li = e.target.closest('li');
+    if (!li || li.classList.contains('disabled')) return;
+    sel.value = li.dataset.value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    rebuild();
+    close();
+    trigger.focus();
+  });
+  list.addEventListener('keydown', (e) => {
+    const items = Array.from(list.querySelectorAll('li:not(.disabled)'));
+    if (!items.length) return;
+    const i = items.indexOf(e.target);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.target.click(); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); trigger.focus(); }
+  });
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) close();
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !list.hidden) { e.preventDefault(); close(); trigger.focus(); }
+  });
+}
+
 /* ---------------- init ---------------- */
 (function () {
   try {
@@ -887,6 +1159,7 @@ $('theme-toggle')?.addEventListener('click', () => {
     const sel = $('lang-select');
     if (sel) sel.value = currentLang;
   } catch (e) { /* ignore */ }
+  initCustomSelect('lang-select');
   initTemplateCombo();
   applyTranslations();
   loadAll();
