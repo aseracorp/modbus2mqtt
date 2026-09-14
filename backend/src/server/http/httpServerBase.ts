@@ -13,6 +13,7 @@ import { createAuthMiddleware } from './auth/authMiddleware.js'
 import { initOidc, registerOidcRoutes, setupSession, type OidcConfig } from './auth/oidc.js'
 import { sendResult } from './sendResult.js'
 import { AngularStatics } from './angularStatics.js'
+import { WebuiStatics } from './webuiStatics.js'
 import { corsMiddleware } from './corsMiddleware.js'
 
 interface IAddonInfo {
@@ -34,9 +35,11 @@ export class HttpServerBase {
   httpsServer?: https.Server
   protected oidcConfig: OidcConfig | null = null
   private angularStatics: AngularStatics
+  private webuiStatics: WebuiStatics
   constructor(private angulardir: string = '.') {
     this.app = express()
     this.angularStatics = new AngularStatics(angulardir)
+    this.webuiStatics = new WebuiStatics(angulardir)
   }
   /** Node-level request listener; lets tests (supertest) drive the server without framework internals */
   get requestListener(): http.RequestListener {
@@ -109,6 +112,7 @@ export class HttpServerBase {
               '/addons/self/info',
               (info) => {
                 this.angularStatics.setIngressUrl(info.data.ingress_entry)
+                this.webuiStatics.setIngressUrl(info.data.ingress_entry)
                 const port = Config.getConfiguration().httpport
                 log.log(LogLevelEnum.info, 'Hassio authentication prefix:' + info.data.ingress_entry + ' modbus2mqtt: ' + port)
                 this.initBase()
@@ -151,6 +155,10 @@ export class HttpServerBase {
       res.redirect('index.html')
     })
     this.initApp()
+    // Static webui (HA_enoceanmqtt-style configurator) — mounted after the API
+    // routes and the Angular app so /api/* and language dirs keep normal behaviour.
+    this.app.use('/webui', express.static(this.webuiStatics.getDir()))
+    this.app.use('/webui', this.webuiStatics.middleware())
     this.app.all(/.*/, this.processAll.bind(this))
   }
 }
