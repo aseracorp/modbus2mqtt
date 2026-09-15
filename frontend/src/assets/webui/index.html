@@ -170,6 +170,14 @@
 <div class="modal-overlay" id="busedit-overlay" hidden>
   <div class="modal modal-wide">
     <h3 id="busedit-title" data-i18n="edit_bus">Edit Modbus connection</h3>
+    <div id="bus-discovered" class="discovered-box" hidden>
+      <span class="discovered-info" id="bus-discovered-info" data-i18n="bus_discovered_info">Modbus TCP Server found at address</span>
+      <span class="discovered-addr" id="bus-discovered-addr"></span>
+      <div class="discovered-actions">
+        <button class="btn btn-sm btn-primary" id="bus-discovered-add" data-i18n="add_server">Add Server</button>
+        <button class="btn btn-sm" id="bus-discovered-ignore" data-i18n="ignore">Ignore</button>
+      </div>
+    </div>
     <div class="add-form add-stack">
       <div class="field"><label data-i18n="bus_type">Type</label>
         <select id="be-type">

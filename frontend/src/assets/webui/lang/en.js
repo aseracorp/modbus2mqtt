@@ -141,4 +141,8 @@ window.LANG_en = {
   'help_re-swapbytes': "Swap bytes within a 16-bit word.",
   'help_re-stringlength': "Number of registers to read for a text value.",
   'help_re-options': "Comma-separated options for a select converter.",
+  add_server: "Add Server",
+  ignore: "Ignore",
+  server_ignored: "Server ignored",
+  bus_discovered_info: "Modbus TCP Server found at address",
 };
