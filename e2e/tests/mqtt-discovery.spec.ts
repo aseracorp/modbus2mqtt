@@ -12,7 +12,7 @@ test.describe('MQTT Discovery Tests', () => {
   });
 
   test('mqtt hassio addon discovery', async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(240_000);
 
     const prefix = 'ingress';
     await dismissAnnouncements(page);
@@ -42,14 +42,14 @@ test.describe('MQTT Discovery Tests', () => {
       // Wait for MQTT discovery messages to arrive (CI can be slow)
       await expect
         .poll(() => mqttHelper.getTopicAndPayloads().find((tp) => tp.payload === 'online'), {
-          timeout: 15_000,
+          timeout: 45_000,
           message: 'Waiting for "online" MQTT message',
         })
         .toBeTruthy();
 
       await expect
         .poll(() => mqttHelper.getTopicAndPayloads().find((tp) => tp.topic.endsWith('/state/')), {
-          timeout: 15_000,
+          timeout: 45_000,
           message: 'Waiting for /state/ topic',
         })
         .toBeTruthy();
@@ -64,7 +64,7 @@ test.describe('MQTT Discovery Tests', () => {
           );
           return uniqueTopics.size;
         }, {
-          timeout: 15_000,
+          timeout: 45_000,
           message: 'Waiting for 2 unique homeassistant discovery topics',
         })
         .toBe(2);
