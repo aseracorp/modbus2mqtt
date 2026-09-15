@@ -141,4 +141,8 @@ window.LANG_it = {
   'help_re-swapbytes': "Scambia i byte all'interno di una parola a 16 bit.",
   'help_re-stringlength': "Numero di registri per un valore testuale.",
   'help_re-options': "Opzioni separate da virgole per un convertitore select.",
+  add_server: "Aggiungi server",
+  ignore: "Ignora",
+  server_ignored: "Server ignorato",
+  bus_discovered_info: "Server Modbus TCP trovato all'indirizzo",
 };

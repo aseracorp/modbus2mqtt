@@ -29,4 +29,7 @@ export enum apiUri {
   uploadSpec = '/api/uploadspec',
   uploadLocal = '/api/upload/local',
   e2eReset = '/api/e2e/reset',
+  discoveredModbusServers = '/api/discovered/modbus/servers',
+  discoveredModbusAdd = '/api/discovered/modbus/add',
+  discoveredModbusIgnore = '/api/discovered/modbus/ignore',
 }
