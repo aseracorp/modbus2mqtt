@@ -570,6 +570,20 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .val-link:hover { text-decoration: underline; }
 .latest-val a:hover { text-decoration: underline; }
 
+/* discovered Modbus server banner inside the connection popup */
+.discovered-box {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  background: var(--bg-surface); border: 1px solid var(--primary);
+  border-radius: var(--radius-lg); padding: 10px 14px; margin: 4px 0 14px;
+}
+.discovered-box[hidden] { display: none !important; }
+.discovered-info { font-size: 13px; color: var(--text); }
+.discovered-addr {
+  font-family: 'JetBrains Mono', monospace; font-size: 13.5px;
+  color: var(--primary); font-weight: 600;
+}
+.discovered-actions { display: inline-flex; gap: 8px; margin-left: auto; }
+
 /* help icon (i) with themed tooltip */
 .help-icon {
   cursor: help; font-size: 13px; color: var(--primary);

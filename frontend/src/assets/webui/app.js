@@ -358,6 +358,26 @@ async function loadSerialDevices() {
 /* ---------------- add / edit connection ---------------- */
 let editingBusId = null;
 
+async function loadDiscoveredModbus() {
+  try {
+    const servers = await api('/api/discovered/modbus/servers');
+    return Array.isArray(servers) ? servers : [];
+  } catch (e) {
+    return [];
+  }
+}
+async function refreshDiscoveredBanner() {
+  const box = $('bus-discovered');
+  if (!box) return;
+  const servers = await loadDiscoveredModbus();
+  if (!servers.length) {
+    box.hidden = true;
+    return;
+  }
+  const s = servers[0];
+  $('bus-discovered-addr').textContent = s.host + ':' + s.port + (s.name ? '  (' + s.name + ')' : '');
+  box.hidden = false;
+}
 function openAddBus() {
   editingBusId = null;
   $('busedit-title').textContent = t('add_bus_title');
@@ -368,6 +388,7 @@ function openAddBus() {
   updateBusTypeFields();
   loadSerialDevices();
   $('busedit-overlay').hidden = false;
+  refreshDiscoveredBanner();
   applyHelpIcons();
 }
 function openEditBus(busid) {
@@ -392,6 +413,7 @@ function openEditBus(busid) {
   updateBusTypeFields();
   loadSerialDevices();
   $('busedit-overlay').hidden = false;
+  refreshDiscoveredBanner();
   applyHelpIcons();
 }
 function updateBusTypeFields() {
@@ -401,6 +423,33 @@ function updateBusTypeFields() {
 }
 $('be-type')?.addEventListener('change', updateBusTypeFields);
 $('busedit-cancel')?.addEventListener('click', () => { $('busedit-overlay').hidden = true; });
+$('bus-discovered-add')?.addEventListener('click', async () => {
+  const addr = ($('bus-discovered-addr')?.textContent || '').split(' ')[0];
+  const m = addr.match(/^(.+):(\d+)$/);
+  if (!m) return;
+  const host = m[1], port = parseInt(m[2], 10);
+  try {
+    await api('/api/discovered/modbus/add', { method: 'POST', body: JSON.stringify({ host, port }) });
+    toast(t('bus_added'), 'success');
+    $('busedit-overlay').hidden = true;
+    await loadAll();
+  } catch (e) {
+    toast(t('err_add_device') + e.message, 'error');
+  }
+});
+$('bus-discovered-ignore')?.addEventListener('click', async () => {
+  const addr = ($('bus-discovered-addr')?.textContent || '').split(' ')[0];
+  const m = addr.match(/^(.+):(\d+)$/);
+  if (!m) return;
+  const host = m[1], port = parseInt(m[2], 10);
+  try {
+    await api('/api/discovered/modbus/ignore', { method: 'POST', body: JSON.stringify({ host, port }) });
+    toast(t('server_ignored'), 'success');
+    await refreshDiscoveredBanner();
+  } catch (e) {
+    toast(t('err_save_config') + e.message, 'error');
+  }
+});
 $('busedit-ok')?.addEventListener('click', async () => {
   const type = $('be-type').value;
   const timeout = parseInt($('be-timeout').value, 10) || 1000;
