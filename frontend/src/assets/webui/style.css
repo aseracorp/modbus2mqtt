@@ -526,7 +526,7 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .modal-divider { border: 0; border-top: 1px solid var(--border-strong); margin: 14px 0; }
 
 /* register table in the template modal */
-.reg-table-wrap { max-height: 320px; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); }
+.reg-table-wrap { max-height: 40vh; min-height: 120px; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); }
 .reg-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .reg-table th, .reg-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .reg-table th { position: sticky; top: 0; background: var(--bg-strong, var(--bg-elevated)); font-weight: 600; color: var(--text-secondary); z-index: 2; }
@@ -547,8 +547,7 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .modal-xlg {
   width: 1120px;
   max-width: calc(100vw - 40px);
-  max-height: 86vh;
-  overflow-y: auto;
+  max-height: 92vh;
 }
 
 .modal-xlg .add-form { max-width: 1080px; }
@@ -656,8 +655,38 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .modal.modal-xlg, .modal.modal.modal-xlg {
   width: 1120px;
   max-width: calc(100vw - 40px);
-  max-height: 86vh;
+  height: auto;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Let the register table consume the modal's extra height and keep the
+   header + buttons fixed: the modal is a flex column and the table is the
+   flexible middle region. The whole thing scales with the window height. */
+.modal.modal-xlg .reg-table-wrap {
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: none;
+}
+.modal.modal-xlg .modal-actions {
+  flex: 0 0 auto;
+}
+.modal.modal-xlg .add-stack {
+  flex: 0 0 auto;
+}
+.modal.modal-xlg h3, .modal.modal-xlg h4, .modal.modal-xlg hr {
+  flex: 0 0 auto;
+}
+
+/* The register (entity) editor has no table — it's a tall form. Let IT scroll
+   instead of being clipped by the xlg overflow:hidden. */
+.modal.modal-xlg .add-form.add-stack.in-regedit {
+  flex: 1 1 auto;
   overflow-y: auto;
+  min-height: 180px;
+  align-content: start;
 }
 
 .modal.modal-wide, .modal.modal.modal-wide {
