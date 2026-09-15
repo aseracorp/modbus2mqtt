@@ -8,6 +8,7 @@ import * as os from 'os'
 
 import Debug from 'debug'
 import { MqttDiscover } from './mqttdiscover.js'
+import { MqttAutoDiscover } from './MqttAutoDiscover.js'
 import { ConfigSpecification } from '../specification/index.js'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -125,6 +126,7 @@ export class Modbus2Mqtt {
         )
         const startServer = () => {
           MqttDiscover.getInstance()
+          MqttAutoDiscover.getInstance().start()
           ConfigBus.readBusses()
           Bus.readBussesFromConfig().then(() => {
             this.pollTasks()
