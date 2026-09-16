@@ -23,6 +23,7 @@ export enum apiUri {
   translate = '/api/translate',
   validateMqtt = '/api/validate/mqtt',
   writeEntity = '/api/modbus/write/entity',
+  configRegister = '/api/modbus/config',
   serialDevices = '/api/serial/devices',
   nextCheck = '/api/nextGithubMergeCheck',
   download = '/download/:what',

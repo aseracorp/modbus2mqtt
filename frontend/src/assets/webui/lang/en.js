@@ -145,4 +145,10 @@ window.LANG_en = {
   ignore: "Ignore",
   server_ignored: "Server ignored",
   bus_discovered_info: "Modbus TCP Server found at address",
+  reg_cond: "Condition (optional)",
+  reg_cond_hint: "Register is only available when its bits are set in the condition register (e.g. Thermokon sensor-identification 501)",
+  reg_category_hint: "value → MQTT/HA · config → device configuration (not published)",
+  reg_cond_register: "Condition register",
+  reg_cond_bits: "Bits",
+  reg_cond_equals: "Equals",
 };

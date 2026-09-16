@@ -750,21 +750,24 @@ function renderTemplateRegisters() {
   const tbody = $('te-reg-body');
   const ents = (templateSpec && templateSpec.entities) || [];
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + t('reg_none') + '</td></tr>';
     return;
   }
   tbody.innerHTML = ents.map((en, i) => {
     const cp = en.converterParameters || {};
     const isNum = en.converter === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
+    const cat = en.category === 'config' ? 'config' : 'value';
+    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register)) + '">⚑</span>' : '';
     return '<tr data-idx="' + i + '">' +
-      '<td>' + escapeHtml(en.name || '') + '</td>' +
+      '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(en.mqttname || '') + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
       '<td>' + escapeHtml(rw) + '</td>' +
       '<td>' + escapeHtml(en.converter || '') + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
+      '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
         '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
@@ -798,7 +801,12 @@ function openRegEdit(idx) {
   $('re-registertype').value = String(en.registerType == null ? 3 : en.registerType);
   $('re-modbusaddress').value = en.modbusAddress == null ? '' : String(en.modbusAddress);
   $('re-readonly').checked = !!en.readonly;
-  $('re-category').value = en.entityCategory || '';
+  $('re-category').value = en.category || en.entityCategory || 'value';
+  // condition
+  const cond = en.condition || {};
+  $('re-cond-register').value = cond.register != null ? String(cond.register) : '';
+  $('re-cond-bits').value = cond.bits && cond.bits.length ? cond.bits.join(',') : '';
+  $('re-cond-equals').value = cond.equals != null ? String(cond.equals) : '';
   $('re-converter').value = en.converter || 'number';
   $('re-multiplier').value = cp.multiplier == null ? '' : String(cp.multiplier);
   $('re-offset').value = cp.offset == null ? '' : String(cp.offset);
@@ -815,8 +823,14 @@ function openRegEdit(idx) {
   $('re-stringlength').value = cp.stringlength == null ? '' : String(cp.stringlength);
   regConverterShown();
   $('regedit-title').textContent = idx == null ? t('reg_add') : t('reg_edit');
+  // Re-apply translations for the dynamically-opened editor (hints, labels).
+  const form = $('regedit-form');
+  form.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (key && t(key)) el.textContent = t(key);
+  });
   $('regedit-overlay').hidden = false;
-  applyHelpIcons($('regedit-form'));
+  applyHelpIcons(form);
 }
 $('re-converter')?.addEventListener('change', regConverterShown);
 $('regedit-cancel')?.addEventListener('click', () => { $('regedit-overlay').hidden = true; });
@@ -862,7 +876,20 @@ $('regedit-ok')?.addEventListener('click', () => {
     converterParameters: cp,
     valid: true
   };
-  if (entityCategory) en.entityCategory = entityCategory;
+  // category: 'value' (default), 'config' (device config - not published), 'diagnostic'
+  const category = $('re-category').value || 'value';
+  if (category === 'config') en.category = 'config';
+  else if (category === 'diagnostic') en.entityCategory = 'diagnostic';
+  // condition
+  const condReg = $('re-cond-register').value.trim();
+  if (condReg !== '') {
+    const cond = { register: parseInt(condReg, 10) };
+    const bits = $('re-cond-bits').value.trim();
+    if (bits !== '') cond.bits = bits.split(',').map((b) => parseInt(b.trim(), 10)).filter((n) => !isNaN(n));
+    const eq = $('re-cond-equals').value.trim();
+    if (eq !== '') cond.equals = parseInt(eq, 10);
+    en.condition = cond;
+  }
   if (editingRegIdx != null) {
     const old = ents[editingRegIdx];
     en.id = old.id;

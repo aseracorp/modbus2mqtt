@@ -119,4 +119,51 @@ export function registerModbusRoutes(r: Registrar): void {
     }
     throw new ApiError(HttpErrorsEnum.SrvErrInternalServerError, 'No entity found in specfication')
   })
+
+  // ---- Config register (device configuration) read/write API ----
+  // Config registers (category==='config') are not published to MQTT/HA; they are
+  // read and written directly to configure the device:
+  //   GET /api/modbus/config?busid=&slaveid=&spec=&register=&registerType=  -> raw value
+  //   POST /api/modbus/config  body: { spec, entityid, mqttValue } -> write via the entity converter
+  r.get(apiUri.configRegister, async (ctx) => {
+    const { busid, slaveid } = requireBusSlave(ctx)
+    const bus = Bus.getBus(busid)
+    if (!bus) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'Bus not found. Id: ' + busid)
+    const reg = Number.parseInt(String(ctx.query['register']))
+    const registerType = Number.parseInt(String(ctx.query['registerType'] ?? '3'))
+    if (isNaN(reg)) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'register required')
+    try {
+      const addresses = new Set([{ address: reg, registerType }])
+      const values = await bus.getModbusAPI().readModbusRegister(slaveid, addresses, {
+        task: ModbusTasks.poll,
+        errorHandling: { retry: true },
+      })
+      let raw: number | undefined
+      switch (registerType) {
+        case 4: raw = values.analogInputs.get(reg)?.data?.[0]; break
+        case 3: raw = values.holdingRegisters.get(reg)?.data?.[0]; break
+        case 1: raw = values.coils.get(reg)?.data?.[0]; break
+        default: raw = values.discreteInputs.get(reg)?.data?.[0]; break
+      }
+      return ok({ register: reg, registerType, value: raw ?? null })
+    } catch (e) {
+      throw new ApiError(HttpErrorsEnum.SrvErrInternalServerError, e instanceof Error ? e.message : String(e))
+    }
+  })
+
+  r.post(apiUri.configRegister, async (ctx) => {
+    const { busid, slaveid } = requireBusSlave(ctx)
+    const bus = Bus.getBus(busid)
+    if (!bus) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'Bus not found. Id: ' + busid)
+    const body = ctx.body as { spec?: Ispecification; entityid?: number; mqttValue?: string }
+    if (body && body.spec && body.entityid != undefined && body.mqttValue != undefined) {
+      try {
+        await Modbus.writeEntityMqtt(bus.getModbusAPI(), slaveid, body.spec, body.entityid, body.mqttValue)
+        return created('')
+      } catch (e) {
+        throw new ApiError(HttpErrorsEnum.SrvErrInternalServerError, e instanceof Error ? e.message : String(e))
+      }
+    }
+    throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'spec, entityid and mqttValue required')
+  })
 }

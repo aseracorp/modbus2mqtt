@@ -144,7 +144,9 @@ export class MqttDiscover {
       if (language)
         for (const e of spec.entities) {
           // !slave.suppressedEntities.includes(e.id)
-          if (e.id >= 0 && !e.variableConfiguration) {
+          // Config registers are not exposed to MQTT / Home Assistant - they are
+          // device configuration and must be read/written directly (config API).
+          if (e.id >= 0 && !e.variableConfiguration && e.category !== 'config') {
             const converter = ConverterMap.getConverter(e)
             const ent: ImodbusEntity = e as ImodbusEntity
 

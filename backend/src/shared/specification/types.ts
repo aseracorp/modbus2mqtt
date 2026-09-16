@@ -144,6 +144,29 @@ export interface Ientity extends IidentEntity {
   forceUpdate?: boolean
   entityCategory?: string
   converterParameters?: ConverterParameter
+  /**
+   * Conditional register: the entity is only active/present when the value of
+   * `register` meets the condition. Used for devices whose register map depends
+   * on a variant/config, e.g. the Thermokon WRF06 sensor-identification bitmask
+   * (register 501: bit N set => sensor N present).
+   * - `bits`: entity is active if any of these bit indexes (0 = LSB) is set.
+   * - `equals`: entity is active if the register equals this value.
+   * If both are given, the entity is active if (bits match) OR (equals match).
+   */
+  condition?: {
+    register: number
+    registerType?: ModbusRegisterType
+    bits?: number[]
+    equals?: number
+  }
+  /**
+   * Register category.
+   * - 'value'  (default): a measurement register, published to MQTT / Home Assistant.
+   * - 'config' : a device configuration register (offsets, limits, unit system...).
+   *   It is NOT published to MQTT / HA and is NOT polled into state; it is read
+   *   and written directly via the config API to configure the device.
+   */
+  category?: 'value' | 'config'
 }
 export function getParameterType(entity: Ientity): string | undefined
 export function getParameterType(converter: Converters | null | undefined): string | undefined
