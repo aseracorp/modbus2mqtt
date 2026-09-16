@@ -1,6 +1,7 @@
 import { Bonjour } from 'bonjour-service'
 import { ImqttClient } from '../shared/server/index.js'
 import { Config } from './config.js'
+import * as os from 'os'
 import { MqttConnector } from './mqttconnector.js'
 import { LogLevelEnum, Logger } from '../specification/index.js'
 
@@ -78,8 +79,23 @@ export class MqttAutoDiscover {
     this.probeTimer = setTimeout(() => this.probe(), 15000)
   }
 
+  /** Private IPv4 interfaces to browse mDNS on (multi-homed Docker support). */
+  private allMdnsInterfaces(extra: string[] = []): string[] {
+    const rc: string[] = [...extra]
+    const nets = os.networkInterfaces()
+    for (const addrs of Object.values(nets)) {
+      for (const a of addrs || []) {
+        if (a.family === 'IPv4' && a.internal === false && !rc.includes(a.address)) rc.push(a.address)
+      }
+    }
+    return rc
+  }
+
   private async browseMdns(): Promise<boolean> {
-    const bonjour = new Bonjour()
+    // multicast-dns only sends/joins mDNS on ONE interface by default. In a
+    // multi-homed Docker container, browse on every private IPv4 interface and
+    // merge the results so a broker on ANY connected network is discovered.
+    const bonjours: { find(...o: unknown[]): unknown; destroy(): void }[] = []
     const found: { url: string; label: string }[] = []
     const services: { name: string; port: number; addresses: string[]; txt: Record<string, string> | undefined }[] = []
 
@@ -89,20 +105,28 @@ export class MqttAutoDiscover {
       services.push({ name: s.name || 'mqtt', port, addresses: [addr], txt: s.txt })
     }
 
+    const interfaces = this.allMdnsInterfaces(['127.0.0.1'])
+    for (const iface of interfaces) {
+      try {
+        const bonjour = new Bonjour({ interface: iface } as unknown as Record<string, unknown>)
+        bonjours.push(bonjour)
+        const browser = bonjour.find({ type: 'mqtt', protocol: 'tcp' })
+        const browserTls = bonjour.find({ type: 'mqtts', protocol: 'tcp' })
+        browser.on('up', collect)
+        browserTls.on('up', collect)
+      } catch { /* single-interface failure is not fatal */ }
+    }
+    if (!bonjours.length) bonjours.push(new Bonjour())
+
     return await new Promise<boolean>((resolvePromise) => {
       let settled = false
       const settle = (ok: boolean) => {
         if (settled) return
         settled = true
-        try { bonjour.destroy() } catch { /* ignore */ }
+        bonjours.forEach((b) => { try { b.destroy() } catch { /* ignore */ } })
         resolvePromise(ok)
       }
-
       try {
-        const browser = bonjour.find({ type: 'mqtt', protocol: 'tcp' })
-        const browserTls = bonjour.find({ type: 'mqtts', protocol: 'tcp' })
-        browser.on('up', collect)
-        browserTls.on('up', collect)
 
         // collect for a short window, then evaluate candidates
         setTimeout(async () => {
