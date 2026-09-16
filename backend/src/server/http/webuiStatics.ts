@@ -53,12 +53,13 @@ export class WebuiStatics {
     res.send(content)
   }
 
-  private processStaticWebuiFiles(req: Request, res: Response): void {
+  private processStaticWebuiFiles(req: Request, res: Response, next?: () => void): void {
     try {
       // Resolve the request inside the webui dir and refuse path traversal.
       const webuiRoot = join(this.webuidir)
       const file = join(webuiRoot, req.url.replace(/^\/+/, ''))
       if (file !== webuiRoot && !file.startsWith(webuiRoot + '/')) {
+        if (next) return next()
         res.status(404).send('Not Found')
         return
       }
@@ -76,16 +77,31 @@ export class WebuiStatics {
           return
         }
       }
-      // Missing webui asset: 404 instead of falling through to the Angular SPA catch-all.
+      // Missing webui asset: fall through if we have a next (so the SPA can
+      // handle unknown unified paths), else 404 (isolated mounts/tests).
+      if (next) return next()
       res.status(404).send('Not Found')
       return
     } catch {
+      if (next) return next()
       res.status(404).send('Not Found')
       return
     }
   }
 
   middleware(): RequestHandler {
-    return this.processStaticWebuiFiles.bind(this)
+    return (req: Request, res: Response, next: () => void) => {
+      // Serve webui files (index/style/app/lang/...). Anything else falls
+      // through so the Angular SPA / old-ui / API routes keep their behaviour.
+      this.processStaticWebuiFiles(req, res, next)
+    }
+  }
+
+  /** Strict variant: 404 for missing/outside files (no fallthrough). Used by
+   *  the isolated /webui mount and tests; the root mount uses middleware(). */
+  strictMiddleware(): RequestHandler {
+    return (req: Request, res: Response) => {
+      this.processStaticWebuiFiles(req, res)
+    }
   }
 }

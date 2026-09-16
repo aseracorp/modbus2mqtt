@@ -14,7 +14,7 @@ test.describe('MQTT Discovery Tests', () => {
   test('mqtt hassio addon discovery', async ({ page }) => {
     test.setTimeout(240_000);
 
-    const prefix = 'ingress';
+    const prefix = 'ingress/old-ui';
     await dismissAnnouncements(page);
     await page.goto(`http://${LOCALHOST}:${PORTS.nginxAddon}/${prefix}`);
 

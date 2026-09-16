@@ -37,6 +37,7 @@ const localSpec = {
 
 test.describe('Specifications Page Tests', () => {
   const baseUrl = `http://${LOCALHOST}:${PORTS.modbus2mqttSpec}`;
+  const oldUiUrl = `${baseUrl}/old-ui`;
 
   test.beforeEach(async () => {
     await resetServer(PORTS.modbus2mqttSpec);
@@ -46,8 +47,8 @@ test.describe('Specifications Page Tests', () => {
     test.setTimeout(120_000);
 
     // Register and configure MQTT (no-auth backend — API calls need no bearer token)
-    await runRegister(page, { authentication: false, port: PORTS.modbus2mqttSpec });
-    await runConfig(page, { authentication: false });
+    await runRegister(page, { authentication: false, port: PORTS.modbus2mqttSpec, oldUi: true });
+    await runConfig(page, { authentication: false, oldUi: true });
 
     const headers = { 'Content-Type': 'application/json' };
 
@@ -93,7 +94,7 @@ test.describe('Specifications Page Tests', () => {
     expect(publicSpecs.length).toBeGreaterThan(0);
 
     // Navigate to specifications page
-    await page.goto(`${baseUrl}/specifications`);
+    await page.goto(`${oldUiUrl}/specifications`);
     await page.waitForURL(/\/specifications/, { timeout: 15000 });
 
     // Wait for spec cards to render
