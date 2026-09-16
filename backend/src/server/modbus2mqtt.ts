@@ -17,6 +17,10 @@ import { SpecificationStatus } from '../shared/specification/index.js'
 import * as fs from 'fs'
 import { ConfigBus } from './configbus.js'
 import { CmdlineMigrate } from './CmdlineMigrate.js'
+function packageRoot(): string {
+  return dirname(dirname(dirname(fileURLToPath(import.meta.url))))
+}
+
 let httpServer: HttpServer | undefined = undefined
 
 process.on('unhandledRejection', (reason, p) => {
@@ -101,6 +105,9 @@ export class Modbus2Mqtt {
     readConfig.readYamlAsync
       .bind(readConfig)()
       .then(() => {
+        // Seed bundled local specifications (e.g. Thermokon WRF06) so templates
+        // are selectable in the webui without a manual import. Idempotent.
+        ConfigSpecification.seedLocalSpecifications(packageRoot())
         ConfigSpecification.setMqttdiscoverylanguage(
           Config.getConfiguration().mqttdiscoverylanguage,
           Config.getConfiguration().githubPersonalToken
