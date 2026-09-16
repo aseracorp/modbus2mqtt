@@ -2,7 +2,7 @@ name: "On pull request: Enable Auto-Merge"
 
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review, closed]
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   contents: write
@@ -24,24 +24,37 @@ jobs:
       # invalid/expired, causing the auto-merge to fail). contents+PR write perms
       # are enough to enable auto-merge.
       #
-      # IMPORTANT: evaluating a merge with GITHUB_TOKEN does NOT trigger "push"
-      # workflows (GitHub intentionally skips runs triggered by the built-in
-      # token), so the "Create and publish a Docker image" workflow would never
-      # fire for auto-merged PRs. We therefore explicitly dispatch that workflow
-      # after the merge (workflow_dispatch is allowed for GITHUB_TOKEN).
+      # IMPORTANT: commits authored by GITHUB_TOKEN do NOT trigger "push"
+      # workflows (GitHub anti-recursion), so after an auto-merge the
+      # "Create and publish a Docker image" workflow would never fire. We
+      # therefore poll until the PR is merged and then explicitly dispatch the
+      # Docker workflow on main (workflow_dispatch IS allowed for GITHUB_TOKEN).
       - name: Enable auto-merge
-        if: github.event.action != 'closed'
         run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Dispatch Docker image build after merge
-        # On a merged PR (closed), GitHub does NOT fire "push" workflows for
-        # commits authored by GITHUB_TOKEN, so the Docker publish is skipped.
-        # Re-dispatch it explicitly (workflow_dispatch is allowed for the token).
-        if: github.event.action == 'closed' && github.event.pull_request.merged == true
+      - name: Wait for merge then dispatch Docker image build
         run: |
-          gh workflow run docker-image.yml --ref main
+          set -e
+          # Wait (up to ~5 min) for auto-merge to complete.
+          for i in $(seq 1 60); do
+            state=$(gh pr view ${{ github.event.pull_request.number }} --json state,merged --jq '.state + " " + (.merged|tostring)')
+            if echo "$state" | grep -qi 'MERGED true'; then
+              echo "PR merged after ${i}x5s"
+              break
+            fi
+            sleep 5
+          done
+          final=$(gh pr view ${{ github.event.pull_request.number }} --json state,merged --jq '.state + " " + (.merged|tostring)')
+          echo "final state: $final"
+          if echo "$final" | grep -qi 'MERGED true'; then
+            # Re-run the Docker publish on main (push trigger was skipped for
+            # GITHUB_TOKEN-authored merges).
+            gh workflow run docker-image.yml --ref main
+            echo "dispatched docker-image.yml on main"
+          else
+            echo "PR not merged (state: $final) - skipping docker dispatch"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
-
