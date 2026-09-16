@@ -1,9 +1,10 @@
 name: Create and publish a Docker image
 
 on:
+  # Only build/publish on push to main (and manual dispatch). PRs use
+  # build-and-test-on-pr.yml instead; running the full multi-arch image
+  # build on every PR is wasteful and leaks the image build to forks.
   push:
-    branches: [ "main" ]
-  pull_request:
     branches: [ "main" ]
   workflow_dispatch:
 
@@ -55,9 +56,7 @@ jobs:
         with:
           context: .
           file: ./docker/Dockerfile
-          # Do not push when the event is a pull_request (secrets are not
-          # available for forks, and publishing from PRs is unsafe)
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: ${{ env.PLATFORMS }}
@@ -65,7 +64,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Generate artifact attestation
-        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/attest-build-provenance@v4.2.2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
