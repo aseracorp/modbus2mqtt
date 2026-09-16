@@ -15,7 +15,7 @@ export class WebuiStatics {
   private ingressUrl: string = '/'
 
   constructor(angulardir: string) {
-    // Resolve the language build directory the same way AngularStatics does:
+    // Resolve the language build directory the same way the (removed) Angular statics did:
     // the angular output is dist/frontend/browser/<lang>/… and the webui is
     // shipped inside that dir's assets folder (src/assets/webui).
     const langDir = this.resolveLangDir(angulardir)

@@ -9,22 +9,6 @@ beforeAll(async () => {
 })
 afterAll(() => ts.cleanup())
 
-it('GET /old-ui/index.html rewrites base href to /old-ui/', async () => {
-  const response = await ts.request().get('/old-ui/index.html').expect(200)
-  expect(response.text.indexOf('href="/old-ui/en-US/"')).toBeGreaterThanOrEqual(0)
-})
-
-it('GET /old-ui/index.html with Ingress header serves the legacy index', async () => {
-  const response = await ts.request().get('/old-ui/index.html').set({ 'X-Ingress-Path': 'test' }).expect(200)
-  expect(response.text.indexOf('<base')).toBeGreaterThanOrEqual(0)
-})
-
-it('GET angular files serves language specific statics under /old-ui', async () => {
-  const response = await ts.request().get('/old-ui/en-US/test.css').expect(200)
-  expect(response.text).toBe('.justContent {\n' + '  margin: 1pt;\n' + '}\n')
-  expect(response.type).toBe('text/css')
-})
-
 it('GET local specification files', async () => {
   const response = await ts.request().get('/specifications/files/waterleveltransmitter/files.yaml').expect(200)
   if (response.type === 'text/yaml' || response.type === 'application/x-yaml') {
@@ -38,6 +22,11 @@ it('GET local specification files', async () => {
     // Fallback: Angular index.html served when files.yaml is missing in test-setup
     expect(response.type).toBe('text/html')
   }
+})
+
+it('GET /old-ui falls through to the new webui (legacy removed)', async () => {
+  const response = await ts.request().get('/old-ui').expect(200)
+  expect(response.type).toBe('text/html')
 })
 
 it('GET / serves the new webui (root)', async () => {
