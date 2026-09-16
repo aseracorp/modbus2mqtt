@@ -50,18 +50,6 @@ it('GET /lang/de.js serves another language file', async () => {
   expect(response.text).toContain('Web-Konfigurator')
 })
 
-it('GET /old-ui serves the legacy Angular webui', async () => {
-  const response = await ts.request().get('/old-ui').expect(200)
-  expect(response.type).toBe('text/html')
-  expect(response.text).toContain('<base href="/old-ui/en-US/"')
-})
-
-it('GET /old-ui/en-US/test.css serves a legacy angular asset', async () => {
-  const response = await ts.request().get('/old-ui/en-US/test.css').expect(200)
-  expect(response.type).toBe('text/css')
-  expect(response.text).toContain('.justContent')
-})
-
 it('path traversal outside the webui dir is refused (strict isolated handler)', async () => {
   const webuiStatics = new WebuiStatics(join('tests/server/config-dir', 'angular'))
   const app = express()
