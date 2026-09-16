@@ -2,11 +2,12 @@ name: "On pull request: Enable Auto-Merge"
 
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, closed]
 
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   auto-merge:
@@ -19,9 +20,28 @@ jobs:
       || github.actor == 'volkmarnissen') }}
     steps:
       - uses: actions/checkout@v5
-      # GITHUB_TOKEN is scoped to this repo and always available (secrets.PAT
-      # was invalid/expired, causing the auto-merge to fail). contents+PR write
-      # perms above are enough to enable auto-merge.
-      - run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
+      # GITHUB_TOKEN is scoped to this repo and always available (secrets.PAT was
+      # invalid/expired, causing the auto-merge to fail). contents+PR write perms
+      # are enough to enable auto-merge.
+      #
+      # IMPORTANT: evaluating a merge with GITHUB_TOKEN does NOT trigger "push"
+      # workflows (GitHub intentionally skips runs triggered by the built-in
+      # token), so the "Create and publish a Docker image" workflow would never
+      # fire for auto-merged PRs. We therefore explicitly dispatch that workflow
+      # after the merge (workflow_dispatch is allowed for GITHUB_TOKEN).
+      - name: Enable auto-merge
+        if: github.event.action != 'closed'
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Dispatch Docker image build after merge
+        # On a merged PR (closed), GitHub does NOT fire "push" workflows for
+        # commits authored by GITHUB_TOKEN, so the Docker publish is skipped.
+        # Re-dispatch it explicitly (workflow_dispatch is allowed for the token).
+        if: github.event.action == 'closed' && github.event.pull_request.merged == true
+        run: |
+          gh workflow run docker-image.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
+
