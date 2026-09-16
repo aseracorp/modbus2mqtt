@@ -15,6 +15,8 @@ import { sendResult } from './sendResult.js'
 import { AngularStatics } from './angularStatics.js'
 import { WebuiStatics } from './webuiStatics.js'
 import { corsMiddleware } from './corsMiddleware.js'
+import * as fs from 'fs'
+import { join } from 'path'
 
 interface IAddonInfo {
   slug: string
@@ -134,7 +136,32 @@ export class HttpServerBase {
   }
 
   processAll(req: Request, res: express.Response) {
-    this.angularStatics.sendIndexFile(req, res)
+    // SPA fallback at the root: serve the new webui index (the legacy Angular
+    // UI is mounted separately under /old-ui).
+    this.webuiStatics.sendIndexFile(req, res)
+  }
+
+  /** Serves the legacy Angular webui under /old-ui (index + SPA fallback). */
+  processOldUi(req: Request, res: express.Response) {
+    const enLangDir = this.getAngularEnDir()
+    if (!enLangDir) {
+      res.status(404).setHeader('Content-Type', 'text/html').send('old-webui not found')
+      return
+    }
+    const file = join(enLangDir, 'index.html')
+    if (!fs.existsSync(file)) {
+      res.status(404).setHeader('Content-Type', 'text/html').send('old-webui index not found')
+      return
+    }
+    // Rewrite <base href> to the /old-ui path so the Angular assets (referenced
+    // as /old-ui/en-US/…) resolve correctly — also behind the HA ingress proxy
+    // (the ingress prefix is applied by AngularStatics via setIngressUrl).
+    let content = fs.readFileSync(file).toString()
+    const baseHref = '/old-ui/en-US/'
+    content = content.replace(/<base[^>]*>/, '<base href="' + baseHref + '">')
+    const buf = Buffer.from(content)
+    res.status(200).setHeader('Content-Type', 'text/html').setHeader('Content-Length', buf.byteLength)
+    res.send(buf)
   }
   initBase() {
     this.angularStatics.init()
@@ -147,18 +174,43 @@ export class HttpServerBase {
       setupSession(this.app)
       registerOidcRoutes(this.app, this.oidcConfig)
     }
-    // angular files have full path including language e.G. /en-US/polyfill.js
-    this.app.use(createAuthMiddleware(this.oidcConfig))
-    this.app.use(this.angularStatics.middleware())
-    this.app.use(express.static(this.angulardir))
-    this.app.get('/', (req: Request, res: express.Response) => {
-      res.redirect('index.html')
-    })
+    // API routes (registered in initApp) come first so /api/* is not shadowed
+    // by the root static webui below.
     this.initApp()
-    // Static webui (HA_enoceanmqtt-style configurator) — mounted after the API
-    // routes and the Angular app so /api/* and language dirs keep normal behaviour.
-    this.app.use('/webui', express.static(this.webuiStatics.getDir()))
-    this.app.use('/webui', this.webuiStatics.middleware())
+
+    // ---- New webui at the root (/) ----
+    // The HA_enoceanmqtt-style configurator uses only relative asset paths, so
+    // serving it from / works directly and behind the HA ingress proxy.
+    this.app.use(express.static(this.webuiStatics.getDir()))
+
+    // ---- Legacy Angular webui at /old-ui ----
+    // The Angular en-<lang> dir has <base href="./en-US/"> (relative), so serving
+    // it under /old-ui resolves its assets as /old-ui/en-US/...
+    const enLangDir = this.getAngularEnDir()
+    if (enLangDir) {
+      // Handle the index explicitly before express.static so /old-ui (no
+      // trailing slash) serves the rewritten index instead of a 301.
+      this.app.get('/old-ui', this.processOldUi.bind(this))
+      this.app.get('/old-ui/', this.processOldUi.bind(this))
+      // Serve the Angular build dir (parent of en-US/) so /old-ui/en-US/* resolves.
+      this.app.use('/old-ui', express.static(this.angulardir))
+      this.app.use('/old-ui', this.processOldUi.bind(this)) // SPA fallback
+    }
+
+    // Catch-all: anything not matched (e.g. unknown /api route, old /webui link)
+    // falls back to the webui index at the root.
+    this.app.use(this.webuiStatics.middleware())
     this.app.all(/.*/, this.processAll.bind(this))
+  }
+
+  /** Returns the Angular language directory (e.g. <angulardir>/en-US) if present. */
+  private getAngularEnDir(): string | null {
+    if (!this.angulardir || !fs.existsSync(this.angulardir)) return null
+    const entries = fs.readdirSync(this.angulardir)
+    for (const entry of entries) {
+      const full = join(this.angulardir, entry)
+      if (entry.indexOf('-') >= 0 && fs.statSync(full).isDirectory()) return full
+    }
+    return null
   }
 }

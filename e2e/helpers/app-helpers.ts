@@ -31,7 +31,7 @@ async function selectMatOption(page: Page, text: string) {
 
 export async function runRegister(
   page: Page,
-  options: { authentication: boolean; port?: number; prefix?: string },
+  options: { authentication: boolean; port?: number; prefix?: string; oldUi?: boolean },
 ) {
   const prefix = options.prefix ?? '';
   let baseUrl: string;
@@ -43,6 +43,7 @@ export async function runRegister(
   } else {
     baseUrl = `http://${LOCALHOST}:${PORTS.modbus2mqttSpec}`;
   }
+  if (options.oldUi && !prefix.length) baseUrl += '/old-ui';
 
   await dismissAnnouncements(page);
   await page.goto(baseUrl);
@@ -73,7 +74,7 @@ export async function runRegister(
 
 export async function runConfig(
   page: Page,
-  options: { authentication: boolean; prefix?: string },
+  options: { authentication: boolean; prefix?: string; oldUi?: boolean },
 ) {
   const prefix = options.prefix ?? '';
   const port = options.authentication ? PORTS.mosquittoAuth : PORTS.mosquittoNoAuth;
@@ -98,7 +99,8 @@ export async function runConfig(
   // The save() handler calls close() which navigates to '/'.
   const saveBtn = page.locator('div.saveCancel button').first();
   await saveBtn.dispatchEvent('click');
-  await expect(page).toHaveURL(new RegExp(prefix + '/busses'), { timeout: 15000 });
+  const navPrefix = (!prefix && options.oldUi) ? 'old-ui' : prefix;
+  await expect(page).toHaveURL(new RegExp(navPrefix + '/busses'), { timeout: 15000 });
 }
 
 export async function runBusses(page: Page, prefix?: string) {

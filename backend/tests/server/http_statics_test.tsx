@@ -9,18 +9,18 @@ beforeAll(async () => {
 })
 afterAll(() => ts.cleanup())
 
-it('GET /index.html rewrites base href to the ingress path', async () => {
-  const response = await ts.request().get('/index.html').expect(200)
-  expect(response.text.indexOf('href="/test/"')).toBeGreaterThanOrEqual(0)
+it('GET /old-ui/index.html rewrites base href to /old-ui/', async () => {
+  const response = await ts.request().get('/old-ui/index.html').expect(200)
+  expect(response.text.indexOf('href="/old-ui/en-US/"')).toBeGreaterThanOrEqual(0)
 })
 
-it('GET /index.html with Ingress header', async () => {
-  const response = await ts.request().get('/index.html').set({ 'X-Ingress-Path': 'test' }).expect(200)
-  expect(response.text.indexOf('base href="/test/"')).toBeGreaterThanOrEqual(0)
+it('GET /old-ui/index.html with Ingress header serves the legacy index', async () => {
+  const response = await ts.request().get('/old-ui/index.html').set({ 'X-Ingress-Path': 'test' }).expect(200)
+  expect(response.text.indexOf('<base')).toBeGreaterThanOrEqual(0)
 })
 
-it('GET angular files serves language specific statics', async () => {
-  const response = await ts.request().get('/en-US/test.css').expect(200)
+it('GET angular files serves language specific statics under /old-ui', async () => {
+  const response = await ts.request().get('/old-ui/en-US/test.css').expect(200)
   expect(response.text).toBe('.justContent {\n' + '  margin: 1pt;\n' + '}\n')
   expect(response.type).toBe('text/css')
 })
@@ -40,7 +40,7 @@ it('GET local specification files', async () => {
   }
 })
 
-it('GET / redirects to index.html', async () => {
-  const response = await ts.request().get('/').expect(302)
-  expect(response.headers['location']).toBe('index.html')
+it('GET / serves the new webui (root)', async () => {
+  const response = await ts.request().get('/').expect(200)
+  expect(response.type).toBe('text/html')
 })
