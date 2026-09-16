@@ -1,7 +1,7 @@
 filename: thermokon-wrf06
 model: WRF06
 manufacturer: Thermokon
-version: "0.1"
+version: "0.5"
 nextEntityId: 30
 entities:
   # ---- Sensor identification register (used as the condition register) ----
@@ -10,7 +10,8 @@ entities:
   - id: 1
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 501
     converterParameters:
       multiplier: 1
@@ -28,7 +29,8 @@ entities:
   - id: 2
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 0
     condition:
       register: 501
@@ -50,7 +52,8 @@ entities:
   - id: 3
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 1
     condition:
       register: 501
@@ -72,7 +75,8 @@ entities:
   - id: 4
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 2
     condition:
       register: 501
@@ -94,7 +98,8 @@ entities:
   - id: 5
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 3
     condition:
       register: 501
@@ -115,7 +120,8 @@ entities:
   - id: 6
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 4
     condition:
       register: 501
@@ -137,7 +143,8 @@ entities:
   - id: 7
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 5
     condition:
       register: 501
@@ -159,7 +166,8 @@ entities:
   - id: 8
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 6
     condition:
       register: 501
@@ -180,7 +188,8 @@ entities:
   - id: 9
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 7
     condition:
       register: 501
@@ -202,7 +211,8 @@ entities:
   - id: 10
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 400
     category: config
     converterParameters:
@@ -219,7 +229,8 @@ entities:
   - id: 11
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 100
     category: config
     converterParameters:
@@ -237,7 +248,8 @@ entities:
   - id: 12
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 101
     category: config
     converterParameters:
@@ -255,7 +267,8 @@ entities:
   - id: 13
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 102
     category: config
     converterParameters:
@@ -273,7 +286,8 @@ entities:
   - id: 14
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 103
     category: config
     converterParameters:
@@ -291,7 +305,8 @@ entities:
   - id: 15
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 200
     category: config
     converterParameters:
@@ -309,7 +324,8 @@ entities:
   - id: 16
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 201
     category: config
     converterParameters:
@@ -327,7 +343,8 @@ entities:
   - id: 17
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 202
     category: config
     converterParameters:
@@ -345,7 +362,8 @@ entities:
   - id: 18
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 203
     category: config
     converterParameters:
@@ -363,7 +381,8 @@ entities:
   - id: 19
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 210
     category: config
     converterParameters:
@@ -381,7 +400,8 @@ entities:
   - id: 20
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 211
     category: config
     converterParameters:
@@ -399,7 +419,8 @@ entities:
   - id: 21
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 615
     category: config
     converterParameters:
@@ -413,7 +434,8 @@ entities:
   - id: 22
     registerType: 3
     readonly: false
-    converter: number
+    converter:
+      name: number
     modbusAddress: 616
     category: config
     converterParameters:
@@ -427,7 +449,8 @@ entities:
   - id: 23
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 502
     converterParameters:
       multiplier: 1
@@ -441,7 +464,8 @@ entities:
   - id: 24
     registerType: 3
     readonly: true
-    converter: number
+    converter:
+      name: number
     modbusAddress: 503
     converterParameters:
       multiplier: 1

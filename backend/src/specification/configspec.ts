@@ -1,4 +1,5 @@
 import { join } from 'path'
+import * as fs from 'fs'
 import { LogLevelEnum, Logger } from './log.js'
 import {
   IimportMessages,
@@ -61,6 +62,32 @@ export class ConfigSpecification {
   // Reads all specifications from public + local directories via persistence layer.
   // Status comes from JSON attribute (local) or is 'published' (public).
   // For legacy YAML specs without status, it is derived from publicNames during read.
+  /**
+   * Seeds bundled local specifications (shipped in the package under
+   * "specifications/" next to the dist output) into the runtime local specs
+   * directory on first start, so templates are selectable in the webui without
+   * a manual import. Idempotent: existing local templates are never overwritten.
+   */
+  static seedLocalSpecifications(packageRoot?: string): void {
+    try {
+      const bundledDir = packageRoot ? join(packageRoot, 'specifications') : ''
+      if (!bundledDir || !fs.existsSync(bundledDir)) return
+      const localDir = ConfigSpecification.getLocalDir()
+      const localSpecDir = join(localDir, 'specifications')
+      const bundled = fs.readdirSync(bundledDir).filter((f) => f.endsWith('.yaml'))
+      if (!bundled.length) return
+      for (const f of bundled) {
+        const target = join(localSpecDir, f)
+        if (fs.existsSync(target)) continue // never overwrite existing local templates
+        if (!fs.existsSync(localSpecDir)) fs.mkdirSync(localSpecDir, { recursive: true })
+        fs.copyFileSync(join(bundledDir, f), target)
+        log.log(LogLevelEnum.info, 'Seeded local specification: ' + f)
+      }
+    } catch (e) {
+      log.log(LogLevelEnum.error, 'seedLocalSpecifications failed: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
   readYaml(): void {
     try {
       const persistence = ConfigSpecification.ensurePersistence()
