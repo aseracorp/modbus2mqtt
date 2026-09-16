@@ -547,13 +547,15 @@ function openAddSlave(busid) {
   $('se-maxreg').value = '';
   $('se-configurl').value = '';
   $('se-reference').value = '';
+  slaveSpec = { filename: '', model: undefined, manufacturer: undefined, files: [], entities: [], i18n: [], identified: 0, status: 3, nextEntityId: 1 };
+  renderDeviceRegisters();
   populateBusSelect();
   populateSlaveSelect();
   updatePollModeFields();
   $('slaveedit-overlay').hidden = false;
   applyHelpIcons();
 }
-function openEditSlave(busid, slaveid) {
+async function openEditSlave(busid, slaveid) {
   const bus = (state.busses || []).find((b) => b.busId === Number(busid));
   if (!bus) return;
   const slave = bus.slaves.find((s) => s.slaveid === Number(slaveid));
@@ -576,6 +578,15 @@ function openEditSlave(busid, slaveid) {
   populateBusSelect();
   populateSlaveSelect();
   if (slave.referenceSlaveId != null) $('se-reference').value = String(slave.referenceSlaveId);
+  slaveSpec = { filename: slave.specificationid || '', model: undefined, manufacturer: undefined, files: [], entities: [], i18n: [], identified: 0, status: 3, nextEntityId: 1 };
+  // Load the device's own registers (the spec attached to this slave), if any.
+  if (slave.specificationid) {
+    try {
+      const full = await api('/api/specification?spec=' + encodeURIComponent(slave.specificationid));
+      if (full && Array.isArray(full.entities)) slaveSpec = full;
+    } catch (e) { /* keep empty */ }
+  }
+  renderDeviceRegisters();
   updatePollModeFields();
   $('slaveedit-overlay').hidden = false;
   applyHelpIcons();
@@ -586,6 +597,10 @@ function updatePollModeFields() {
   $('se-reference-f').hidden = (pm === '4');
 }
 $('se-pollmode')?.addEventListener('change', updatePollModeFields);
+$('se-reg-add')?.addEventListener('click', () => {
+  activeSpec = slaveSpec;
+  openRegEdit(null);
+});
 $('slaveedit-cancel')?.addEventListener('click', () => { $('slaveedit-overlay').hidden = true; });
 $('slaveedit-ok')?.addEventListener('click', async () => {
   const busidRaw = $('se-busselect').value;
@@ -610,6 +625,18 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
   } else if ($('se-template-search').value.trim() && !template) {
     return toast(t('err_no_template'), 'error');
   }
+  // Registers defined inline on the device (no template): attach them as a
+  // device-scoped spec so the device can be used without a template.
+  const inlineEnts = (slaveSpec && slaveSpec.entities) || [];
+  if (!template && inlineEnts.length) {
+    slaveSpec.filename = slaveSpec.filename || ('slave-' + busid + '-' + slaveid);
+    slaveSpec.entities = inlineEnts;
+    slaveSpec.i18n = slaveSpec.i18n || [];
+    slaveSpec.files = slaveSpec.files || [];
+    slaveSpec.identified = slaveSpec.identified == null ? 0 : slaveSpec.identified;
+    slaveSpec.status = slaveSpec.status == null ? 3 : slaveSpec.status;
+    body.specificationid = slaveSpec.filename.replace(/\.yaml$/, '');
+  }
   body.pollMode = pollMode;
   if (pollInterval && !isNaN(pollInterval)) body.pollInterval = pollInterval;
   if (rootTopic) body.rootTopic = rootTopic;
@@ -620,8 +647,15 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
 
   try {
     await api('/api/slave?busid=' + busid, { method: 'POST', body: JSON.stringify(body) });
+    // Save the inline device-scoped spec (registers added without a template).
+    if (!template && inlineEnts.length && slaveSpec.filename) {
+      const specForSave = Object.assign({}, slaveSpec, { filename: slaveSpec.filename });
+      await api('/api/specification?busid=' + busid + '&slaveid=' + slaveid + '&originalFilename=' +
+        encodeURIComponent(slaveSpec.filename), { method: 'POST', body: JSON.stringify(specForSave) });
+    }
     toast(editingSlave ? t('device_updated') : t('device_added'), 'success');
     $('slaveedit-overlay').hidden = true;
+    slaveSpec = null;
     await loadAll();
   } catch (e) {
     toast((editingSlave ? t('err_update_device') : t('err_add_device')) + e.message, 'error');
@@ -710,6 +744,9 @@ function confirmRemoveSlave(busid, slaveid) {
 let editingTemplate = null;
 // working copy of the template being added/edited (full ImodbusSpecification)
 let templateSpec = null;
+let slaveSpec = null;
+// spec that the register editor currently edits (templateSpec or slaveSpec)
+let activeSpec = null;
 
 function emptyTemplateSpec() {
   return { filename: '', model: undefined, manufacturer: undefined, files: [], entities: [], i18n: [], identified: 0, status: 3, nextEntityId: 1 };
@@ -782,6 +819,48 @@ function renderTemplateRegisters() {
     });
   });
 }
+function renderActiveRegisters() {
+  if (activeSpec === slaveSpec) renderDeviceRegisters();
+  else renderTemplateRegisters();
+}
+function renderDeviceRegisters() {
+  const tbody = $('se-reg-body');
+  if (!tbody) return;
+  const ents = (slaveSpec && slaveSpec.entities) || [];
+  if (!ents.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + t('reg_none') + '</td></tr>';
+    return;
+  }
+  tbody.innerHTML = ents.map((en, i) => {
+    const cp = en.converterParameters || {};
+    const isNum = en.converter === 'number';
+    const rw = en.readonly ? 'R' : 'R/W';
+    const cat = en.category === 'config' ? 'config' : 'value';
+    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register)) + '">⚑</span>' : '';
+    return '<tr data-idx="' + i + '">' +
+      '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
+      '<td>' + escapeHtml(en.mqttname || '') + '</td>' +
+      '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
+      '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
+      '<td>' + escapeHtml(rw) + '</td>' +
+      '<td>' + escapeHtml(en.converter || '') + '</td>' +
+      '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
+      '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
+      '<td><div class="row-actions">' +
+        '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
+        '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
+      '</div></td></tr>';
+  }).join('');
+  tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => { activeSpec = slaveSpec; openRegEdit(Number(b.getAttribute('data-idx'))); }));
+  tbody.querySelectorAll('.reg-del').forEach((b) => {
+    b.addEventListener('click', () => {
+      const i = Number(b.getAttribute('data-idx'));
+      (slaveSpec.entities || []).splice(i, 1);
+      renderDeviceRegisters();
+    });
+  });
+}
+
 function regTypeName(rt) {
   switch (rt) { case 1: return 'coil'; case 2: return 'discrete'; case 3: return 'holding'; case 4: return 'input'; default: return String(rt == null ? '' : rt); }
 }
@@ -793,7 +872,8 @@ function regConverterShown() {
 let editingRegIdx = null;
 function openRegEdit(idx) {
   editingRegIdx = idx;
-  const ents = (templateSpec && templateSpec.entities) || [];
+  const spec = activeSpec || templateSpec;
+  const ents = (spec && spec.entities) || [];
   const en = idx == null ? { converter: 'number', converterParameters: {}, registerType: 3, readonly: true } : (ents[idx] || {});
   const cp = en.converterParameters || {};
   $('re-name').value = en.name || '';
@@ -867,9 +947,10 @@ $('regedit-ok')?.addEventListener('click', () => {
     const old = editingRegIdx != null && templateSpec.entities[editingRegIdx] ? templateSpec.entities[editingRegIdx].converterParameters || {} : {};
     cp.options = old.options;
   }
-  const ents = templateSpec.entities || (templateSpec.entities = []);
+  const spec = activeSpec || templateSpec;
+  const ents = (spec && spec.entities) || (spec.entities = []);
   const en = {
-    id: editingRegIdx != null ? (ents[editingRegIdx].id) : (templateSpec.nextEntityId || (templateSpec.nextEntityId = 1)),
+    id: editingRegIdx != null ? (ents[editingRegIdx].id) : ((spec.nextEntityId) || (spec.nextEntityId = 1)),
     name: name || undefined,
     mqttname: mqttname || undefined,
     registerType, modbusAddress, readonly, converter,
@@ -896,11 +977,11 @@ $('regedit-ok')?.addEventListener('click', () => {
     if (old.converter === 'select' && converter === 'select') en.converterParameters = Object.assign({}, old.converterParameters, cp);
     ents[editingRegIdx] = en;
   } else {
-    if (typeof templateSpec.nextEntityId === 'number') templateSpec.nextEntityId++;
+    if (typeof spec.nextEntityId === 'number') spec.nextEntityId++;
     ents.push(en);
   }
   $('regedit-overlay').hidden = true;
-  renderTemplateRegisters();
+  renderActiveRegisters();
 });
 $('tpledit-ok')?.addEventListener('click', async () => {
   const filename = $('te-filename').value.trim().replace(/\.yaml$/, '');

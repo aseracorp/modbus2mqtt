@@ -209,7 +209,7 @@
 
 <!-- edit device modal (same as add, prefilled) -->
 <div class="modal-overlay" id="slaveedit-overlay" hidden>
-  <div class="modal modal-wide">
+  <div class="modal modal-xlg">
     <h3 id="slaveedit-title" data-i18n="add_slave">Add Modbus device</h3>
     <div class="add-form add-stack">
       <div class="field"><label data-i18n="bus_select">Modbus connection</label>
@@ -245,7 +245,28 @@
         <select id="se-reference"></select>
       </div>
     </div>
+    <hr class="modal-divider">
+    <h4 class="config-section-title" data-i18n="device_registers">Registers / entities</h4>
+    <div class="reg-table-wrap">
+      <table class="reg-table" id="se-reg-table">
+        <thead>
+          <tr>
+            <th data-i18n="reg_name">Name</th>
+            <th data-i18n="reg_mqtt_id">MQTT ID</th>
+            <th data-i18n="reg_type">Type</th>
+            <th data-i18n="reg_addr">Address</th>
+            <th data-i18n="reg_rw">R/W</th>
+            <th data-i18n="reg_converter">Converter</th>
+            <th data-i18n="reg_uom">Unit</th>
+            <th data-i18n="reg_category">Category</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="se-reg-body"><tr class="empty-row"><td colspan="9" data-i18n="reg_none">No registers yet</td></tr></tbody>
+      </table>
+    </div>
     <div class="modal-actions">
+      <button class="btn" id="se-reg-add" data-i18n="reg_add">Add register</button>
       <button class="btn" id="slaveedit-cancel" data-i18n="cancel">Cancel</button>
       <button class="btn btn-primary" id="slaveedit-ok" data-i18n="save">Save</button>
     </div>

@@ -151,4 +151,5 @@ window.LANG_en = {
   reg_cond_register: "Condition register",
   reg_cond_bits: "Bits",
   reg_cond_equals: "Equals",
+  device_registers: "Registers / entities",
 };
