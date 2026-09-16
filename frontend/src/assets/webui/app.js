@@ -1048,7 +1048,7 @@ async function loadConfig() {
 }
 function helpIcon(field) {
   if (!field.helpKey) return '';
-  return '<span class="help-icon" data-tip="' + escapeHtml(t(field.helpKey)) + '" title="' + escapeHtml(t(field.helpKey)) + '">ⓘ</span>';
+  return '<span class="help-icon" data-tip="' + escapeHtml(t(field.helpKey)) + '">ⓘ</span>';
 }
 function labelWithHelp(field, id) {
   return '<label for="' + id + '">' + escapeHtml(t(field.labelKey)) + ' ' + helpIcon(field) + '</label>';
@@ -1211,7 +1211,6 @@ function applyHelpIcons(root) {
     const icon = document.createElement('span');
     icon.className = 'help-icon';
     icon.setAttribute('data-tip', t(key));
-    icon.setAttribute('title', t(key));
     icon.textContent = '\u24d8';
     label.appendChild(icon);
   });
