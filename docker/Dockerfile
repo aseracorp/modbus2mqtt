@@ -42,6 +42,8 @@ RUN npm install --omit=dev --no-audit --no-fund
 # Compiled app + static frontend
 COPY --from=build /src/dist /app/dist
 COPY --from=build /src/docker/rootfs /app/rootfs
+# Bundled specifications (templates) - seeded into the local specs dir at startup
+COPY --from=build /src/specifications /app/specifications
 
 ENV NODE_ENV=production
 
