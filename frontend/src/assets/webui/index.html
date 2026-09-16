@@ -274,10 +274,11 @@
             <th data-i18n="reg_rw">R/W</th>
             <th data-i18n="reg_converter">Converter</th>
             <th data-i18n="reg_uom">Unit</th>
+            <th data-i18n="reg_category">Category</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="te-reg-body"><tr class="empty-row"><td colspan="8" data-i18n="reg_none">No registers yet</td></tr></tbody>
+        <tbody id="te-reg-body"><tr class="empty-row"><td colspan="9" data-i18n="reg_none">No registers yet</td></tr></tbody>
       </table>
     </div>
     <div class="modal-actions">
@@ -307,10 +308,19 @@
       <div class="field config-bool"><label data-i18n="reg_readonly">Readonly</label><input type="checkbox" id="re-readonly"></div>
       <div class="field"><label data-i18n="reg_category">Category</label>
         <select id="re-category">
-          <option value="">—</option>
+          <option value="value">value</option>
           <option value="diagnostic">diagnostic</option>
           <option value="config">config</option>
         </select>
+        <span class="field-hint" data-i18n="reg_category_hint">value → MQTT/HA · config → device configuration (not published)</span>
+      </div>
+      <div class="field reg-condition"><label data-i18n="reg_cond">Condition (optional)</label>
+        <div class="reg-condition-row">
+          <input type="text" id="re-cond-register" placeholder="501" title="Condition register address">
+          <input type="text" id="re-cond-bits" placeholder="0,1,5" title="Bit indexes (LSB=0), comma separated">
+          <input type="text" id="re-cond-equals" placeholder="" title="Activate when register equals this value">
+        </div>
+        <span class="field-hint" data-i18n="reg_cond_hint">Register is only available when its bits are set in the condition register (e.g. Thermokon sensor-identification 501)</span>
       </div>
       <div class="field"><label data-i18n="reg_converter">Converter</label>
         <select id="re-converter">

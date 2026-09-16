@@ -101,6 +101,25 @@ export class Modbus {
     const mspec = M2mSpecification.fileToModbusSpecification(specification!, values)
     if (mspec) sub.next(mspec)
   }
+  /**
+   * Returns true if the entity is active given the values of its condition register.
+   * Entities without a `condition` are always active. Config entities are not read
+   * as value registers (they are handled by the config API).
+   */
+  static isEntityActive(entity: { condition?: { register: number; registerType?: number; bits?: number[]; equals?: number }; modbusAddress?: number; category?: string }, value: number | undefined): boolean {
+    if (!entity.condition) return true
+    if (value === undefined || value === null) return false // condition register not readable -> not active
+    const c = entity.condition
+    let hit = false
+    if (c.bits && c.bits.length) {
+      hit = c.bits.some((bit) => ((value >> bit) & 1) === 1)
+    }
+    if (c.equals !== undefined && c.equals !== null) {
+      if (value === c.equals) hit = true
+    }
+    return hit
+  }
+
   static async getModbusSpecificationFromData(
     task: ModbusTasks,
     modbusAPI: IconsumerModbusAPI,
@@ -108,18 +127,80 @@ export class Modbus {
     specification: IfileSpecification,
     sub: Subject<ImodbusSpecification>
   ): Promise<void> {
-    const addresses = new Set<ImodbusAddress>()
     ConfigSpecification.clearModbusData(specification)
     const info = '(' + modbusAPI.getName() + ',' + slaveid + ')'
-    Bus.getModbusAddressesForSpec(specification, addresses)
 
-    debugAction('getModbusSpecificationFromData start read from modbus')
+    // ---- Phase 1: read condition registers (+ all value registers for a single
+    // pass when there are no conditional entities) ----
+    const conditionAddresses = new Set<ImodbusAddress>()
+    const condRegType: Map<number, number> = new Map()
+    for (const ent of specification.entities) {
+      if (ent.category === 'config') continue // config regs are handled by the config API
+      const c = ent.condition
+      if (c) {
+        const t = c.registerType ?? EntRegisterType(ent.registerType)
+        conditionAddresses.add({ address: c.register, registerType: t })
+        if (!condRegType.has(c.register)) condRegType.set(c.register, t)
+      }
+    }
+
+    // ---- Phase 2: determine active entities, then read only their registers ----
     try {
+      let activeEntities = specification.entities.filter((e) => e.category !== 'config')
+      let skipReads = new Set<number>() // (address*10+registerType) of inactive entities
+      let conditionValues: ImodbusValues | undefined = undefined
+
+      const hasConditional = specification.entities.some((e) => e.condition)
+      if (hasConditional) {
+        // Read the condition registers first.
+        conditionValues = await modbusAPI.readModbusRegister(slaveid, conditionAddresses, { task: task, errorHandling: { retry: true } })
+        // Mark inactive entities: clear their modbusAddress so they are not read.
+        activeEntities = activeEntities.filter((e) => {
+          if (!e.condition) return true
+          const type = e.condition.registerType ?? EntRegisterType(e.registerType)
+          const val = getRegValue(conditionValues!, type, e.condition.register)
+          // If the condition register itself is not readable, keep the entity (best effort) -
+          // an unknown condition should not hide a possibly-present sensor.
+          if (val === undefined) return true
+          return Modbus.isEntityActive(e, val)
+        })
+      }
+
+      const addresses = new Set<ImodbusAddress>()
+      for (const ent of activeEntities) {
+        const converter = ConverterMap.getConverter(ent)
+        if (ent.modbusAddress != undefined && converter && ent.registerType)
+          for (let i = 0; i < converter.getModbusLength(ent); i++) {
+            addresses.add({ address: ent.modbusAddress + i, registerType: ent.registerType })
+          }
+      }
+
+      debugAction('getModbusSpecificationFromData start read from modbus')
       const values = await modbusAPI.readModbusRegister(slaveid, addresses, { task: task, errorHandling: { retry: true } })
       debugAction('getModbusSpecificationFromData end read from modbus')
-      Modbus.populateEntitiesForSpecification(specification!, values, sub)
+
+      // Mark inactive conditional entities so they are reported as not-identified / empty.
+      const finalValues = values
+      if (hasConditional && conditionValues) {
+        for (const ent of specification.entities) {
+          if (!ent.condition) continue
+          const type = ent.condition.registerType ?? EntRegisterType(ent.registerType)
+          const val = getRegValue(conditionValues, type, ent.condition.register)
+          if (val === undefined) continue
+          if (!Modbus.isEntityActive(ent, val)) {
+            // Remove its address data from the result so the entity shows not-identified.
+            const e = ent as ImodbusEntityLike
+            if (e.modbusAddress !== undefined) {
+              finalValues.holdingRegisters.delete(e.modbusAddress)
+              finalValues.analogInputs.delete(e.modbusAddress)
+              finalValues.coils.delete(e.modbusAddress)
+              finalValues.discreteInputs.delete(e.modbusAddress)
+            }
+          }
+        }
+      }
+      Modbus.populateEntitiesForSpecification(specification!, finalValues, sub)
     } catch (e: any) {
-      // read modbus data failed.
       log.log(LogLevelEnum.error, 'Modbus Read ' + info + ' failed: ' + e.message)
       Modbus.populateEntitiesForSpecification(specification!, emptyModbusValues(), sub)
     }
@@ -151,6 +232,24 @@ export class Modbus {
     }
     return rc
   }
+}
+
+interface ImodbusEntityLike {
+  modbusAddress?: number
+  condition?: { register: number; registerType?: number; bits?: number[]; equals?: number }
+}
+function EntRegisterType(rt: number): number {
+  return rt
+}
+function getRegValue(v: ImodbusValues, registerType: number, address: number): number | undefined {
+  let value: { data?: number[] } | undefined
+  switch (registerType) {
+    case 4: value = v.analogInputs.get(address); break
+    case 3: value = v.holdingRegisters.get(address); break
+    case 1: value = v.coils.get(address); break
+    default: value = v.discreteInputs.get(address); break
+  }
+  return value && value.data && value.data.length ? value.data[0] : undefined
 }
 
 export class ModbusForTest extends Modbus {

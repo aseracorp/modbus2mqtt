@@ -190,6 +190,9 @@ export class Slave {
     // command path, not by Home Assistant, so there is no value in nesting it.
     const modbusValues: Record<string, number> = {}
     for (const e of entities) {
+      // Config registers are device configuration - never published to the MQTT
+      // state topic (they are read/written via the config API instead).
+      if (e.category === 'config') continue
       if (e.mqttname != undefined && e.mqttname.length > 0 && e.variableConfiguration == undefined) {
         Slave.setByPath(holder, Slave.parseMqttPath(e.mqttname), e.mqttValue != undefined ? e.mqttValue : defaultValue)
         if (e.converter == 'select') {
