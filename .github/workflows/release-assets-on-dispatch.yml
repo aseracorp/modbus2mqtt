@@ -96,7 +96,7 @@ jobs:
 
       - name: Run integration tests
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cd backend && pnpm run test:integration
 
       - name: Create npm pack tarball
@@ -172,7 +172,7 @@ jobs:
           repository: ${{ github.repository_owner }}/hassio-addon-repository
           path: hassio-addon-repository
           ref: refs/heads/main
-          token: ${{ secrets.PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Version in config.yaml
         run: |
