@@ -38,17 +38,19 @@ jobs:
         run: |
           set -e
           # Wait (up to ~5 min) for auto-merge to complete.
+          # NOTE: only poll on --json state ("MERGED"); some gh versions don't
+          # know the "merged" json field and error out.
           for i in $(seq 1 60); do
-            state=$(gh pr view ${{ github.event.pull_request.number }} --json state,merged --jq '.state + " " + (.merged|tostring)')
-            if echo "$state" | grep -qi 'MERGED true'; then
+            state=$(gh pr view ${{ github.event.pull_request.number }} --json state --jq .state)
+            if echo "$state" | grep -qi 'MERGED'; then
               echo "PR merged after ${i}x5s"
               break
             fi
             sleep 5
           done
-          final=$(gh pr view ${{ github.event.pull_request.number }} --json state,merged --jq '.state + " " + (.merged|tostring)')
+          final=$(gh pr view ${{ github.event.pull_request.number }} --json state --jq .state)
           echo "final state: $final"
-          if echo "$final" | grep -qi 'MERGED true'; then
+          if echo "$final" | grep -qi 'MERGED'; then
             # Re-run the Docker publish on main (push trigger was skipped for
             # GITHUB_TOKEN-authored merges).
             gh workflow run docker-image.yml --ref main
