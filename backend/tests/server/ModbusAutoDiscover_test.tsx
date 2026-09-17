@@ -45,3 +45,28 @@ it('blacklistServer filters discovered servers', () => {
   expect(before.some((s) => s.host === '10.0.0.1')).toBe(false) // blacklisted in prior test
   expect(before.some((s) => s.host === '10.0.0.2')).toBe(true)
 })
+
+// ---- Endpoint fallback (mbusd:502 / modbus:502) ----
+it('tcpProbe returns true for an open port and false for a closed one', async () => {
+  const ad = ModbusAutoDiscover.getInstance()
+  // open listener on an ephemeral port
+  const net = require('net')
+  const srv = net.createServer(() => {})
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+  const port = (srv.address() as { port: number }).port
+  try {
+    expect(await (ad as any).tcpProbe('127.0.0.1', port, 1500)).toBe(true)
+    expect(await (ad as any).tcpProbe('127.0.0.1', 59999, 500)).toBe(false)
+  } finally {
+    srv.close()
+  }
+})
+
+it('knownEndpoints includes mbusd and modbus on port 502', async () => {
+  const ad = ModbusAutoDiscover.getInstance()
+  const eps = (ad as any).knownEndpoints()
+  expect(eps).toEqual([
+    { host: 'mbusd', port: 502 },
+    { host: 'modbus', port: 502 },
+  ])
+})
