@@ -85,7 +85,11 @@ export class MqttAutoDiscover {
 
     const collect = (s: { name?: string; fqdn?: string; host?: string; port?: number; addresses?: string[]; txt?: Record<string, string>; type?: string }) => {
       const port = s.port || 1883
-      const addr = (s.addresses && s.addresses.length) ? s.addresses[0] : (s.host || 'localhost')
+      // Prefer the stable SRV hostname (e.g. "mosquitto") over the resolved IP so
+      // the discovered broker URL stays valid if the container IP changes.
+      const clean = (s.host || '').trim().replace(/\.local$/, '')
+      const isIp = /^[0-9.]+$/.test(clean) || clean === 'localhost'
+      const addr = (clean && !isIp) ? clean : ((s.addresses && s.addresses.length) ? s.addresses[0] : (clean || 'localhost'))
       services.push({ name: s.name || 'mqtt', port, addresses: [addr], txt: s.txt })
     }
 

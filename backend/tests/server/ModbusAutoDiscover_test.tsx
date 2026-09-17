@@ -82,3 +82,16 @@ it('probeKnownEndpoints uses the hostname as the connection host', async () => {
   // host is the hostname, NOT the resolved IP
   expect(rc.every((s: any) => s.host !== '10.0.0.5')).toBe(true)
 })
+
+// ---- mDNS hostname preference ----
+it('preferHostname uses the SRV hostname when available, else the IP', async () => {
+  const ad = ModbusAutoDiscover.getInstance()
+  // SRV hostname present (not an IP) -> used
+  expect((ad as any).preferHostname('mbusd', ['10.0.0.5'])).toBe('mbusd')
+  expect((ad as any).preferHostname('mosquitto.local', ['10.0.0.6'])).toBe('mosquitto')
+  // host is an IP literal -> fall back to addresses
+  expect((ad as any).preferHostname('10.9.9.9', ['10.9.9.9'])).toBe('10.9.9.9')
+  expect((ad as any).preferHostname('localhost', ['127.0.0.1'])).toBe('127.0.0.1')
+  // no host, no addresses -> localhost
+  expect((ad as any).preferHostname('', undefined)).toBe('localhost')
+})

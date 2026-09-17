@@ -83,6 +83,14 @@ export class ModbusAutoDiscover {
     return host + ':' + port
   }
 
+  /** Prefers the hostname over an IP literal for a connection host. */
+  private preferHostname(host: string | undefined, addresses: string[] | undefined): string {
+    const clean = (host || '').trim().replace(/\.local$/, '')
+    const isIp = /^[0-9.]+$/.test(clean) || clean === 'localhost'
+    if (clean && !isIp) return clean
+    return (addresses && addresses.length) ? addresses[0] : (clean || 'localhost')
+  }
+
   private async scan(): Promise<void> {
     if (!this.running) return
 
@@ -94,7 +102,10 @@ export class ModbusAutoDiscover {
 
       const collect = (s: { name?: string; port?: number; addresses?: string[]; host?: string }) => {
         const port = s.port || 502
-        const host = (s.addresses && s.addresses.length) ? s.addresses[0] : (s.host || 'localhost')
+        // Prefer the stable SRV hostname (e.g. "mbusd") over the resolved IP so
+        // the saved connection keeps working when the container's IP changes.
+        // Skip pure IP literals / localhost for the hostname field.
+        const host = this.preferHostname(s.host, s.addresses)
         seen.set(this.key(host, port), { name: s.name || 'modbus', host, port })
       }
       b1.on('up', collect)
