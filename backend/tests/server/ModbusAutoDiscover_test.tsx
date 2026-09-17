@@ -70,3 +70,15 @@ it('knownEndpoints includes mbusd and modbus on port 502', async () => {
     { host: 'modbus', port: 502 },
   ])
 })
+
+it('probeKnownEndpoints uses the hostname as the connection host', async () => {
+  const ad = ModbusAutoDiscover.getInstance()
+  ;(ad as any).tcpProbe = async () => true
+  // Stub the injectable dns: both mbusd and modbus resolve to 10.0.0.5
+  ;(ad as any).dns = { lookup: async (h: string) => [{ address: '10.0.0.5' }] }
+  const rc = await (ad as any).probeKnownEndpoints()
+  expect(rc.some((s: any) => s.host === 'mbusd' && s.port === 502)).toBe(true)
+  expect(rc.some((s: any) => s.host === 'modbus' && s.port === 502)).toBe(true)
+  // host is the hostname, NOT the resolved IP
+  expect(rc.every((s: any) => s.host !== '10.0.0.5')).toBe(true)
+})

@@ -1,5 +1,5 @@
 import { Bonjour } from 'bonjour-service'
-import dns from 'dns/promises'
+import dnsDefault from 'dns/promises'
 import { Socket } from 'net'
 import { Config } from './config.js'
 import { LogLevelEnum, Logger } from '../specification/index.js'
@@ -140,6 +140,12 @@ export class ModbusAutoDiscover {
     ]
   }
 
+  // injectable for tests (real default: dns/promises)
+  private dns: typeof dnsDefault
+  private constructor() {
+    this.dns = dnsDefault
+  }
+
   /** Opens a TCP socket to host:port and returns true if the connection succeeds. */
   private async tcpProbe(host: string, port: number, timeoutMs = 2500): Promise<boolean> {
     return await new Promise<boolean>((resolve) => {
@@ -164,12 +170,14 @@ export class ModbusAutoDiscover {
     const found: DiscoveredModbusServer[] = []
     for (const ep of this.knownEndpoints()) {
       try {
-        const addrs = await dns.lookup(ep.host, { all: true })
+        const addrs = await this.dns.lookup(ep.host, { all: true })
         for (const a of addrs) {
           if (await this.tcpProbe(a.address, ep.port)) {
-            // Probe the resolved IP (robust); also keep the name for display.
-            found.push({ name: ep.host, host: a.address, port: ep.port })
-            log.log(LogLevelEnum.info, `Modbus auto-discovery: endpoint ${ep.host}:${ep.port} -> ${a.address}:${ep.port} reachable`)
+            // Use the stable hostname (e.g. "mbusd") as the connection host so
+            // a DHCP/network IP change does not break the saved Modbus bus.
+            // The resolved IP is only used for the reachability probe.
+            found.push({ name: ep.host, host: ep.host, port: ep.port })
+            log.log(LogLevelEnum.info, `Modbus auto-discovery: endpoint ${ep.host}:${ep.port} reachable (via ${a.address})`)
           }
         }
       } catch { /* hostname not resolvable (not on this Docker network) - fine */ }
