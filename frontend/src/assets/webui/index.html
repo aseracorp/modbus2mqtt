@@ -215,7 +215,13 @@
       <div class="field"><label data-i18n="bus_select">Modbus connection</label>
         <select id="se-busselect"></select>
       </div>
-      <div class="field"><label data-i18n="slave_id">Slave ID</label><input type="text" id="se-slaveid" placeholder="1"></div>
+      <div class="field"><label data-i18n="slave_id">Slave ID</label>
+        <div class="eep-combo">
+          <input type="text" id="se-slaveid" placeholder="1" list="se-slave-scan-list">
+          <datalist id="se-slave-scan-list"></datalist>
+          <button type="button" class="btn btn-sm" id="se-scan-slaves" title="Scan bus for slaves" data-i18n="scan_slaves">Scan</button>
+        </div>
+      </div>
       <div class="field"><label data-i18n="name">Name</label><input type="text" id="se-name" placeholder="device name"></div>
       <div class="field"><label data-i18n="template_label">Template (specification)</label>
         <div class="eep-combo">
@@ -259,6 +265,7 @@
             <th data-i18n="reg_converter">Converter</th>
             <th data-i18n="reg_uom">Unit</th>
             <th data-i18n="reg_category">Category</th>
+            <th data-i18n="reg_value">Value</th>
             <th></th>
           </tr>
         </thead>
@@ -296,6 +303,7 @@
             <th data-i18n="reg_converter">Converter</th>
             <th data-i18n="reg_uom">Unit</th>
             <th data-i18n="reg_category">Category</th>
+            <th data-i18n="reg_value">Value</th>
             <th></th>
           </tr>
         </thead>
@@ -337,12 +345,22 @@
       </div>
       <div class="field reg-condition"><label data-i18n="reg_cond">Condition (optional)</label>
         <div class="reg-condition-row">
-          <input type="text" id="re-cond-register" placeholder="501" title="Condition register address">
-          <input type="text" id="re-cond-bits" placeholder="0,1,5" title="Bit indexes (LSB=0), comma separated">
-          <input type="text" id="re-cond-equals" placeholder="" title="Activate when register equals this value">
+          <input type="text" id="re-cond-register" placeholder="501 or 500.1" title="Condition register address (optionally .bit, e.g. 500.1) — for a single bit use register.bit = 1">
+          <select id="re-cond-cmp">
+            <option value="eq">=</option>
+            <option value="ne">≠</option>
+            <option value="lt">&lt;</option>
+            <option value="le">≤</option>
+            <option value="gt">&gt;</option>
+            <option value="ge">≥</option>
+            <option value="contains">contains</option>
+            <option value="hasbit">has bit</option>
+          </select>
+          <input type="text" id="re-cond-value" placeholder="1" title="Value to compare the condition register (or bit value) against">
         </div>
-        <span class="field-hint" data-i18n="reg_cond_hint">Register is only available when its bits are set in the condition register (e.g. Thermokon sensor-identification 501)</span>
+        <span class="field-hint" data-i18n="reg_cond_hint">Register is only available when: condition-register (or register.bit) compares to the value. E.g. 500.1 = 1 → active if bit 1 of register 500 is set</span>
       </div>
+      <div class="field"><label data-i18n="reg_value_desc">Value description</label><input type="text" id="re-value-desc" placeholder="e.g. Temperature in °C / 0=off 1=on"></div>
       <div class="field"><label data-i18n="reg_converter">Converter</label>
         <select id="re-converter">
           <option value="number">number</option>

@@ -4,7 +4,7 @@ import { Subject } from 'rxjs'
 import { Bus } from '../../bus.js'
 import { Modbus } from '../../modbus.js'
 import { LogLevelEnum, Logger } from '../../../specification/index.js'
-import { HttpErrorsEnum, ImodbusSpecification, Ispecification } from '../../../shared/specification/index.js'
+import { HttpErrorsEnum, ImodbusSpecification, Ispecification, ModbusRegisterType } from '../../../shared/specification/index.js'
 import { ModbusTasks, apiUri } from '../../../shared/server/index.js'
 import { sendResult } from '../sendResult.js'
 import { ApiError, Ctx, Registrar, created, ok, requireBusSlave, stripSpecFileData } from '../routeHelpers.js'
@@ -165,5 +165,42 @@ export function registerModbusRoutes(r: Registrar): void {
       }
     }
     throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'spec, entityid and mqttValue required')
+  })
+
+  // ---- Slave-ID scan ----
+  // Probes slave ids 1..32 first; if none respond, probes 33..256. A slave is
+  // considered present when a holding-register read succeeds without a Modbus
+  // timeout/exception for that unit id.
+  r.get(apiUri.scanSlaves, async (ctx) => {
+    const busid = ctx.query['busid'] ? Number.parseInt(String(ctx.query['busid'])) : undefined
+    if (busid === undefined || isNaN(busid)) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'busid required')
+    const bus = Bus.getBus(busid)
+    if (!bus) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'Bus not found. Id: ' + busid)
+    const modbusAPI = bus.getModbusAPI()
+    const probe = async (id: number): Promise<boolean> => {
+      try {
+        const addresses = new Set([{ address: 0, registerType: ModbusRegisterType.HoldingRegister }])
+        await modbusAPI.readModbusRegister(id, addresses, {
+          task: ModbusTasks.poll,
+          errorHandling: { retry: false },
+          maxRegistersPerRequest: 1,
+        } as never)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const found: number[] = []
+    const firstPass = Array.from({ length: 32 }, (_, i) => i + 1)
+    for (const id of firstPass) {
+      if (await probe(id)) found.push(id)
+    }
+    if (!found.length) {
+      // No slave in 1..32 - scan the remaining 33..256
+      for (let id = 33; id <= 256; id++) {
+        if (await probe(id)) found.push(id)
+      }
+    }
+    return ok({ slaveIds: found, scanned: found.length ? '1-32' : '1-256' })
   })
 }

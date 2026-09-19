@@ -533,6 +533,7 @@ function populateSlaveSelect() {
 $('se-busselect')?.addEventListener('change', populateSlaveSelect);
 
 function openAddSlave(busid) {
+  editingSlaveBus = busid; editingSlaveId = null;
   editingSlave = null;
   $('slaveedit-title').textContent = t('add_slave_title');
   $('se-busselect').value = busid != null ? String(busid) : (state.busses.length ? String(state.busses[0].busId) : '');
@@ -556,6 +557,7 @@ function openAddSlave(busid) {
   applyHelpIcons();
 }
 async function openEditSlave(busid, slaveid) {
+  editingSlaveBus = busid; editingSlaveId = slaveid;
   const bus = (state.busses || []).find((b) => b.busId === Number(busid));
   if (!bus) return;
   const slave = bus.slaves.find((s) => s.slaveid === Number(slaveid));
@@ -600,6 +602,30 @@ $('se-pollmode')?.addEventListener('change', updatePollModeFields);
 $('se-reg-add')?.addEventListener('click', () => {
   activeSpec = slaveSpec;
   openRegEdit(null);
+});
+// Slave-ID scan: poll the selected bus for responsive slave ids and offer them as a dropdown.
+$('se-scan-slaves')?.addEventListener('click', async () => {
+  const busid = parseInt($('se-busselect')?.value, 10);
+  if (isNaN(busid)) return toast(t('err_no_bus'), 'error');
+  const btn = $('se-scan-slaves');
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const rc = await api('/api/modbus/scan-slaves?busid=' + busid);
+    const ids = (rc && rc.slaveIds) || [];
+    const dl = $('se-slave-scan-list');
+    dl.innerHTML = ids.map((id) => '<option value="' + id + '"></option>').join('');
+    if (ids.length) {
+      $('se-slaveid').value = String(ids[0]);
+      toast(t('scan_slaves_found') + ids.join(', '), 'success');
+    } else {
+      toast(t('scan_slaves_none'), 'warn');
+    }
+  } catch (e) {
+    toast(t('err_scan_slaves') + (e && e.message ? e.message : ''), 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
 });
 $('slaveedit-cancel')?.addEventListener('click', () => { $('slaveedit-overlay').hidden = true; });
 $('slaveedit-ok')?.addEventListener('click', async () => {
@@ -745,6 +771,7 @@ let editingTemplate = null;
 // working copy of the template being added/edited (full ImodbusSpecification)
 let templateSpec = null;
 let slaveSpec = null;
+let editingSlaveBus = null, editingSlaveId = null;
 // spec that the register editor currently edits (templateSpec or slaveSpec)
 let activeSpec = null;
 
@@ -785,26 +812,29 @@ $('tpledit-cancel')?.addEventListener('click', () => { $('tpledit-overlay').hidd
 $('te-reg-add')?.addEventListener('click', () => openRegEdit(null));
 function renderTemplateRegisters() {
   const tbody = $('te-reg-body');
-  const ents = (templateSpec && templateSpec.entities) || [];
+  const ents = sortRegisters((templateSpec && templateSpec.entities) || []);
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">' + t('reg_none') + '</td></tr>';
     return;
   }
   tbody.innerHTML = ents.map((en, i) => {
     const cp = en.converterParameters || {};
-    const isNum = en.converter === 'number';
+    const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
     const cat = en.category === 'config' ? 'config' : 'value';
-    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register)) + '">⚑</span>' : '';
+    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
     return '<tr data-idx="' + i + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(en.mqttname || '') + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
       '<td>' + escapeHtml(rw) + '</td>' +
-      '<td>' + escapeHtml(en.converter || '') + '</td>' +
+      '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
+      '<td><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(en.mqttValue != null ? en.mqttValue : '—') + '</span>' +
+        (en.readonly ? '' : '<button class="icon-btn reg-write" data-idx="' + i + '" title="' + t('reg_write') + '">✏️</button>') +
+      '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
         '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
@@ -826,26 +856,29 @@ function renderActiveRegisters() {
 function renderDeviceRegisters() {
   const tbody = $('se-reg-body');
   if (!tbody) return;
-  const ents = (slaveSpec && slaveSpec.entities) || [];
+  const ents = sortRegisters((slaveSpec && slaveSpec.entities) || []);
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">' + t('reg_none') + '</td></tr>';
     return;
   }
   tbody.innerHTML = ents.map((en, i) => {
     const cp = en.converterParameters || {};
-    const isNum = en.converter === 'number';
+    const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
     const cat = en.category === 'config' ? 'config' : 'value';
-    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register)) + '">⚑</span>' : '';
+    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
     return '<tr data-idx="' + i + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(en.mqttname || '') + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
       '<td>' + escapeHtml(rw) + '</td>' +
-      '<td>' + escapeHtml(en.converter || '') + '</td>' +
+      '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
+      '<td><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(en.mqttValue != null ? en.mqttValue : '—') + '</span>' +
+        (en.readonly ? '' : '<button class="icon-btn reg-write" data-idx="' + i + '" title="' + t('reg_write') + '">✏️</button>') +
+      '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
         '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
@@ -859,6 +892,37 @@ function renderDeviceRegisters() {
       renderDeviceRegisters();
     });
   });
+}
+
+function converterName(en) {
+  if (!en || en.converter == null) return '';
+  if (typeof en.converter === 'object') return en.converter.name || '';
+  return String(en.converter);
+}
+// sort: Category (config -> value -> diag) then Address (low->high)
+function catRank(en) {
+  if (en.category === 'config') return 0;
+  if (en.category === 'diagnostic' || en.entityCategory === 'diagnostic') return 2;
+  return 1;
+}
+// Tooltip for the value column: value description from the template docs
+// (converterParameters.description / valueDescription) plus condition info.
+function valueTooltip(en) {
+  const parts = []
+  const d = en.converterParameters && (en.converterParameters.description || en.converterParameters.valueDescription)
+  if (d) parts.push(d)
+  if (en.mqttValue != null) parts.push(t('reg_value') + ': ' + en.mqttValue)
+  return parts.join('\n') || t('reg_value')
+}
+
+function sortRegisters(ents) {
+  const arr = (ents || []).slice();
+  arr.sort((a, b) => {
+    const c = catRank(a) - catRank(b);
+    if (c !== 0) return c;
+    return (a.modbusAddress == null ? 0 : a.modbusAddress) - (b.modbusAddress == null ? 0 : b.modbusAddress);
+  });
+  return arr;
 }
 
 function regTypeName(rt) {
@@ -882,11 +946,14 @@ function openRegEdit(idx) {
   $('re-modbusaddress').value = en.modbusAddress == null ? '' : String(en.modbusAddress);
   $('re-readonly').checked = !!en.readonly;
   $('re-category').value = en.category || en.entityCategory || 'value';
-  // condition
+  // condition (register[.bit], comparator, value)
   const cond = en.condition || {};
-  $('re-cond-register').value = cond.register != null ? String(cond.register) : '';
-  $('re-cond-bits').value = cond.bits && cond.bits.length ? cond.bits.join(',') : '';
-  $('re-cond-equals').value = cond.equals != null ? String(cond.equals) : '';
+  let condRegStr = cond.register != null ? String(cond.register) : '';
+  if (cond.bit != null) condRegStr += '.' + cond.bit;
+  $('re-cond-register').value = condRegStr;
+  $('re-cond-cmp').value = cond.comparator || 'eq';
+  $('re-cond-value').value = cond.value != null ? String(cond.value) : '';
+  $('re-value-desc').value = (en.converterParameters && (en.converterParameters.description || en.converterParameters.valueDescription)) || '';
   $('re-converter').value = en.converter || 'number';
   $('re-multiplier').value = cp.multiplier == null ? '' : String(cp.multiplier);
   $('re-offset').value = cp.offset == null ? '' : String(cp.offset);
@@ -961,15 +1028,27 @@ $('regedit-ok')?.addEventListener('click', () => {
   const category = $('re-category').value || 'value';
   if (category === 'config') en.category = 'config';
   else if (category === 'diagnostic') en.entityCategory = 'diagnostic';
-  // condition
+  // condition: register[.bit] + comparator + value
   const condReg = $('re-cond-register').value.trim();
   if (condReg !== '') {
-    const cond = { register: parseInt(condReg, 10) };
-    const bits = $('re-cond-bits').value.trim();
-    if (bits !== '') cond.bits = bits.split(',').map((b) => parseInt(b.trim(), 10)).filter((n) => !isNaN(n));
-    const eq = $('re-cond-equals').value.trim();
-    if (eq !== '') cond.equals = parseInt(eq, 10);
-    en.condition = cond;
+    const m = condReg.match(/^(\d+)(?:\.(\d+))?$/);
+    if (m) {
+      const cond = { register: parseInt(m[1], 10), comparator: $('re-cond-cmp').value || 'eq' };
+      if (m[2] !== undefined) cond.bit = parseInt(m[2], 10);
+      const cv = $('re-cond-value').value.trim();
+      if (cv !== '') cond.value = parseFloat(cv);
+      en.condition = cond;
+    }
+  } else {
+    delete en.condition;
+  }
+  // value description (template docs)
+  const vdesc = $('re-value-desc').value.trim();
+  if (vdesc !== '') {
+    en.converterParameters = en.converterParameters || {};
+    en.converterParameters.valueDescription = vdesc;
+  } else if (en.converterParameters) {
+    delete en.converterParameters.valueDescription;
   }
   if (editingRegIdx != null) {
     const old = ents[editingRegIdx];
@@ -1052,6 +1131,31 @@ $('modal-ok')?.addEventListener('click', async () => {
   } catch (e) {
     toast(t('err_remove_device') + e.message, 'error');
   }
+});
+
+// Write a register value (r/w registers only). Uses the existing write endpoint.
+async function writeRegisterValue(busid, slaveid, spec, entityid, value) {
+  const url = '/api/modbus/write/entity?busid=' + busid + '&slaveid=' + slaveid +
+    '&entityid=' + entityid + '&mqttValue=' + encodeURIComponent(String(value));
+  await api(url, { method: 'POST', body: JSON.stringify(spec) });
+}
+// Delegate reg-write clicks on both register tables (template editor uses a bus/slave context via editingBus/editingSlave when set)
+document.addEventListener('click', (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('.reg-write') : null;
+  if (!btn) return;
+  const tbody = btn.closest('tbody');
+  const idx = Number(btn.getAttribute('data-idx'));
+  const spec = (tbody && tbody.id === 'te-reg-body') ? templateSpec : slaveSpec;
+  const en = spec && spec.entities && spec.entities[idx];
+  if (!en) return;
+  const cur = en.mqttValue != null ? en.mqttValue : '';
+  const val = prompt(t('reg_write_prompt') + (en.name || en.mqttname || ''), String(cur));
+  if (val === null) return;
+  const busid = editingSlaveBus != null ? editingSlaveBus : (state.busses[0] && state.busses[0].busId);
+  const slaveid = editingSlaveId != null ? editingSlaveId : (state.busses[0] && state.busses[0].slaves && state.busses[0].slaves[0] && state.busses[0].slaves[0].slaveid);
+  writeRegisterValue(busid, slaveid, spec, en.id, val)
+    .then(() => { toast(t('config_saved') , 'success'); en.mqttValue = val; (tbody.click ? tbody : document).dispatchEvent ? renderActiveRegisters() : null; })
+    .catch((err) => toast((err && err.message) || t('err_save_config'), 'error'));
 });
 
 /* ---------------- add-options ---------------- */

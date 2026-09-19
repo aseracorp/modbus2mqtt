@@ -34,7 +34,10 @@ entities:
     modbusAddress: 0
     condition:
       register: 501
-      bits: [0]
+      bit: 0
+      comparator: eq
+      value: 1
+    valueDescription: 'Temperature in °C'
     converterParameters:
       multiplier: 0.1
       offset: 0
@@ -57,7 +60,10 @@ entities:
     modbusAddress: 1
     condition:
       register: 501
-      bits: [1]
+      bit: 1
+      comparator: eq
+      value: 1
+    valueDescription: 'Relative humidity in %'
     converterParameters:
       multiplier: 0.1
       offset: 0
@@ -80,7 +86,10 @@ entities:
     modbusAddress: 2
     condition:
       register: 501
-      bits: [2]
+      bit: 2
+      comparator: eq
+      value: 1
+    valueDescription: 'Absolute humidity in g/m³'
     converterParameters:
       multiplier: 0.01
       offset: 0
@@ -103,7 +112,10 @@ entities:
     modbusAddress: 3
     condition:
       register: 501
-      bits: [3]
+      bit: 3
+      comparator: eq
+      value: 1
+    valueDescription: 'Enthalpy in kJ/kg'
     converterParameters:
       multiplier: 0.1
       offset: 0
@@ -125,7 +137,10 @@ entities:
     modbusAddress: 4
     condition:
       register: 501
-      bits: [4]
+      bit: 4
+      comparator: eq
+      value: 1
+    valueDescription: 'Dew point in °C'
     converterParameters:
       multiplier: 0.1
       offset: 0
@@ -148,7 +163,10 @@ entities:
     modbusAddress: 5
     condition:
       register: 501
-      bits: [5]
+      bit: 5
+      comparator: eq
+      value: 1
+    valueDescription: 'CO₂ concentration in ppm'
     converterParameters:
       multiplier: 1
       offset: 0
@@ -171,7 +189,10 @@ entities:
     modbusAddress: 6
     condition:
       register: 501
-      bits: [6]
+      bit: 6
+      comparator: eq
+      value: 1
+    valueDescription: 'VOC level in %'
     converterParameters:
       multiplier: 0.1
       offset: 0
@@ -193,7 +214,10 @@ entities:
     modbusAddress: 7
     condition:
       register: 501
-      bits: [7]
+      bit: 7
+      comparator: eq
+      value: 1
+    valueDescription: 'CO₂/VOC mix level in %'
     converterParameters:
       multiplier: 0.1
       offset: 0

@@ -37,7 +37,7 @@ const spec: IfileSpecification = {
       registerType: ModbusRegisterType.HoldingRegister,
       modbusAddress: 0,
       readonly: true,
-      condition: { register: 501, bits: [0] }, // active if bit0 set
+      condition: { register: 501, bit: 0, comparator: 'eq', value: 1 }, // active if bit0 set
       converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 },
     },
     {
@@ -47,7 +47,7 @@ const spec: IfileSpecification = {
       registerType: ModbusRegisterType.HoldingRegister,
       modbusAddress: 5,
       readonly: true,
-      condition: { register: 501, bits: [5] }, // active if bit5 set
+      condition: { register: 501, bit: 5, comparator: 'eq', value: 1 }, // active if bit5 set
       converterParameters: { multiplier: 1, offset: 0, decimals: 0, numberFormat: 0 },
     },
     {
@@ -57,7 +57,7 @@ const spec: IfileSpecification = {
       registerType: ModbusRegisterType.HoldingRegister,
       modbusAddress: 6,
       readonly: true,
-      condition: { register: 501, bits: [6] }, // active if bit6 set (NOT set in testdata)
+      condition: { register: 501, bit: 6, comparator: 'eq', value: 1 }, // active if bit6 set (NOT set in testdata)
       converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 },
     },
     {
@@ -75,14 +75,14 @@ const spec: IfileSpecification = {
 
 describe('conditional + config registers', () => {
   it('isEntityActive: bit activation', () => {
-    expect(Modbus.isEntityActive({ condition: { register: 501, bits: [0] } }, 0b00100001)).toBe(true)
-    expect(Modbus.isEntityActive({ condition: { register: 501, bits: [5] } }, 0b00100001)).toBe(true)
+    expect(Modbus.isEntityActive({ condition: { register: 501, bit: 0, comparator: 'eq', value: 1 } }, 0b00100001)).toBe(true)
+    expect(Modbus.isEntityActive({ condition: { register: 501, bit: 5, comparator: 'eq', value: 1 } }, 0b00100001)).toBe(true)
     // bit6 is NOT set -> entity inactive
-    expect(Modbus.isEntityActive({ condition: { register: 501, bits: [6] } }, 0b00100001)).toBe(false)
+    expect(Modbus.isEntityActive({ condition: { register: 501, bit: 6, comparator: 'eq', value: 1 } }, 0b00100001)).toBe(false)
   })
   it('isEntityActive: equals activation', () => {
-    expect(Modbus.isEntityActive({ condition: { register: 400, equals: 1 } }, 1)).toBe(true)
-    expect(Modbus.isEntityActive({ condition: { register: 400, equals: 2 } }, 1)).toBe(false)
+    expect(Modbus.isEntityActive({ condition: { register: 400, comparator: 'eq', value: 1 } }, 1)).toBe(true)
+    expect(Modbus.isEntityActive({ condition: { register: 400, comparator: 'eq', value: 2 } }, 1)).toBe(false)
   })
   it('isEntityActive: no condition -> always active', () => {
     expect(Modbus.isEntityActive({}, 123)).toBe(true)

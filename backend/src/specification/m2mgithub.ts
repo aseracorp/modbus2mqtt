@@ -13,7 +13,10 @@ const debug = Debug('m2mgithub')
 const execFile = promisify(execFileCb)
 
 export const githubPublicNames = {
-  publicModbus2mqttOwner: 'modbus2mqtt',
+  // Public Modbus specifications are served from the aseracorp fork of
+  // modbus2mqtt/modbus2mqtt.config, which also ships the Thermokon WRF06
+  // and any fork-specific templates not yet upstream.
+  publicModbus2mqttOwner: 'aseracorp',
   modbus2mqttRepo: 'modbus2mqtt.config',
   modbus2mqttBranch: 'main',
 }

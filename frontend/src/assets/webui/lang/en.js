@@ -152,4 +152,12 @@ window.LANG_en = {
   reg_cond_bits: "Bits",
   reg_cond_equals: "Equals",
   device_registers: "Registers / entities",
+  scan_slaves: "Scan",
+  scan_slaves_found: "Slave(s) found: ",
+  scan_slaves_none: "No slave found on this connection",
+  err_scan_slaves: "Slave scan failed: ",
+  reg_write: "Write value",
+  reg_value: "Value",
+  reg_write_prompt: "New value for ",
+  reg_value_desc: "Value description",
 };
