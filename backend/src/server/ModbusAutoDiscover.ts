@@ -2,6 +2,7 @@ import { Bonjour } from 'bonjour-service'
 import dnsDefault from 'dns/promises'
 import { Socket } from 'net'
 import { Config } from './config.js'
+import { ConfigBus } from './configbus.js'
 import { LogLevelEnum, Logger } from '../specification/index.js'
 
 const log = new Logger('ModbusAutoDiscover')
@@ -51,10 +52,29 @@ export class ModbusAutoDiscover {
     }
   }
 
-  /** Servers currently advertised on the LAN that are not blacklisted. */
+  /** Servers currently advertised on the LAN that are not blacklisted and not already configured. */
   getDiscoveredServers(): DiscoveredModbusServer[] {
     const blacklist = this.getBlacklist()
-    return this.discovered.filter((s) => !blacklist.includes(this.key(s.host, s.port)))
+    const configured = this.configuredBusses()
+    return this.discovered.filter((s) => {
+      if (blacklist.includes(this.key(s.host, s.port))) return false
+      // Skip devices that are already set up as a Modbus connection
+      return !configured.some((c) => this.key(c.host, c.port) === this.key(s.host, s.port))
+    })
+  }
+
+  /** Host/port of already-configured TCP Modbus busses. */
+  private configuredBusses(): { host: string; port: number }[] {
+    try {
+      const rc: { host: string; port: number }[] = []
+      ConfigBus.getBussesProperties().forEach((b) => {
+        const c = b.connectionData as { host?: string; port?: number }
+        if (c.host) rc.push({ host: c.host, port: c.port || 502 })
+      })
+      return rc
+    } catch {
+      return []
+    }
   }
 
   blacklistServer(host: string, port: number): void {

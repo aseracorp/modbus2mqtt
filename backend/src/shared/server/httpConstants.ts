@@ -24,6 +24,7 @@ export enum apiUri {
   validateMqtt = '/api/validate/mqtt',
   writeEntity = '/api/modbus/write/entity',
   configRegister = '/api/modbus/config',
+  scanSlaves = '/api/modbus/scan-slaves',
   serialDevices = '/api/serial/devices',
   nextCheck = '/api/nextGithubMergeCheck',
   download = '/download/:what',

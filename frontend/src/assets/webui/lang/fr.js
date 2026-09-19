@@ -152,4 +152,12 @@ window.LANG_fr = {
   reg_cond_bits: "Bits",
   reg_cond_equals: "Égale",
   device_registers: "Registres / entités",
+  scan_slaves: "Scanner",
+  scan_slaves_found: "Esclave(s) trouvé(s) : ",
+  scan_slaves_none: "Aucun esclave trouvé sur cette connexion",
+  err_scan_slaves: "Échec du scan esclave : ",
+  reg_write: "Écrire la valeur",
+  reg_value: "Valeur",
+  reg_write_prompt: "Nouvelle valeur pour ",
+  reg_value_desc: "Description de la valeur",
 };

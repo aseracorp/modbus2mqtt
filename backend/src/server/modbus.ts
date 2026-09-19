@@ -106,18 +106,26 @@ export class Modbus {
    * Entities without a `condition` are always active. Config entities are not read
    * as value registers (they are handled by the config API).
    */
-  static isEntityActive(entity: { condition?: { register: number; registerType?: number; bits?: number[]; equals?: number }; modbusAddress?: number; category?: string }, value: number | undefined): boolean {
+  static isEntityActive(entity: { condition?: { register: number; registerType?: number; bit?: number; comparator?: string; value?: number }; modbusAddress?: number; category?: string }, value: number | undefined): boolean {
     if (!entity.condition) return true
     if (value === undefined || value === null) return false // condition register not readable -> not active
     const c = entity.condition
-    let hit = false
-    if (c.bits && c.bits.length) {
-      hit = c.bits.some((bit) => ((value >> bit) & 1) === 1)
+    // If a single bit is referenced (register.bit), compare the bit value (0/1).
+    let actual = value
+    if (c.bit !== undefined && c.bit !== null) actual = ((value >> c.bit) & 1)
+    const expected = c.value ?? 0
+    const cmp = c.comparator || 'eq'
+    switch (cmp) {
+      case 'eq': return actual === expected
+      case 'ne': return actual !== expected
+      case 'lt': return actual < expected
+      case 'le': return actual <= expected
+      case 'gt': return actual > expected
+      case 'ge': return actual >= expected
+      case 'contains': return expected !== undefined && ((actual >> Math.trunc(expected)) & 1) === 1
+      case 'hasbit': return expected !== undefined && ((actual >> Math.trunc(expected)) & 1) === 1
+      default: return actual === expected
     }
-    if (c.equals !== undefined && c.equals !== null) {
-      if (value === c.equals) hit = true
-    }
-    return hit
   }
 
   static async getModbusSpecificationFromData(

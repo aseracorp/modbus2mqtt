@@ -105,7 +105,7 @@ describe('M2mGitHub', () => {
   describe('getPullRequestUrl', () => {
     it('returns correct URL', () => {
       const url = M2mGitHub.getPullRequestUrl(42)
-      expect(url).toBe('https://github.com/modbus2mqtt/modbus2mqtt.config/pull/42')
+      expect(url).toBe('https://github.com/aseracorp/modbus2mqtt.config/pull/42')
     })
   })
 
