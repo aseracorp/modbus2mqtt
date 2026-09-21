@@ -13,16 +13,15 @@
 docker run -d \
   --name modbus2mqtt \
   -p 3000:3000 \
-  -e MODBUS2MQTT_DATA_CONFIG=1 \
   -v /path/to/data:/data \
   --device=/dev/ttyUSB0 \
   modbus2mqtt/modbus2mqtt:latest
 ```
 
-With `MODBUS2MQTT_DATA_CONFIG=1` (recommended) **all** configuration — MQTT
-settings, busses, devices, specifications and secrets — is stored under `/data`
-and survives container recreation as long as `/data` is mounted. See
-[Volume Mounts](#volume-mounts) below.
+**All** configuration — MQTT settings, busses, devices, specifications and
+secrets — is stored under `/data`, so mounting `/data` is all you need for the
+whole setup to survive container recreation. See [Volume Mounts](#volume-mounts)
+below.
 
 ### Using Docker Compose
 
@@ -45,8 +44,6 @@ services:
       - /dev/ttyUSB0:/dev/ttyUSB0
     environment:
       - TZ=Europe/Berlin
-      # Store all configuration under /data - survives container recreation
-      - MODBUS2MQTT_DATA_CONFIG=1
     restart: unless-stopped
 
   mosquitto:
@@ -78,25 +75,18 @@ docker-compose up -d
 
 ### Volume Mounts
 
-Two layouts are supported:
+Everything the app stores lives under **`/data`** — the single persistent share:
 
-| Mode | Config location | Mounts needed |
-|------|-----------------|---------------|
-| `MODBUS2MQTT_DATA_CONFIG=1` (recommended) | `/data/config/modbus2mqtt` | **`/data`** only |
-| default | `/config/modbus2mqtt` | `/config` (+ `/data` optional) |
+- **`/data/modbus2mqtt`** - configuration (MQTT settings, busses, devices, local specifications, `secrets.yaml`)
+- **`/data/public`** - git-cloned public specifications
 
-**`/data`** - Persistent data directory. Contains:
-- `config/modbus2mqtt/` - configuration (MQTT settings, busses, devices, local specifications, `secrets.yaml`) — only with `MODBUS2MQTT_DATA_CONFIG=1`
-- `public/` - git-cloned public specifications (always)
-
-**Required**: `/data` (with `MODBUS2MQTT_DATA_CONFIG=1`) or `/config` (default layout) for persistent configuration.
+**Required**: `/data` for persistent configuration.
 
 **Optional**: `/ssl` location for TLS certificates (`fullchain.pem`, `privkey.pem`) and `secrets.txt`. The `secrets.txt` file holds a local random key used e.g. as fallback for `OIDC_SESSION_SECRET`. Losing it invalidates existing OIDC browser sessions — users simply have to log in again.
 
-**Migration from the old single-volume `/data/local` layout:** if a legacy `/data/local`
+**Migration from the old `/data/local` layout:** if a legacy `/data/local`
 directory exists with configuration, the container startup script automatically copies it
-into the active config location — you don't lose anything when moving to
-`MODBUS2MQTT_DATA_CONFIG=1`.
+to `/data/modbus2mqtt` — you don't lose anything.
 
 ### Device Access
 
@@ -120,7 +110,6 @@ ls -l /dev/ttyACM*
 - `MQTT_URL` - MQTT broker URL (default: `mqtt://localhost:1883`)
 - `HTTP_PORT` - HTTP server port (default: `3000`)
 - `MODBUS2MQTT_HTTPS_PORT` - HTTPS server port (default: `3443`, only active if TLS certs are found in `/ssl`)
-- `MODBUS2MQTT_DATA_CONFIG` - Set to `1` to store all configuration under `/data` (see [Volume Mounts](#volume-mounts)). Unset or `0` keeps the legacy layout with configuration under `/config`.
 - `OIDC_ENABLED`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_CALLBACK_URL`, `OIDC_SESSION_SECRET` - see [authentication](authentication.md) for the full OIDC setup
 
 ## Accessing the UI
@@ -170,12 +159,7 @@ sudo chown -R 1000:20 ./data
 chmod -R 755 ./data
 
 # Run container - all configuration + specs persist in ./data
-docker run -d -p 3000:3000 -e MODBUS2MQTT_DATA_CONFIG=1 -v ./data:/data modbus2mqtt/modbus2mqtt:latest
-
-# Legacy layout (config in ./config, data in ./data)
-mkdir -p ./config ./data
-sudo chown -R 1000:20 ./config ./data
-docker run -d -p 3000:3000 -v ./config:/config -v ./data:/data modbus2mqtt/modbus2mqtt:latest
+docker run -d -p 3000:3000 -v ./data:/data modbus2mqtt/modbus2mqtt:latest
 ```
 
 **Option 2: User mapping in Docker**
@@ -208,16 +192,14 @@ If you see `EACCES: permission denied` errors:
 1. **Check current ownership**:
 
    ```bash
-   ls -la ./data            # MODBUS2MQTT_DATA_CONFIG=1 layout
-   ls -la ./config ./data   # legacy layout
+   ls -la ./data
    # Should show: drwxr-xr-x ... 1000 dialout
    ```
 
 2. **Fix ownership**:
 
    ```bash
-   sudo chown -R 1000:20 ./data          # MODBUS2MQTT_DATA_CONFIG=1 layout
-   sudo chown -R 1000:20 ./config ./data # legacy layout
+   sudo chown -R 1000:20 ./data
    chmod -R 755 ./data
    ```
 
@@ -293,7 +275,6 @@ Create `/data/options.json`:
 docker run -d \
   -p 3000:3000 \
   -p 2222:22 \
-  -e MODBUS2MQTT_DATA_CONFIG=1 \
   -v ./data:/data \
   modbus2mqtt/modbus2mqtt:latest
 
@@ -310,8 +291,6 @@ services:
     ports:
       - '3000:3000'
       - '2222:22' # SSH access
-    environment:
-      - MODBUS2MQTT_DATA_CONFIG=1
     volumes:
       - ./data:/data # persistent configuration + SSH configuration
 ```

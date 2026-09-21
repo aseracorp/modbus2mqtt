@@ -45,10 +45,14 @@ COPY --from=build /src/docker/rootfs /app/rootfs
 
 ENV NODE_ENV=production
 
+# /data is the single persistent share: configuration (/data/modbus2mqtt)
+# AND public specifications (/data/public) survive container recreation.
+RUN mkdir -p /data /ssl && chown -R node:node /data /ssl && chmod -R 755 /data /ssl
+
 # Health check
 HEALTHCHECK --interval=5s --timeout=5s --start-period=30s --retries=3 \
     CMD wget -q --tries=1 -O /dev/null http://127.0.0.1:3000/index.html || exit 1
 
 EXPOSE 3000 3443
 
-CMD ["node", "dist/server/modbus2mqtt.js"]
+CMD ["node", "dist/server/modbus2mqtt.js", "-c", "/data", "-d", "/data", "-s", "/ssl"]
