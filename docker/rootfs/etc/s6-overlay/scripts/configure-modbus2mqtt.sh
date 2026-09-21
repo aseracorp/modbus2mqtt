@@ -1,23 +1,37 @@
-# if they are mounted, ensure required directories have correct ownership as 
-# this script runs as root
-# Migration from old config location /data/local to /config/modbus2mqtt
-# If /config/modbus2mqtt does not exist, copy configuration from /data/local
-# shellcheck disable=SC2012
-if [ ! -d "/config/modbus2mqtt" ] || \
-   [ ! -f "/config/modbus2mqtt/modbus2mqtt.yaml" ]  ||
-   [ "$(find /config/modbus2mqtt/busses/bus.*/s*.yaml | wc -l)" = "0" ]
-then
-    mkdir -p /config/modbus2mqtt; 
-    if [ -d /data/local ]  
-    then 
-      mkdir -p /config/modbus2mqtt; 
-      echo "Migrating /data and /config to new command line 0.17.0+"
-      cp -R /data/local/* /config/modbus2mqtt/; 
-    fi
+#!/bin/sh
+# Runs as root before the app service starts. Ensures required directories
+# exist with the correct ownership, performs the legacy /data/local ->
+# <config-root>/modbus2mqtt migration, and selects the configuration directory.
+#
+# Storage layout (Docker / LXC):
+#   MODBUS2MQTT_DATA_CONFIG=1  ->  config at /data/config/modbus2mqtt
+#                                  (everything persistent under /data)
+#   default                    ->  config at /config/modbus2mqtt
+#                                  (upstream layout, /config must be a volume)
+# In both modes /data/public holds the git-cloned public specifications, so
+# /data is always the persistent share. When MODBUS2MQTT_DATA_CONFIG=1 every
+# user setting (MQTT config, busses, devices, local specs, secrets) survives
+# container recreation because /data is mounted.
+
+if [ "$MODBUS2MQTT_DATA_CONFIG" = "1" ]; then
+    CONFIG_ROOT="/data/config"
+else
+    CONFIG_ROOT="/config"
 fi
-mkdir -p /config/modbus2mqtt; 
-[ ! -d "/data/public" ] && mkdir -p /data/public; 
-chown -R modbus2mqtt:dialout /config/modbus2mqtt
+mkdir -p "$CONFIG_ROOT"
+mkdir -p "$CONFIG_ROOT/modbus2mqtt"
+mkdir -p /data/public
+
+# Migration from old config location /data/local to <CONFIG_ROOT>/modbus2mqtt
+# Only runs once: if the active config file is already present, the migration
+# is already done (an empty busses/ directory is a valid state, so it must not
+# trigger a re-copy on every boot).
+if [ ! -f "$CONFIG_ROOT/modbus2mqtt/modbus2mqtt.yaml" ] && [ -d /data/local ]; then
+    echo "Migrating /data/local to $CONFIG_ROOT/modbus2mqtt"
+    cp -R /data/local/. "$CONFIG_ROOT/modbus2mqtt/"
+    chown -R modbus2mqtt:dialout "$CONFIG_ROOT/modbus2mqtt"
+fi
+chown -R modbus2mqtt:dialout "$CONFIG_ROOT/modbus2mqtt"
 chown -R modbus2mqtt:dialout /data/public
 touch /ssl/secrets.txt
 chown -R modbus2mqtt:dialout /ssl/secrets.txt

@@ -8,13 +8,19 @@ services:
       - 3443:3443
     restart: always
     volumes:
-      - data:/home/volkmar/data
-      - config:/home/volkmar/config
-      - ssl:/home/volkmar/ssl
+      # Everything the app stores (configuration, busses, devices,
+      # specifications, secrets) lives under /data - mount ONE volume and
+      # your whole setup survives container recreation.
+      - data:/data
+      # Optional: TLS certificates (fullchain.pem, privkey.pem, secrets.txt)
+      - ssl:/ssl
     environment:
       - TZ=Europe/Berlin
       - MODBUS2MQTT_HTTPS_PORT=3443
+      # Store all configuration under /data so no separate /config volume
+      # is needed (remove /config mount above on purpose).
+      # Keep this enabled unless you mount /config yourself.
+      - MODBUS2MQTT_DATA_CONFIG=1
 volumes:
   data:
-  config:
   ssl:
