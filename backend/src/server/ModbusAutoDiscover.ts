@@ -1,9 +1,11 @@
 import { Bonjour } from 'bonjour-service'
 import dnsDefault from 'dns/promises'
 import { Socket } from 'net'
+import * as os from 'os'
 import { Config } from './config.js'
 import { ConfigBus } from './configbus.js'
 import { LogLevelEnum, Logger } from '../specification/index.js'
+import { scanNamedHosts } from './NetworkScanner.js'
 
 const log = new Logger('ModbusAutoDiscover')
 
@@ -88,7 +90,10 @@ export class ModbusAutoDiscover {
       new Config().writeConfiguration(cfg)
       log.log(LogLevelEnum.info, `Modbus auto-discovery: blacklisted ${host}:${port}`)
     } catch (e) {
-      log.log(LogLevelEnum.error, 'Modbus auto-discovery: blacklist persist failed: ' + (e instanceof Error ? e.message : String(e)))
+      log.log(
+        LogLevelEnum.error,
+        'Modbus auto-discovery: blacklist persist failed: ' + (e instanceof Error ? e.message : String(e))
+      )
     }
   }
 
@@ -109,7 +114,7 @@ export class ModbusAutoDiscover {
     const clean = (host || '').trim().replace(/\.local$/, '')
     const isIp = /^[0-9.]+$/.test(clean) || clean === 'localhost'
     if (clean && !isIp) return clean
-    return (addresses && addresses.length) ? addresses[0] : (clean || 'localhost')
+    return addresses && addresses.length ? addresses[0] : clean || 'localhost'
   }
 
   private async scan(): Promise<void> {
@@ -147,6 +152,15 @@ export class ModbusAutoDiscover {
       const endpointServers = await this.probeKnownEndpoints()
       endpointServers.forEach((srv) => merged.set(this.key(srv.host, srv.port), srv))
 
+      // Docker-network fallback (opt-in via config): ask the Docker embedded
+      // DNS which hosts are known on our networks and TCP-probe them for a
+      // Modbus listener. This finds servers that do not announce mDNS at all
+      // and avoids the multicast-does-not-cross-bridge limitation.
+      if (this.networkScanEnabled()) {
+        const named = await this.probeNamedHosts()
+        named.forEach((srv) => merged.set(this.key(srv.host, srv.port), srv))
+      }
+
       this.discovered = Array.from(merged.values())
       const live = this.getDiscoveredServers().length
       // Keep scanning so newly appearing servers are still detected even when
@@ -162,7 +176,11 @@ export class ModbusAutoDiscover {
     } catch (e) {
       log.log(LogLevelEnum.error, 'Modbus mDNS browse error: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
-      try { bonjour.destroy() } catch { /* ignore */ }
+      try {
+        bonjour.destroy()
+      } catch {
+        /* ignore */
+      }
     }
 
     if (!this.running) return
@@ -175,6 +193,29 @@ export class ModbusAutoDiscover {
       { host: 'mbusd', port: 502 },
       { host: 'modbus', port: 502 },
     ]
+  }
+
+  /**
+   * Resolves well-known endpoint hostnames via Docker DNS and probes port 502.
+   * The resolved IP is only used for reachability; the stable hostname is the
+   * connection `host` so a saved bus survives DHCP/network IP changes.
+   */
+  private async probeKnownEndpoints(): Promise<DiscoveredModbusServer[]> {
+    const found: DiscoveredModbusServer[] = []
+    for (const ep of this.knownEndpoints()) {
+      try {
+        const addrs = await this.dns.lookup(ep.host, { all: true })
+        for (const a of addrs) {
+          if (await this.tcpProbe(a.address, ep.port)) {
+            found.push({ name: ep.host, host: ep.host, port: ep.port })
+            log.log(LogLevelEnum.info, `Modbus auto-discovery: endpoint ${ep.host}:${ep.port} reachable (via ${a.address})`)
+          }
+        }
+      } catch {
+        /* hostname not resolvable (not on this Docker network) - fine */
+      }
+    }
+    return found
   }
 
   // injectable for tests (real default: dns/promises)
@@ -191,34 +232,61 @@ export class ModbusAutoDiscover {
       const finish = (ok: boolean) => {
         if (done) return
         done = true
-        try { sock.destroy() } catch { /* ignore */ }
+        try {
+          sock.destroy()
+        } catch {
+          /* ignore */
+        }
         resolve(ok)
       }
       sock.setTimeout(timeoutMs)
       sock.once('connect', () => finish(true))
       sock.once('timeout', () => finish(false))
       sock.once('error', () => finish(false))
-      try { sock.connect(port, host) } catch { finish(false) }
+      try {
+        sock.connect(port, host)
+      } catch {
+        finish(false)
+      }
     })
   }
 
-  /** Resolves well-known endpoint hostnames via Docker DNS and probes port 502. */
-  private async probeKnownEndpoints(): Promise<DiscoveredModbusServer[]> {
+  /** Whether the Docker-network host sweep is enabled in the configuration. */
+  private networkScanEnabled(): boolean {
+    try {
+      return Config.getConfiguration().modbusAutoDiscoverNetworkScan === true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Asks the Docker embedded DNS which hosts are known on our networks and
+   * TCP-probes them for a Modbus listener. Returns stable hostnames as the
+   * connection `host` so a saved bus survives IP changes (same policy as
+   * `probeKnownEndpoints`).
+   */
+  private async probeNamedHosts(): Promise<DiscoveredModbusServer[]> {
+    const interfaces = this.localInterfaces()
     const found: DiscoveredModbusServer[] = []
-    for (const ep of this.knownEndpoints()) {
-      try {
-        const addrs = await this.dns.lookup(ep.host, { all: true })
-        for (const a of addrs) {
-          if (await this.tcpProbe(a.address, ep.port)) {
-            // Use the stable hostname (e.g. "mbusd") as the connection host so
-            // a DHCP/network IP change does not break the saved Modbus bus.
-            // The resolved IP is only used for the reachability probe.
-            found.push({ name: ep.host, host: ep.host, port: ep.port })
-            log.log(LogLevelEnum.info, `Modbus auto-discovery: endpoint ${ep.host}:${ep.port} reachable (via ${a.address})`)
-          }
-        }
-      } catch { /* hostname not resolvable (not on this Docker network) - fine */ }
+    for (const host of await scanNamedHosts(this.dns, (h, p, t) => this.tcpProbe(h, p, t), interfaces)) {
+      found.push({ name: host.host, host: host.host, port: 502 })
+      log.log(LogLevelEnum.info, `Modbus auto-discovery: Docker network host ${host.host} (${host.address}) reachable`)
     }
     return found
+  }
+
+  /** IPv4 non-internal interfaces of this container (used by the sweep). */
+  private localInterfaces(): { address: string; netmask: string; family: string; internal: boolean }[] {
+    const out: { address: string; netmask: string; family: string; internal: boolean }[] = []
+    try {
+      Object.values(os.networkInterfaces()).forEach((addrs) => {
+        if (addrs)
+          addrs.forEach((a) => out.push({ address: a.address, netmask: a.netmask, family: a.family, internal: a.internal }))
+      })
+    } catch {
+      /* ignore */
+    }
+    return out
   }
 }
