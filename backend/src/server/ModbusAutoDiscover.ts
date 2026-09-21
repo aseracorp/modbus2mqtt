@@ -148,10 +148,17 @@ export class ModbusAutoDiscover {
 
       this.discovered = Array.from(merged.values())
       const live = this.getDiscoveredServers().length
-      if (this.discovered.length) {
+      // Once at least one server is configured we no longer need to scan:
+      // stop the discovery loop (and don't spam logs).
+      if (this.configuredBusses().length) {
+        this.stop()
+        log.log(LogLevelEnum.info, 'Modbus auto-discovery: server configured, discovery stopped')
+        return
+      }
+      // Only log when there is at least one usable server, otherwise stay quiet
+      // so the log is not spammed every 20s while nothing is discoverable.
+      if (live >= 1) {
         log.log(LogLevelEnum.info, `Modbus auto-discovery: found ${this.discovered.length} server(s), ${live} usable`)
-      } else {
-        log.log(LogLevelEnum.info, 'Modbus auto-discovery: no server found (mDNS + endpoint probe)')
       }
     } catch (e) {
       log.log(LogLevelEnum.error, 'Modbus mDNS browse error: ' + (e instanceof Error ? e.message : String(e)))
