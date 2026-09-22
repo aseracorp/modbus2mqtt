@@ -2,8 +2,8 @@ import { parse } from 'yaml'
 import * as fs from 'fs'
 import * as path from 'path'
 import { join } from 'path'
-import Debug from 'debug'
 import {
+  Converters,
   EnumNumberFormat,
   FileLocation,
   Inumber,
@@ -18,7 +18,6 @@ import { ICollectionPersistence } from '../server/persistence/persistence.js'
 import { LogLevelEnum, Logger } from './log.js'
 
 const log = new Logger('specPersistence')
-const debug = Debug('specPersistence')
 const filesUrlPrefix = 'specifications/files'
 
 function getSpecificationImageOrDocumentUrl(rootUrl: string | undefined, specName: string, url: string): string {
@@ -166,6 +165,14 @@ export class SpecPersistence implements ICollectionPersistence<IfileSpecificatio
   private postProcessSpec(o: IfileSpecification) {
     if (o.entities)
       o.entities.forEach((entity) => {
+        // Normalize the converter reference. Spec files written/edited by hand (and the newer
+        // 0.5 templates) may carry the object form `converter: { name: 'number' }` while the
+        // runtime (ConverterMap.getConverter) expects the plain string `converter: 'number'`.
+        // Older specs are normalized by the migrator (0.3->0.4), but specs already at the current
+        // version skip migration, so do it here for every loaded spec.
+        if (entity.converter != undefined && typeof entity.converter === 'object' && 'name' in entity.converter) {
+          entity.converter = (entity.converter as { name: Converters }).name
+        }
         if (entity.converter != undefined) {
           const inumber = entity.converterParameters as Inumber
           if (inumber.multiplier != undefined && inumber.numberFormat == undefined) {
@@ -242,7 +249,6 @@ export class SpecPersistence implements ICollectionPersistence<IfileSpecificatio
       fs.cpSync(filespath, localFilesPath, { recursive: true })
     }
   }
-
 
   private cleanSpecForWriting(spec: IfileSpecification): void {
     spec.entities.forEach((e) => {

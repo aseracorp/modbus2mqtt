@@ -234,6 +234,27 @@ describe('Modbus read', () => {
   //     done();
   // });
 })
+describe('isEntityActive', () => {
+  const entity = (bit: number) => ({
+    modbusAddress: 0,
+    condition: { register: 501, bit, comparator: 'eq', value: 1 },
+  })
+  it('activates the entity when the condition bit is set (WRF06 register 501 = 33)', () => {
+    // 33 = 0b00100001 -> bit0 (temp) and bit5 (co2) set
+    expect(Modbus.isEntityActive(entity(0), 33)).toBe(true)
+    expect(Modbus.isEntityActive(entity(5), 33)).toBe(true)
+  })
+  it('deactivates the entity when the condition bit is clear', () => {
+    expect(Modbus.isEntityActive(entity(1), 33)).toBe(false) // rH bit1 clear
+    expect(Modbus.isEntityActive(entity(6), 33)).toBe(false) // VOC bit6 clear
+  })
+  it('returns false when the condition register value is missing', () => {
+    expect(Modbus.isEntityActive(entity(0), undefined)).toBe(false)
+  })
+  it('treats entities without a condition as always active', () => {
+    expect(Modbus.isEntityActive({ modbusAddress: 502 }, 33)).toBe(true)
+  })
+})
 it.skip('Modbus modbusDataToSpec spec.identified = identified', () => {
   const spec: IfileSpecification = {
     version: '0.1',
