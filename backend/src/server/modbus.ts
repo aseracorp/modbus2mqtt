@@ -196,13 +196,19 @@ export class Modbus {
           const val = getRegValue(conditionValues, type, ent.condition.register)
           if (val === undefined) continue
           if (!Modbus.isEntityActive(ent, val)) {
-            // Remove its address data from the result so the entity shows not-identified.
+            // Remove the entity's full register span (a 32-bit entity covers two registers),
+            // so a leftover second register cannot be misread as a standalone value during
+            // population and make NumberConverter throw on a partial (1-register) array.
             const e = ent as ImodbusEntityLike
             if (e.modbusAddress !== undefined) {
-              finalValues.holdingRegisters.delete(e.modbusAddress)
-              finalValues.analogInputs.delete(e.modbusAddress)
-              finalValues.coils.delete(e.modbusAddress)
-              finalValues.discreteInputs.delete(e.modbusAddress)
+              const converter = ConverterMap.getConverter(ent)
+              const length = converter ? converter.getModbusLength(ent) : 1
+              for (let i = 0; i < length; i++) {
+                finalValues.holdingRegisters.delete(e.modbusAddress + i)
+                finalValues.analogInputs.delete(e.modbusAddress + i)
+                finalValues.coils.delete(e.modbusAddress + i)
+                finalValues.discreteInputs.delete(e.modbusAddress + i)
+              }
             }
           }
         }
