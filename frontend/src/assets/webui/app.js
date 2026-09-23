@@ -588,6 +588,22 @@ async function openEditSlave(busid, slaveid) {
       if (full && Array.isArray(full.entities)) slaveSpec = full;
     } catch (e) { /* keep empty */ }
   }
+  // Overlay the live values read from the device, so the register table shows
+  // the current modbus values instead of '—'. /api/modbus/specification returns
+  // the spec with mqttValue populated for the registers actually present.
+  try {
+    const live = await api('/api/modbus/specification?busid=' + busid + '&slaveid=' + slaveid + '&spec=' + encodeURIComponent(slave.specificationid));
+    if (live && Array.isArray(live.entities) && slaveSpec && Array.isArray(slaveSpec.entities)) {
+      live.entities.forEach((le) => {
+        const tgt = slaveSpec.entities.find((e) => e.id === le.id);
+        if (tgt) {
+          if (le.mqttValue !== undefined) tgt.mqttValue = le.mqttValue;
+          if (le.modbusValue !== undefined) tgt.modbusValue = le.modbusValue;
+          if (le.identified !== undefined) tgt.identified = le.identified;
+        }
+      });
+    }
+  } catch (e) { /* values are optional; the table falls back to '—' */ }
   renderDeviceRegisters();
   updatePollModeFields();
   $('slaveedit-overlay').hidden = false;
@@ -1191,7 +1207,7 @@ const MQTT_FIELDS = [
   { key: 'mqttkeyfile', labelKey: 'cfg_mqtt_key_file', type: 'file-combo', helpKey: 'cfg_mqtt_key_file_help' }
 ];
 const CONFIG_FIELDS = [
-  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'text', helpKey: 'cfg_debug_components_help' },
+  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'multi-select', optionsUrl: '/api/debugComponents', helpKey: 'cfg_debug_components_help' },
   { key: 'displayHex', labelKey: 'cfg_display_hex', type: 'bool', helpKey: 'cfg_display_hex_help' }
 ];
 const CONFIG_KEYMAP = {
@@ -1211,6 +1227,11 @@ function configDottedKey(fieldKey) {
 let stateSslFiles = [];
 async function loadSslFiles() {
   try { stateSslFiles = await api('/api/sslfiles'); } catch (e) { stateSslFiles = []; }
+}
+// debug component catalog cache (for the multi-select in the config modal)
+let stateDebugComponents = [];
+async function loadDebugComponents() {
+  try { stateDebugComponents = await api('/api/debugComponents'); } catch (e) { stateDebugComponents = []; }
 }
 // lookup helpers for the current config
 function configGet(conf, dottedKey) {
@@ -1251,6 +1272,17 @@ function renderConfigField(flatGet, field, idPrefix) {
     return '<div class="field config-bool"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
       '<input type="checkbox" id="' + id + '" data-cfgkey="' + field.key + '"' + (checked ? ' checked' : '') + '>' +
       '<input type="hidden" data-cfgkey="' + field.key + '" data-boolhidden="' + field.key + '" value="' + (checked ? '1' : '0') + '"></div>';
+  }
+  if (field.type === 'multi-select') {
+    // A multiple <select> fed by an async options endpoint; values are stored as a
+    // comma-separated string (matches the backend Debug.enable() format).
+    const selected = String(val == null ? '' : val).split(',').map((s) => s.trim()).filter(Boolean);
+    const opts = (stateDebugComponents || [])
+      .map((c) => '<option value="' + escapeHtml(c.name) + '"' + (selected.includes(c.name) ? ' selected' : '') + '>' + escapeHtml(c.name + (c.description ? ' — ' + c.description : '')) + '</option>')
+      .join('');
+    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
+      '<select multiple size="' + Math.min(8, (stateDebugComponents || []).length || 4) + '" id="' + id + '" data-cfgkey="' + field.key + '" data-multiselect="1" style="width:100%">' + opts + '</select>' +
+      '<div class="field-help">' + escapeHtml(t(field.helpKey)) + '</div></div>';
   }
   if (field.type === 'file-combo') {
     // text input + datalist + browse button (combobox like the EEP field); shows current value
@@ -1332,6 +1364,7 @@ async function openConfigEdit() {
   const grid = $('config-grid');
   if (!grid || !state.config) return;
   const getter = state.config;
+  await loadDebugComponents();
   grid.classList.add('config-two-col');
   grid.innerHTML = CONFIG_FIELDS.map((f) => renderConfigField(getter, f, 'cfg-')).join('');
   bindConfigCheckboxes(grid);
@@ -1348,6 +1381,13 @@ $('configedit-save')?.addEventListener('click', async () => {
     if (inp.type === 'checkbox') return;
     const k = inp.getAttribute('data-cfgkey');
     let v = inp.value.trim();
+    if (inp.getAttribute('data-multiselect') === '1') {
+      // multiple select -> collect the chosen options into the comma string
+      v = Array.from(inp.options).filter((o) => o.selected).map((o) => o.value).join(',');
+      if (v === '') v = undefined;
+      configSet(merged, k, v);
+      return;
+    }
     if (v === '') v = undefined;
     else if (v === 'true' || v === 'false') v = (v === 'true');
     else {

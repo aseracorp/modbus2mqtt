@@ -96,7 +96,7 @@ window.LANG_de = {
   cfg_mqtt_ca_file_help: "CA-Zertifikat zur Verifikation des MQTT-Brokers (TLS).",
   cfg_mqtt_cert_file_help: "Clientzertifikat für den MQTT-Broker (mTLS).",
   cfg_mqtt_key_file_help: "Privater Schlüssel zum Clientzertifikat.",
-  cfg_debug_components_help: "Kommagetrennte Komponentennamen für ausführliches Logging.",
+  cfg_debug_components_help: "Komponenten für ausführliches Logging auswählen (Modbus-Lesen, MQTT, Discovery usw.).",
   cfg_display_hex_help: "Registerwerte hexadezimal statt dezimal anzeigen.",
   'help_be-type': "Verbindungstyp: TCP (Netzwerk) oder RTU (seriell).",
   'help_be-host': "Hostname oder IP-Adresse des Modbus-TCP-Geräts.",

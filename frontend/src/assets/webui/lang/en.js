@@ -96,7 +96,7 @@ window.LANG_en = {
   cfg_mqtt_ca_file_help: "CA certificate file used to verify the MQTT broker (TLS).",
   cfg_mqtt_cert_file_help: "Client certificate file presented to the MQTT broker (mTLS).",
   cfg_mqtt_key_file_help: "Private key file matching the client certificate.",
-  cfg_debug_components_help: "Comma-separated component names to enable verbose logging.",
+  cfg_debug_components_help: "Select components to enable verbose logging (modbus reads, MQTT, discovery, etc).",
   cfg_display_hex_help: "Show register values in hexadecimal instead of decimal.",
   'help_be-type': "Connection type: TCP (network) or RTU (serial).",
   'help_be-host': "Hostname or IP address of the Modbus TCP device.",
