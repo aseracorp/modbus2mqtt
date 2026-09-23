@@ -182,20 +182,20 @@ describe('Slave.getStatePayload array support', () => {
     expect(() => slave.getStatePayload([ent(1, 'meters', 1), ent(2, 'meters[0].x', 2)])).not.toThrow()
   })
 
-  it('excludes config, diagnostic and inactive (empty) entities from the state payload', () => {
+  it('excludes config and inactive (empty) entities but keeps diagnostic in the state payload', () => {
     const entities: ImodbusEntity[] = [
       { ...ent(1, 'sensor_identification', 33), entityCategory: 'diagnostic' } as ImodbusEntity,
-      { ...ent(2, 'temperature', 24.3), entityCategory: 'diagnostic' } as ImodbusEntity,
+      { ...ent(2, 'temperature', 24.3) } as ImodbusEntity,
       { ...ent(3, 'unit_system', 1), category: 'config' as const } as ImodbusEntity,
       { ...ent(4, 'relative_humidity', '') } as ImodbusEntity,
       ent(5, 'co2', 483),
     ]
     const payload = JSON.parse(slave.getStatePayload(entities))
-    // diagnostic (sensor ident / temp) and config + inactive "" entities are filtered out
-    expect(payload).toEqual({ co2: 483 })
+    // diagnostic (sensor ident) and value entities are published; config + inactive "" entities are filtered out
+    expect(payload).toEqual({ sensor_identification: 33, temperature: 24.3, co2: 483 })
   })
 
-  it('keeps diagnostic and inactive entities out even when they carry a value', () => {
+  it('keeps diagnostic entities in the payload even when they carry a value', () => {
     const entities: ImodbusEntity[] = [
       { ...ent(1, 'hw_version', 257), entityCategory: 'diagnostic' } as ImodbusEntity,
       { ...ent(2, 'fw_version', 258), entityCategory: 'diagnostic' } as ImodbusEntity,
@@ -203,7 +203,7 @@ describe('Slave.getStatePayload array support', () => {
       ent(4, 'temperature', 24.3),
     ]
     const payload = JSON.parse(slave.getStatePayload(entities))
-    expect(payload).toEqual({ temperature: 24.3 })
+    expect(payload).toEqual({ hw_version: 257, fw_version: 258, temperature: 24.3 })
   })
 })
 

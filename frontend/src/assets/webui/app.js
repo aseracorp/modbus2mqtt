@@ -556,6 +556,28 @@ function openAddSlave(busid) {
   $('slaveedit-overlay').hidden = false;
   applyHelpIcons();
 }
+async // Overlay the live values read from the device onto slaveSpec, so the register
+// table shows the current modbus values instead of '—'. /api/modbus/specification
+// returns the spec with mqttValue populated for the registers actually present.
+function refreshSlaveValues(busid, slaveid, specid) {
+  return new Promise((resolve) => {
+    api('/api/modbus/specification?busid=' + busid + '&slaveid=' + slaveid + '&spec=' + encodeURIComponent(specid))
+      .then((live) => {
+        if (live && Array.isArray(live.entities) && slaveSpec && Array.isArray(slaveSpec.entities)) {
+          live.entities.forEach((le) => {
+            const tgt = slaveSpec.entities.find((e) => e.id === le.id);
+            if (tgt) {
+              if (le.mqttValue !== undefined) tgt.mqttValue = le.mqttValue;
+              if (le.modbusValue !== undefined) tgt.modbusValue = le.modbusValue;
+              if (le.identified !== undefined) tgt.identified = le.identified;
+            }
+          });
+        }
+        resolve();
+      })
+      .catch(() => resolve());
+  });
+}
 async function openEditSlave(busid, slaveid) {
   editingSlaveBus = busid; editingSlaveId = slaveid;
   const bus = (state.busses || []).find((b) => b.busId === Number(busid));
@@ -589,21 +611,9 @@ async function openEditSlave(busid, slaveid) {
     } catch (e) { /* keep empty */ }
   }
   // Overlay the live values read from the device, so the register table shows
-  // the current modbus values instead of '—'. /api/modbus/specification returns
-  // the spec with mqttValue populated for the registers actually present.
-  try {
-    const live = await api('/api/modbus/specification?busid=' + busid + '&slaveid=' + slaveid + '&spec=' + encodeURIComponent(slave.specificationid));
-    if (live && Array.isArray(live.entities) && slaveSpec && Array.isArray(slaveSpec.entities)) {
-      live.entities.forEach((le) => {
-        const tgt = slaveSpec.entities.find((e) => e.id === le.id);
-        if (tgt) {
-          if (le.mqttValue !== undefined) tgt.mqttValue = le.mqttValue;
-          if (le.modbusValue !== undefined) tgt.modbusValue = le.modbusValue;
-          if (le.identified !== undefined) tgt.identified = le.identified;
-        }
-      });
-    }
-  } catch (e) { /* values are optional; the table falls back to '—' */ }
+  // the current modbus values instead of '—'.
+  activeSpec = slaveSpec;
+  await refreshSlaveValues(busid, slaveid, slave.specificationid || slaveSpec.filename || '');
   renderDeviceRegisters();
   updatePollModeFields();
   $('slaveedit-overlay').hidden = false;
@@ -835,13 +845,14 @@ function renderTemplateRegisters() {
   }
   // The template shows every register (no values loaded); there is no Value column
   // because a template does not hold any live values.
-  tbody.innerHTML = ents.map((en, i) => {
+  tbody.innerHTML = ents.map((en) => {
+    const eid = en.id != null ? en.id : ('x' + specIndexOf(templateSpec, en))
     const cp = en.converterParameters || {};
     const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
     const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
     const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
-    return '<tr data-idx="' + i + '">' +
+    return '<tr data-eid="' + eid + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
@@ -850,15 +861,16 @@ function renderTemplateRegisters() {
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
       '<td><div class="row-actions">' +
-        '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
-        '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
+        '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">✎</button>' +
+        '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>' +
       '</div></td></tr>';
   }).join('');
-  tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => openRegEdit(Number(b.getAttribute('data-idx')))));
+  tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => { const en = entityByEid(templateSpec, b.getAttribute('data-eid')); if (en) { activeSpec = templateSpec; openRegEditForEntity(en); } }));
   tbody.querySelectorAll('.reg-del').forEach((b) => {
     b.addEventListener('click', () => {
-      const i = Number(b.getAttribute('data-idx'));
-      (templateSpec.entities || []).splice(i, 1);
+      const en = entityByEid(templateSpec, b.getAttribute('data-eid'));
+      if (!en) return;
+      templateSpec.entities = (templateSpec.entities || []).filter((x) => x !== en);
       renderTemplateRegisters();
     });
   });
@@ -882,7 +894,8 @@ function renderDeviceRegisters() {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + t('reg_none') + '</td></tr>';
     return;
   }
-  tbody.innerHTML = ents.map((en, i) => {
+  tbody.innerHTML = ents.map((en) => {
+    const eid = en.id != null ? en.id : ('x' + (specIndexOf(slaveSpec, en)))
     const cp = en.converterParameters || {};
     const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
@@ -890,8 +903,8 @@ function renderDeviceRegisters() {
     const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
     const shown = en.mqttValue != null ? en.mqttValue : '—';
     const writeBtn = en.readonly ? '' :
-      '<button class="icon-btn reg-write" data-idx="' + i + '" title="' + t('reg_write') + '">✏️</button>';
-    return '<tr data-idx="' + i + '">' +
+      '<button class="icon-btn reg-write" data-eid="' + eid + '" title="' + t('reg_write') + '">✏️</button>';
+    return '<tr data-eid="' + eid + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
@@ -901,15 +914,16 @@ function renderDeviceRegisters() {
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
       '<td class="reg-value-cell"><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(shown) + '</span>' + writeBtn + '</td>' +
       '<td><div class="row-actions">' +
-        '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
-        (en.readonly ? '' : '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>') +
+        '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">✎</button>' +
+        (en.readonly ? '' : '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>') +
       '</div></td></tr>';
   }).join('');
-  tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => { activeSpec = slaveSpec; openRegEdit(Number(b.getAttribute('data-idx'))); }));
+  tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => { const en = entityByEid(slaveSpec, b.getAttribute('data-eid')); if (en) { activeSpec = slaveSpec; openRegEditForEntity(en); } }));
   tbody.querySelectorAll('.reg-del').forEach((b) => {
     b.addEventListener('click', () => {
-      const i = Number(b.getAttribute('data-idx'));
-      (slaveSpec.entities || []).splice(i, 1);
+      const en = entityByEid(slaveSpec, b.getAttribute('data-eid'));
+      if (!en) return;
+      slaveSpec.entities = (slaveSpec.entities || []).filter((x) => x !== en);
       renderDeviceRegisters();
     });
   });
@@ -971,12 +985,33 @@ function regConverterShown() {
   $('reg-conv-text').hidden = cv !== 'text';
 }
 let editingRegIdx = null;
+let editingRegEntity = null;
+function specIndexOf(spec, en) {
+  const arr = (spec && spec.entities) || []
+  return arr.indexOf(en)
+}
+function entityByEid(spec, eid) {
+  if (!spec || !spec.entities) return undefined
+  if (eid == null) return undefined
+  const n = Number(eid)
+  if (!isNaN(n)) return spec.entities.find((e) => e.id === n)
+  if (String(eid).startsWith('x')) {
+    const idx = Number(String(eid).slice(1))
+    return spec.entities[idx]
+  }
+  return undefined
+}
 function openRegEdit(idx) {
-  editingRegIdx = idx;
   const spec = activeSpec || templateSpec;
-  const ents = (spec && spec.entities) || [];
-  const en = idx == null ? { converter: 'number', converterParameters: {}, registerType: 3, readonly: true } : (ents[idx] || {});
-  const cp = en.converterParameters || {};
+  const en = idx == null ? null : entityByEid(spec, idx);
+  openRegEditForEntity(en);
+}
+function openRegEditForEntity(en) {
+  const isNew = en == null;
+  if (isNew) en = { converter: 'number', converterParameters: {}, registerType: 3, readonly: true };
+  editingRegEntity = isNew ? null : en;
+  editingRegIdx = en && en.id != null ? en.id : null;
+  const cp = (en && en.converterParameters) || {};
   $('re-name').value = en.name || '';
   $('re-mqttname').value = en.mqttname || '';
   $('re-registertype').value = String(en.registerType == null ? 3 : en.registerType);
@@ -1053,8 +1088,9 @@ $('regedit-ok')?.addEventListener('click', () => {
   }
   const spec = activeSpec || templateSpec;
   const ents = (spec && spec.entities) || (spec.entities = []);
+  const editing = editingRegEntity || (editingRegIdx != null ? entityByEid(spec, editingRegIdx) : null);
   const en = {
-    id: editingRegIdx != null ? (ents[editingRegIdx].id) : ((spec.nextEntityId) || (spec.nextEntityId = 1)),
+    id: editing ? editing.id : ((spec.nextEntityId) || (spec.nextEntityId = 1)),
     name: name || undefined,
     mqttname: mqttname || undefined,
     registerType, modbusAddress, readonly, converter,
@@ -1087,16 +1123,18 @@ $('regedit-ok')?.addEventListener('click', () => {
   } else if (en.converterParameters) {
     delete en.converterParameters.valueDescription;
   }
-  if (editingRegIdx != null) {
-    const old = ents[editingRegIdx];
-    en.id = old.id;
-    if (old.converter === 'select' && converter === 'select') en.converterParameters = Object.assign({}, old.converterParameters, cp);
-    ents[editingRegIdx] = en;
+  if (editing) {
+    en.id = editing.id;
+    if (editing.converter === 'select' && converter === 'select') en.converterParameters = Object.assign({}, editing.converterParameters, cp);
+    const pos = ents.indexOf(editing);
+    if (pos >= 0) ents[pos] = en;
+    else ents.push(en);
   } else {
     if (typeof spec.nextEntityId === 'number') spec.nextEntityId++;
     ents.push(en);
   }
   $('regedit-overlay').hidden = true;
+  editingRegEntity = null;
   renderActiveRegisters();
 });
 $('tpledit-ok')?.addEventListener('click', async () => {
@@ -1178,8 +1216,7 @@ async function writeRegisterValue(busid, slaveid, spec, entityid, value) {
 }
 // Inline-edit a register value (r/w registers only): clicking the pencil turns the
 // value cell into an editable input with a confirm (✓) and cancel (✕) button.
-function startInlineEdit(btn, spec, idx) {
-  const en = spec && spec.entities && spec.entities[idx];
+function startInlineEdit(btn, spec, en) {
   if (!en) return;
   const cell = btn.closest('td');
   if (!cell) return;
@@ -1197,7 +1234,18 @@ function startInlineEdit(btn, spec, idx) {
       const busid = editingSlaveBus != null ? editingSlaveBus : (state.busses[0] && state.busses[0].busId);
       const slaveid = editingSlaveId != null ? editingSlaveId : (state.busses[0] && state.busses[0].slaves && state.busses[0].slaves[0] && state.busses[0].slaves[0].slaveid);
       writeRegisterValue(busid, slaveid, spec, en.id, val)
-        .then(() => { toast(t('config_saved'), 'success'); en.mqttValue = val; renderDeviceRegisters(); })
+        .then(() => {
+          toast(t('config_saved'), 'success');
+          // Re-read the register values from the device so the table reflects the
+          // actual (single, converted) value that was written.
+          if (spec === slaveSpec || spec === (activeSpec || slaveSpec)) {
+            refreshSlaveValues(busid, slaveid, spec.filename || slaveSpec.filename || '')
+              .then(() => renderDeviceRegisters());
+          } else {
+            en.mqttValue = val;
+            renderDeviceRegisters();
+          }
+        })
         .catch((err) => { toast((err && err.message) || t('err_save_config'), 'error'); renderDeviceRegisters(); });
     } else {
       renderDeviceRegisters();
@@ -1212,9 +1260,10 @@ document.addEventListener('click', (e) => {
   const btn = e.target && e.target.closest ? e.target.closest('.reg-write') : null;
   if (!btn) return;
   const tbody = btn.closest('tbody');
-  const idx = Number(btn.getAttribute('data-idx'));
+  const eid = btn.getAttribute('data-eid');
   const spec = (tbody && tbody.id === 'te-reg-body') ? templateSpec : slaveSpec;
-  startInlineEdit(btn, spec, idx);
+  const en = entityByEid(spec, eid);
+  startInlineEdit(btn, spec, en);
 });
 
 /* ---------------- add-options ---------------- */
@@ -1250,8 +1299,7 @@ const MQTT_FIELDS = [
   { key: 'mqttkeyfile', labelKey: 'cfg_mqtt_key_file', type: 'file-combo', helpKey: 'cfg_mqtt_key_file_help' }
 ];
 const CONFIG_FIELDS = [
-  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'multi-select', optionsUrl: '/api/debugComponents', helpKey: 'cfg_debug_components_help' },
-  { key: 'displayHex', labelKey: 'cfg_display_hex', type: 'bool', helpKey: 'cfg_display_hex_help' }
+  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'multi-select', optionsUrl: '/api/debugComponents', helpKey: 'cfg_debug_components_help' }
 ];
 const CONFIG_KEYMAP = {
   mqttuser: 'mqttconnect.username',
@@ -1261,7 +1309,7 @@ const CONFIG_KEYMAP = {
   mqttdiscoveryprefix: 'mqttdiscoveryprefix',
   mqttdiscoverylanguage: 'mqttdiscoverylanguage',
   mqttcafile: 'mqttcaFile', mqttcertfile: 'mqttcertFile', mqttkeyfile: 'mqttkeyFile',
-  debugComponents: 'debugComponents', displayHex: 'displayHex'
+  debugComponents: 'debugComponents'
 };
 function configDottedKey(fieldKey) {
   return CONFIG_KEYMAP[fieldKey] || fieldKey;
@@ -1317,15 +1365,19 @@ function renderConfigField(flatGet, field, idPrefix) {
       '<input type="hidden" data-cfgkey="' + field.key + '" data-boolhidden="' + field.key + '" value="' + (checked ? '1' : '0') + '"></div>';
   }
   if (field.type === 'multi-select') {
-    // A multiple <select> fed by an async options endpoint; values are stored as a
-    // comma-separated string (matches the backend Debug.enable() format).
+    // Checkbox list fed by an async options endpoint; values are stored as a
+    // comma-separated string (matches the backend Debug.enable() format), with
+    // the active components preselected.
     const selected = String(val == null ? '' : val).split(',').map((s) => s.trim()).filter(Boolean);
-    const opts = (stateDebugComponents || [])
-      .map((c) => '<option value="' + escapeHtml(c.name) + '"' + (selected.includes(c.name) ? ' selected' : '') + '>' + escapeHtml(c.name + (c.description ? ' — ' + c.description : '')) + '</option>')
+    const cbs = (stateDebugComponents || [])
+      .map((c) =>
+        '<label class="debug-cb"><input type="checkbox" value="' + escapeHtml(c.name) + '"' + (selected.includes(c.name) ? ' checked' : '') + ' data-cfgkey="' + field.key + '" data-debugcb="1">' +
+        '<span class="debug-cb-name">' + escapeHtml(c.name) + '</span>' +
+        '<span class="debug-cb-desc">' + escapeHtml(c.description || '') + '</span></label>'
+      )
       .join('');
-    const size = Math.max(10, Math.min(14, (stateDebugComponents || []).length || 10));
-    return '<div class="field field-multiselect"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
-      '<select multiple size="' + size + '" id="' + id + '" data-cfgkey="' + field.key + '" data-multiselect="1" style="width:100%; min-height:220px">' + opts + '</select>' +
+    return '<div class="field field-debug"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
+      '<div class="debug-checklist" id="' + id + '">' + cbs + '</div>' +
       '<div class="field-help">' + escapeHtml(t(field.helpKey)) + '</div></div>';
   }
   if (field.type === 'file-combo') {
@@ -1421,17 +1473,23 @@ $('btn-top-config')?.addEventListener('click', openConfigEdit);
 $('configedit-cancel')?.addEventListener('click', () => { $('configedit-overlay').hidden = true; });
 $('configedit-save')?.addEventListener('click', async () => {
   const merged = JSON.parse(JSON.stringify(state.config || {}));
+  // Collect debug-component checkboxes first (grouped by data-cfgkey into comma strings)
+  const cbGroups = new Map();
+  document.querySelectorAll('#config-grid input[data-debugcb]').forEach((cb) => {
+    const k = cb.getAttribute('data-cfgkey');
+    if (!cb.checked) return;
+    if (!cbGroups.has(k)) cbGroups.set(k, []);
+    cbGroups.get(k).push(cb.value);
+  });
+  cbGroups.forEach((names, k) => {
+    const v = names.join(',');
+    configSet(merged, k, v !== '' ? v : undefined);
+  });
   document.querySelectorAll('#config-grid [data-cfgkey]').forEach((inp) => {
-    if (inp.type === 'checkbox') return;
+    if (inp.type === 'checkbox') return; // debug checkboxes handled above; bool fields are handled below
     const k = inp.getAttribute('data-cfgkey');
+    if (cbGroups.has(k)) return;          // already set from checkboxes
     let v = inp.value.trim();
-    if (inp.getAttribute('data-multiselect') === '1') {
-      // multiple select -> collect the chosen options into the comma string
-      v = Array.from(inp.options).filter((o) => o.selected).map((o) => o.value).join(',');
-      if (v === '') v = undefined;
-      configSet(merged, k, v);
-      return;
-    }
     if (v === '') v = undefined;
     else if (v === 'true' || v === 'false') v = (v === 'true');
     else {

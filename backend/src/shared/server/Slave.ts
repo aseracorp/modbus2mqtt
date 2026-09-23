@@ -193,11 +193,10 @@ export class Slave {
       // Config registers are device configuration - never published to the MQTT
       // state topic (they are read/written via the config API instead).
       if (e.category === 'config') continue
-      // Diagnostic entities (e.g. sensor_identification, hw_version, fw_version)
-      // are informational and not part of the normal state payload.
-      if (e.entityCategory === 'diagnostic') continue
       // Inactive conditional entities are reported with an empty mqttValue and are
       // not present on the device - do not publish them as empty strings.
+      // Diagnostic entities (sensor_identification, hw_version, fw_version) ARE
+      // published: they carry real values and are useful on the state topic.
       if (e.mqttValue === '') continue
       if (e.mqttname != undefined && e.mqttname.length > 0 && e.variableConfiguration == undefined) {
         Slave.setByPath(holder, Slave.parseMqttPath(e.mqttname), e.mqttValue != undefined ? e.mqttValue : defaultValue)
