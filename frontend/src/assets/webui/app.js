@@ -1250,8 +1250,7 @@ const MQTT_FIELDS = [
   { key: 'mqttkeyfile', labelKey: 'cfg_mqtt_key_file', type: 'file-combo', helpKey: 'cfg_mqtt_key_file_help' }
 ];
 const CONFIG_FIELDS = [
-  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'multi-select', optionsUrl: '/api/debugComponents', helpKey: 'cfg_debug_components_help' },
-  { key: 'displayHex', labelKey: 'cfg_display_hex', type: 'bool', helpKey: 'cfg_display_hex_help' }
+  { key: 'debugComponents', labelKey: 'cfg_debug_components', type: 'multi-select', optionsUrl: '/api/debugComponents', helpKey: 'cfg_debug_components_help' }
 ];
 const CONFIG_KEYMAP = {
   mqttuser: 'mqttconnect.username',
@@ -1261,7 +1260,7 @@ const CONFIG_KEYMAP = {
   mqttdiscoveryprefix: 'mqttdiscoveryprefix',
   mqttdiscoverylanguage: 'mqttdiscoverylanguage',
   mqttcafile: 'mqttcaFile', mqttcertfile: 'mqttcertFile', mqttkeyfile: 'mqttkeyFile',
-  debugComponents: 'debugComponents', displayHex: 'displayHex'
+  debugComponents: 'debugComponents'
 };
 function configDottedKey(fieldKey) {
   return CONFIG_KEYMAP[fieldKey] || fieldKey;
@@ -1317,15 +1316,19 @@ function renderConfigField(flatGet, field, idPrefix) {
       '<input type="hidden" data-cfgkey="' + field.key + '" data-boolhidden="' + field.key + '" value="' + (checked ? '1' : '0') + '"></div>';
   }
   if (field.type === 'multi-select') {
-    // A multiple <select> fed by an async options endpoint; values are stored as a
-    // comma-separated string (matches the backend Debug.enable() format).
+    // Checkbox list fed by an async options endpoint; values are stored as a
+    // comma-separated string (matches the backend Debug.enable() format), with
+    // the active components preselected.
     const selected = String(val == null ? '' : val).split(',').map((s) => s.trim()).filter(Boolean);
-    const opts = (stateDebugComponents || [])
-      .map((c) => '<option value="' + escapeHtml(c.name) + '"' + (selected.includes(c.name) ? ' selected' : '') + '>' + escapeHtml(c.name + (c.description ? ' — ' + c.description : '')) + '</option>')
+    const cbs = (stateDebugComponents || [])
+      .map((c) =>
+        '<label class="debug-cb"><input type="checkbox" value="' + escapeHtml(c.name) + '"' + (selected.includes(c.name) ? ' checked' : '') + ' data-cfgkey="' + field.key + '" data-debugcb="1">' +
+        '<span class="debug-cb-name">' + escapeHtml(c.name) + '</span>' +
+        '<span class="debug-cb-desc">' + escapeHtml(c.description || '') + '</span></label>'
+      )
       .join('');
-    const size = Math.max(10, Math.min(14, (stateDebugComponents || []).length || 10));
-    return '<div class="field field-multiselect"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
-      '<select multiple size="' + size + '" id="' + id + '" data-cfgkey="' + field.key + '" data-multiselect="1" style="width:100%; min-height:220px">' + opts + '</select>' +
+    return '<div class="field field-debug"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
+      '<div class="debug-checklist" id="' + id + '">' + cbs + '</div>' +
       '<div class="field-help">' + escapeHtml(t(field.helpKey)) + '</div></div>';
   }
   if (field.type === 'file-combo') {
@@ -1421,17 +1424,23 @@ $('btn-top-config')?.addEventListener('click', openConfigEdit);
 $('configedit-cancel')?.addEventListener('click', () => { $('configedit-overlay').hidden = true; });
 $('configedit-save')?.addEventListener('click', async () => {
   const merged = JSON.parse(JSON.stringify(state.config || {}));
+  // Collect debug-component checkboxes first (grouped by data-cfgkey into comma strings)
+  const cbGroups = new Map();
+  document.querySelectorAll('#config-grid input[data-debugcb]').forEach((cb) => {
+    const k = cb.getAttribute('data-cfgkey');
+    if (!cb.checked) return;
+    if (!cbGroups.has(k)) cbGroups.set(k, []);
+    cbGroups.get(k).push(cb.value);
+  });
+  cbGroups.forEach((names, k) => {
+    const v = names.join(',');
+    configSet(merged, k, v !== '' ? v : undefined);
+  });
   document.querySelectorAll('#config-grid [data-cfgkey]').forEach((inp) => {
-    if (inp.type === 'checkbox') return;
+    if (inp.type === 'checkbox') return; // debug checkboxes handled above; bool fields are handled below
     const k = inp.getAttribute('data-cfgkey');
+    if (cbGroups.has(k)) return;          // already set from checkboxes
     let v = inp.value.trim();
-    if (inp.getAttribute('data-multiselect') === '1') {
-      // multiple select -> collect the chosen options into the comma string
-      v = Array.from(inp.options).filter((o) => o.selected).map((o) => o.value).join(',');
-      if (v === '') v = undefined;
-      configSet(merged, k, v);
-      return;
-    }
     if (v === '') v = undefined;
     else if (v === 'true' || v === 'false') v = (v === 'true');
     else {
