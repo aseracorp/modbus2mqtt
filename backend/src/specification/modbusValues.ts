@@ -12,6 +12,7 @@ import {
 } from '../shared/specification/index.js'
 import { ConfigSpecification } from './configspec.js'
 import { ConverterMap } from './convertermap.js'
+import { entityConditions, isEntityActiveByValues } from './conditions.js'
 import { LogLevelEnum, Logger } from './log.js'
 
 const log = new Logger('m2mSpecification')
@@ -105,43 +106,15 @@ export function copyModbusDataToEntity(spec: Ispecification, entityId: number, v
   const entity = spec.entities.find((ent) => entityId == ent.id)
   if (entity) {
     const rc: ImodbusEntity = structuredClone(entity) as ImodbusEntity
-    // A conditional entity that is NOT active on the device (its condition
-    // register value does not match) must be reported as inactive even when the
-    // register it maps to shares an address with an active variant (e.g. the
-    // WRF06 temperature register 0 selected by register 400 = SI/Imperial).
-    if (entity.condition && entity.registerType) {
-      const ctype = entity.condition.registerType ?? entity.registerType
-      let cval: number | undefined
-      switch (ctype) {
-        case ModbusRegisterType.AnalogInputs: cval = values.analogInputs.get(entity.condition.register)?.data?.[0]; break
-        case ModbusRegisterType.HoldingRegister: cval = values.holdingRegisters.get(entity.condition.register)?.data?.[0]; break
-        case ModbusRegisterType.Coils: cval = values.coils.get(entity.condition.register)?.data?.[0]; break
-        default: cval = values.discreteInputs.get(entity.condition.register)?.data?.[0]; break
-      }
-      const c = entity.condition
-      let actual = cval
-      if (c.bit !== undefined && c.bit !== null) actual = (cval === undefined ? undefined : ((cval >> c.bit) & 1))
-      const expected = c.value ?? 0
-      const cmp = c.comparator || 'eq'
-      const active = actual !== undefined && (() => {
-        switch (cmp) {
-          case 'eq': return actual === expected
-          case 'ne': return actual !== expected
-          case 'lt': return actual < expected
-          case 'le': return actual <= expected
-          case 'gt': return actual > expected
-          case 'ge': return actual >= expected
-          case 'contains': return ((actual >> Math.trunc(expected)) & 1) === 1
-          case 'hasbit': return ((actual >> Math.trunc(expected)) & 1) === 1
-          default: return actual === expected
-        }
-      })()
-      if (!active) {
-        rc.mqttValue = ''
-        rc.modbusValue = []
-        rc.identified = IdentifiedStates.notIdentified
-        return rc
-      }
+    // A conditional entity that is NOT active on the device (any of its
+    // conditions not met) must be reported as inactive even when the register it
+    // maps to shares an address with an active variant (e.g. the WRF06
+    // temperature register 0 selected by register 400 = SI/Imperial).
+    if (entityConditions(entity).length > 0 && !isEntityActiveByValues(entity, values)) {
+      rc.mqttValue = ''
+      rc.modbusValue = []
+      rc.identified = IdentifiedStates.notIdentified
+      return rc
     }
     const converter = ConverterMap.getConverter(entity)
     if (converter) {

@@ -851,9 +851,9 @@ function renderTemplateRegisters() {
     const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
     const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
-    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
+    const cond = entityCondMark(en);
     return '<tr data-eid="' + eid + '">' +
-      '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
+      '<td>' + escapeHtml(regName(en)) + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
       '<td>' + escapeHtml(rw) + '</td>' +
@@ -900,12 +900,12 @@ function renderDeviceRegisters() {
     const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
     const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
-    const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
+    const cond = entityCondMark(en);
     const shown = en.mqttValue != null ? en.mqttValue : '—';
     const writeBtn = en.readonly ? '' :
       '<button class="icon-btn reg-write" data-eid="' + eid + '" title="' + t('reg_write') + '">✏️</button>';
     return '<tr data-eid="' + eid + '">' +
-      '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
+      '<td>' + escapeHtml(regName(en)) + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
       '<td>' + escapeHtml(rw) + '</td>' +
@@ -929,6 +929,31 @@ function renderDeviceRegisters() {
   });
 }
 
+// Render a register's condition marker(s). Supports a legacy single `condition`
+// and the newer `conditions` array (all must be met); multiple conditions are
+// shown with a count.
+// Resolve a register's display name: prefer the spec's i18n name for the current
+// language (template translations), fall back to the English/`name` field.
+function regName(en) {
+  if (en && en.id != null) {
+    const specForI18n = (activeSpec === slaveSpec ? slaveSpec : templateSpec)
+    if (specForI18n && Array.isArray(specForI18n.i18n)) {
+      const langEntry = specForI18n.i18n.find((i) => i.lang === currentLang) || specForI18n.i18n.find((i) => i.lang === 'en')
+      if (langEntry && Array.isArray(langEntry.texts)) {
+        const hit = langEntry.texts.find((tx) => tx.textId === 'e' + en.id)
+        if (hit && hit.text) return hit.text
+      }
+    }
+  }
+  return (en && en.name) || ''
+}
+function entityCondMark(en) {
+  const conds = (en.conditions && en.conditions.length > 0) ? en.conditions : (en.condition ? [en.condition] : [])
+  if (conds.length === 0) return ''
+  const parts = conds.map((c) => String(c.register) + (c.bit != null ? '.' + c.bit : '') + (c.comparator && c.comparator !== 'eq' ? ' ' + c.comparator + ' ' + c.value : ''))
+  const title = t('reg_cond') + ': ' + parts.join(' AND ')
+  return '<span class="reg-cond-mark" title="' + escapeHtml(title) + '">⚑' + (conds.length > 1 ? conds.length : '') + '</span>'
+}
 function converterName(en) {
   if (!en || en.converter == null) return '';
   if (typeof en.converter === 'object') return en.converter.name || '';
@@ -1010,6 +1035,47 @@ function entityByEid(spec, eid) {
   }
   return undefined
 }
+
+function renderConditionRows(conds) {
+  const rows = $('re-cond-rows');
+  if (!rows) return;
+  const c = conds && conds.length ? conds : [{}];
+  rows.innerHTML = c.map((cond, i) => {
+    let regStr = cond.register != null ? String(cond.register) : '';
+    if (cond.bit != null) regStr += '.' + cond.bit;
+    return '<div class="reg-condition-row">' +
+      '<input type="text" class="rc-register" placeholder="501 or 500.1" title="Condition register address (optionally .bit, e.g. 500.1)" value="' + escapeHtml(regStr) + '">' +
+      '<select class="rc-cmp">' +
+        '<option value="eq"' + (cond.comparator==='eq'?' selected':'') + '>=</option>' +
+        '<option value="ne"' + (cond.comparator==='ne'?' selected':'') + '>≠</option>' +
+        '<option value="lt"' + (cond.comparator==='lt'?' selected':'') + '>&lt;</option>' +
+        '<option value="le"' + (cond.comparator==='le'?' selected':'') + '>≤</option>' +
+        '<option value="gt"' + (cond.comparator==='gt'?' selected':'') + '>&gt;</option>' +
+        '<option value="ge"' + (cond.comparator==='ge'?' selected':'') + '>≥</option>' +
+        '<option value="contains"' + (cond.comparator==='contains'?' selected':'') + '>contains</option>' +
+        '<option value="hasbit"' + (cond.comparator==='hasbit'?' selected':'') + '>has bit</option>' +
+      '</select>' +
+      '<input type="text" class="rc-value" placeholder="1" title="Value to compare (or bit value)" value="' + escapeHtml(cond.value != null ? String(cond.value) : '') + '">' +
+      '<button type="button" class="btn btn-sm rc-del" title="' + t('remove') + '">✕</button>' +
+    '</div>';
+  }).join('');
+  rows.querySelectorAll('.rc-del').forEach((b) => b.addEventListener('click', () => { b.closest('.reg-condition-row').remove(); }));
+}
+function readConditionRows() {
+  const rows = $('re-cond-rows');
+  if (!rows) return [];
+  return Array.from(rows.querySelectorAll('.reg-condition-row')).map((row) => {
+    const regStr = row.querySelector('.rc-register').value.trim();
+    const m = regStr.match(/^(\d+)(?:\.(\d+))?$/);
+    if (!m) return null;
+    const cond = { register: parseInt(m[1], 10), comparator: row.querySelector('.rc-cmp').value || 'eq' };
+    if (m[2] !== undefined) cond.bit = parseInt(m[2], 10);
+    const cv = row.querySelector('.rc-value').value.trim();
+    if (cv !== '') cond.value = parseFloat(cv);
+    return cond;
+  }).filter((c) => c !== null);
+}
+
 function openRegEdit(idx) {
   const spec = activeSpec || templateSpec;
   const en = idx == null ? null : entityByEid(spec, idx);
@@ -1027,13 +1093,8 @@ function openRegEditForEntity(en) {
   $('re-modbusaddress').value = en.modbusAddress == null ? '' : String(en.modbusAddress);
   $('re-readonly').checked = !!en.readonly;
   $('re-category').value = en.category || en.entityCategory || 'value';
-  // condition (register[.bit], comparator, value)
-  const cond = en.condition || {};
-  let condRegStr = cond.register != null ? String(cond.register) : '';
-  if (cond.bit != null) condRegStr += '.' + cond.bit;
-  $('re-cond-register').value = condRegStr;
-  $('re-cond-cmp').value = cond.comparator || 'eq';
-  $('re-cond-value').value = cond.value != null ? String(cond.value) : '';
+  // conditions (register[.bit], comparator, value) - array of AND-combined conditions
+  renderConditionRows((en.conditions && en.conditions.length) ? en.conditions : (en.condition ? [en.condition] : []));
   $('re-value-desc').value = (en.converterParameters && (en.converterParameters.description || en.converterParameters.valueDescription)) || '';
   $('re-converter').value = en.converter || 'number';
   $('re-multiplier').value = cp.multiplier == null ? '' : String(cp.multiplier);
@@ -1062,6 +1123,21 @@ function openRegEditForEntity(en) {
 }
 $('re-converter')?.addEventListener('change', regConverterShown);
 $('regedit-cancel')?.addEventListener('click', () => { $('regedit-overlay').hidden = true; });
+$('re-cond-add')?.addEventListener('click', () => {
+  const rows = $('re-cond-rows');
+  if (!rows) return;
+  // append a blank row: render current rows + one empty
+  const cur = Array.from(rows.querySelectorAll('.reg-condition-row')).map((row) => {
+    const regStr = row.querySelector('.rc-register').value.trim();
+    const m = regStr.match(/^(\d+)(?:\.(\d+))?$/);
+    const cond = m ? { register: parseInt(m[1], 10), comparator: row.querySelector('.rc-cmp').value || 'eq' } : {};
+    if (m && m[2] !== undefined) cond.bit = parseInt(m[2], 10);
+    const cv = row.querySelector('.rc-value').value.trim();
+    if (cv !== '') cond.value = parseFloat(cv);
+    return cond;
+  });
+  renderConditionRows([...cur, {}]);
+});
 $('regedit-ok')?.addEventListener('click', () => {
   const name = $('re-name').value.trim();
   const mqttname = $('re-mqttname').value.trim();
@@ -1110,20 +1186,10 @@ $('regedit-ok')?.addEventListener('click', () => {
   const category = $('re-category').value || 'value';
   if (category === 'config') en.category = 'config';
   else if (category === 'diagnostic') en.entityCategory = 'diagnostic';
-  // condition: register[.bit] + comparator + value
-  const condReg = $('re-cond-register').value.trim();
-  if (condReg !== '') {
-    const m = condReg.match(/^(\d+)(?:\.(\d+))?$/);
-    if (m) {
-      const cond = { register: parseInt(m[1], 10), comparator: $('re-cond-cmp').value || 'eq' };
-      if (m[2] !== undefined) cond.bit = parseInt(m[2], 10);
-      const cv = $('re-cond-value').value.trim();
-      if (cv !== '') cond.value = parseFloat(cv);
-      en.condition = cond;
-    }
-  } else {
-    delete en.condition;
-  }
+  // conditions: array of AND-combined register conditions
+  const conds = readConditionRows();
+  if (conds.length > 0) { en.conditions = conds; delete en.condition; }
+  else { delete en.conditions; delete en.condition; }
   // value description (template docs)
   const vdesc = $('re-value-desc').value.trim();
   if (vdesc !== '') {

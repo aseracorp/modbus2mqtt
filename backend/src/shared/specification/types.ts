@@ -145,25 +145,25 @@ export interface Ientity extends IidentEntity {
   entityCategory?: string
   converterParameters?: ConverterParameter
   /**
-   * Conditional register: the entity is only active/present when the value of
-   * `register` meets the condition. Used for devices whose register map depends
-   * on a variant/config, e.g. the Thermokon WRF06 sensor-identification bitmask
-   * (register 501: bit N set => sensor N present).
-   * - `bit`: entity is active when that bit (0 = LSB) matches `comparator`/`value`.
+   * Conditional registers: the entity is only active/present when the values of
+   * the referenced registers meet ALL the conditions (AND). Used for devices
+   * whose register map depends on a variant/config, e.g. the Thermokon WRF06
+   * sensor-identification bitmask (register 501: bit N set => sensor N present)
+   * combined with the unit system (register 400 = SI/Imperial).
+   * - `condition`: single condition (kept for back-compatibility).
+   * - `conditions`: multiple conditions; the entity is active when every entry
+   *   matches. When both are given, `conditions` takes precedence.
+   *
+   * Each condition:
+   * - `register`: the register to read.
+   * - `bit`: active when that bit (0 = LSB) matches `comparator`/`value`.
    * - `comparator`/`value`: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `contains`, `hasbit`
    *   compared against the register value (or the selected bit).
    * - `bits`/`equals` (legacy): active if any `bits` set, or the register equals
    *   `equals`. If both are given, active if (bits match) OR (equals match).
    */
-  condition?: {
-    register: number
-    registerType?: ModbusRegisterType
-    bit?: number
-    comparator?: string
-    value?: number
-    bits?: number[]
-    equals?: number
-  }
+  condition?: Icondition
+  conditions?: Icondition[]
   /**
    * Register category.
    * - 'value'  (default): a measurement register, published to MQTT / Home Assistant.
@@ -172,6 +172,15 @@ export interface Ientity extends IidentEntity {
    *   and written directly via the config API to configure the device.
    */
   category?: 'value' | 'config'
+}
+export interface Icondition {
+  register: number
+  registerType?: ModbusRegisterType
+  bit?: number
+  comparator?: string
+  value?: number
+  bits?: number[]
+  equals?: number
 }
 export function getParameterType(entity: Ientity): string | undefined
 export function getParameterType(converter: Converters | null | undefined): string | undefined

@@ -1,6 +1,5 @@
-import { ImodbusSpecification, Ispecification } from '../shared/specification/index.js'
-import { ConfigSpecification, ConverterMap, ImodbusValues, IModbusResultOrError, M2mSpecification, emptyModbusValues } from '../specification/index.js'
-import { Ientity, ImodbusEntity } from '../shared/specification/index.js'
+import { Ientity, ImodbusEntity, ImodbusSpecification, Ispecification, Icondition, ModbusRegisterType } from '../shared/specification/index.js'
+import { ConfigSpecification, ConverterMap, ImodbusValues, IModbusResultOrError, M2mSpecification, emptyModbusValues, entityConditions, isEntityActiveByValues } from '../specification/index.js'
 import { Config } from './config.js'
 import { Observable, Subject } from 'rxjs'
 import { Bus } from './bus.js'
@@ -144,8 +143,7 @@ export class Modbus {
     const condRegType: Map<number, number> = new Map()
     for (const ent of specification.entities) {
       if (ent.category === 'config') continue // config regs are handled by the config API
-      const c = ent.condition
-      if (c) {
+      for (const c of entityConditions(ent)) {
         const t = c.registerType ?? EntRegisterType(ent.registerType)
         conditionAddresses.add({ address: c.register, registerType: t })
         if (!condRegType.has(c.register)) condRegType.set(c.register, t)
@@ -160,20 +158,23 @@ export class Modbus {
       let activeEntities = activeEntities0.filter((e) => e.category !== 'config')
       let conditionValues: ImodbusValues | undefined = undefined
 
-      const hasConditional = specification.entities.some((e) => e.condition)
+      const hasConditional = specification.entities.some((e) => entityConditions(e).length > 0)
       if (hasConditional) {
         // Read the condition registers first.
         conditionValues = await modbusAPI.readModbusRegister(slaveid, conditionAddresses, { task: task, errorHandling: { retry: true } })
         // Mark inactive entities: keep them out of the address read but still report
         // them (not identified) so the UI can hide them in the device view.
         activeEntities = activeEntities.filter((e) => {
-          if (!e.condition) return true
-          const type = e.condition.registerType ?? EntRegisterType(e.registerType)
-          const val = getRegValue(conditionValues!, type, e.condition.register)
-          // If the condition register itself is not readable, keep the entity (best effort) -
+          const conds = entityConditions(e)
+          if (conds.length === 0) return true
+          // If any condition register is not readable, keep the entity (best effort) -
           // an unknown condition should not hide a possibly-present sensor.
-          if (val === undefined) return true
-          return Modbus.isEntityActive(e, val)
+          for (const c of conds) {
+            const t = c.registerType ?? EntRegisterType(e.registerType)
+            const val = getRegValue(conditionValues!, t, c.register)
+            if (val === undefined) return true
+          }
+          return isEntityActiveByValues(e, conditionValues!)
         })
       }
 
@@ -222,10 +223,8 @@ export class Modbus {
           const e = ent as ImodbusEntityLike
           if (e.modbusAddress === undefined || !ent.registerType) continue
           if (ent.category === 'config') continue
-          if (ent.condition) {
-            const ctype = ent.condition.registerType ?? EntRegisterType(ent.registerType)
-            const cval = getRegValue(conditionValues, ctype, ent.condition.register)
-            if (cval === undefined || !Modbus.isEntityActive(ent, cval)) continue
+          if (entityConditions(ent).length > 0) {
+            if (!isEntityActiveByValues(ent, finalValues)) continue
           }
           const converter = ConverterMap.getConverter(ent)
           const length = converter ? converter.getModbusLength(ent) : 1
@@ -234,11 +233,9 @@ export class Modbus {
           }
         }
         for (const ent of specification.entities) {
-          if (!ent.condition) continue
-          const type = ent.condition.registerType ?? EntRegisterType(ent.registerType)
-          const val = getRegValue(conditionValues, type, ent.condition.register)
-          if (val === undefined) continue
-          if (!Modbus.isEntityActive(ent, val)) {
+          if (entityConditions(ent).length === 0) continue
+          if (isEntityActiveByValues(ent, finalValues)) continue
+          {
             // Remove the entity's full register span (a 32-bit entity covers two registers),
             // but only if no ACTIVE entity reads the same span - otherwise the active
             // variant loses its value.

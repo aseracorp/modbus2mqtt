@@ -145,6 +145,7 @@ window.LANG_it = {
   ignore: "Ignora",
   server_ignored: "Server ignorato",
   bus_discovered_info: "Server Modbus TCP trovato all'indirizzo",
+  add_condition: 'Aggiungi condizione',
   reg_cond: "Condizione (opzionale)",
   reg_cond_hint: "Il registro è disponibile solo se i suoi bit sono impostati nel registro di condizione (es. identificazione sensore Thermokon 501)",
   reg_category_hint: "value → MQTT/HA · config → configurazione dispositivo (non pubblicato)",
@@ -161,6 +162,6 @@ window.LANG_it = {
   reg_write_prompt: "Nuovo valore per ",
   reg_value_desc: "Descrizione valore",
   reg_range: "Intervallo",
-  reg_value_display: "Valore visualizzato",
+  reg_value_display: "Valore attuale",
   reg_select_options: "Valori selezionabili",
 };
