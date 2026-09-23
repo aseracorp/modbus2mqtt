@@ -556,7 +556,7 @@ function openAddSlave(busid) {
   $('slaveedit-overlay').hidden = false;
   applyHelpIcons();
 }
-async // Overlay the live values read from the device onto slaveSpec, so the register
+// Overlay the live values read from the device onto slaveSpec, so the register
 // table shows the current modbus values instead of '—'. /api/modbus/specification
 // returns the spec with mqttValue populated for the registers actually present.
 function refreshSlaveValues(busid, slaveid, specid) {

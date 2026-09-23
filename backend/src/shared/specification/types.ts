@@ -149,13 +149,18 @@ export interface Ientity extends IidentEntity {
    * `register` meets the condition. Used for devices whose register map depends
    * on a variant/config, e.g. the Thermokon WRF06 sensor-identification bitmask
    * (register 501: bit N set => sensor N present).
-   * - `bits`: entity is active if any of these bit indexes (0 = LSB) is set.
-   * - `equals`: entity is active if the register equals this value.
-   * If both are given, the entity is active if (bits match) OR (equals match).
+   * - `bit`: entity is active when that bit (0 = LSB) matches `comparator`/`value`.
+   * - `comparator`/`value`: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `contains`, `hasbit`
+   *   compared against the register value (or the selected bit).
+   * - `bits`/`equals` (legacy): active if any `bits` set, or the register equals
+   *   `equals`. If both are given, active if (bits match) OR (equals match).
    */
   condition?: {
     register: number
     registerType?: ModbusRegisterType
+    bit?: number
+    comparator?: string
+    value?: number
     bits?: number[]
     equals?: number
   }
