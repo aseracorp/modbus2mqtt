@@ -146,6 +146,8 @@ export class MqttDiscover {
           // !slave.suppressedEntities.includes(e.id)
           // Config registers are not exposed to MQTT / Home Assistant - they are
           // device configuration and must be read/written directly (config API).
+          // Diagnostic entities (sensor_identification, hw_version, fw_version) ARE
+          // announced to Home Assistant as informational sensors.
           if (e.id >= 0 && !e.variableConfiguration && e.category !== 'config') {
             // Conditional entities that are NOT active on the device (the matching
             // condition register bit is not set) must not be announced to Home
@@ -418,10 +420,13 @@ export class MqttDiscover {
     // the Home Assistant entity). Generate the set of currently announced
     // topics and emit deletion payloads for the ones missing from `payloads`.
     const announcedTopics = new Set<string>()
+    // Discovery topics look like "<discoveryprefix>/<haType>/<busid>s<slaveid>/e<id>/config"
+    // (NOT the MQTT base topic), so match on the slave key embedded in the topic.
+    const slaveKey = slave.getBusId() + 's' + slave.getSlaveId()
     this.lastDiscoveryPayloads.forEach((_payload, topic) => {
       if (!topic.includes('/config')) return
       // only touch this slave's topics
-      if (topic.includes(slave.getBaseTopic())) announcedTopics.add(topic)
+      if (topic.split('/').includes(slaveKey)) announcedTopics.add(topic)
     })
     const changed: ItopicAndPayloads[] = []
     const liveTopics = new Set<string>()
