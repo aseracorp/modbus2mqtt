@@ -549,6 +549,7 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 /* inline value editor in the register table */
 .reg-inline { display: inline-flex; align-items: center; gap: 2px; }
 .reg-inline input { width: 7em; font-size: 12px; padding: 1px 4px; border: 1px solid var(--border, #888); border-radius: 4px; background: var(--bg-input, #fff); color: var(--text, #000); }
+.reg-inline .reg-inline-select { width: 9em; font-size: 12px; padding: 1px 4px; border: 1px solid var(--border, #888); border-radius: 4px; background: var(--bg-input, #fff); color: var(--text, #000); }
 .reg-inline .reg-ok, .reg-inline .reg-cancel { font-size: 13px; cursor: pointer; background: none; border: none; padding: 0 2px; }
 .reg-inline .reg-ok { color: var(--success, #2e8b57); }
 .reg-inline .reg-cancel { color: var(--danger, #b22222); }

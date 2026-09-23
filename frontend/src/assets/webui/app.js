@@ -952,6 +952,15 @@ function valueTooltip(en) {
       .map((o) => (o && o.name != null ? o.key + ' = ' + o.name : String(o)))
       .join(', ')
     if (opts) parts.push(t('reg_select_options') + ': ' + opts)
+  } else if (converterName(en) === 'number') {
+    // For plain numeric registers describe the allowed range (min..max + unit).
+    const id = en.converterParameters && en.converterParameters.identification
+    if (id && (id.min !== undefined || id.max !== undefined)) {
+      const unit = en.converterParameters && en.converterParameters.uom ? en.converterParameters.uom : ''
+      const lo = id.min !== undefined ? id.min : '−∞'
+      const hi = id.max !== undefined ? id.max : '∞'
+      parts.push(t('reg_range') + ': ' + lo + ' … ' + hi + (unit ? ' ' + unit : ''))
+    }
   }
   if (en.mqttValue != null && en.mqttValue !== '') {
     const unit = en.converterParameters && en.converterParameters.uom ? en.converterParameters.uom : ''
@@ -1221,12 +1230,26 @@ function startInlineEdit(btn, spec, en) {
   const cell = btn.closest('td');
   if (!cell) return;
   const cur = en.mqttValue != null ? en.mqttValue : '';
-  cell.innerHTML = '<span class="reg-inline">' +
-    '<input type="text" value="' + escapeHtml(String(cur)) + '">' +
+  // Select converters (e.g. unit_system: SI / Imperial) are edited with a
+  // dropdown of the option labels instead of a free-text field, so the display
+  // value and the written value are consistent (the backend resolves the label).
+  const isSelect = converterName(en) === 'select' && en.converterParameters && Array.isArray(en.converterParameters.options);
+  let editor
+  if (isSelect) {
+    editor = '<select class="reg-inline-select">' +
+      en.converterParameters.options.map((o) => {
+        const sel = (String(o.key) === String(cur)) || (o.name != null && String(o.name) === String(cur)) ? ' selected' : ''
+        return '<option value="' + escapeHtml(String(o.key)) + '">' + escapeHtml(o.name != null ? o.name : String(o.key)) + '</option>' + sel
+      }).join('') +
+      '</select>'
+  } else {
+    editor = '<input type="text" value="' + escapeHtml(String(cur)) + '">'
+  }
+  cell.innerHTML = '<span class="reg-inline">' + editor +
     '<button class="reg-ok" title="' + t('save') + '">✓</button>' +
     '<button class="reg-cancel" title="' + t('cancel') + '">✕</button>' +
     '</span>';
-  const input = cell.querySelector('input');
+  const input = cell.querySelector('input, select');
   input.focus();
   const finish = (ok) => {
     if (ok) {

@@ -547,3 +547,28 @@ it('normalizes object-form converter to a plain string when a spec is loaded', a
     helper.cleanup()
   }
 })
+
+it('number converter removes floating point noise (262 * 0.1 -> 26.2, not 26.200000000000003)', () => {
+  const entity: Ientity = {
+    id: 1, mqttname: 'mqtt', converter: 'number',
+    converterParameters: { multiplier: 0.1, offset: 0, decimals: 1 },
+    registerType: ModbusRegisterType.HoldingRegister, readonly: false, modbusAddress: 2,
+  }
+  spec.entities = [entity]
+  const converter = ConverterMap.getConverter(spec.entities[0])
+  const v = converter?.modbus2mqtt(spec, entity.id, [262])
+  expect(v).toBe(26.2)
+})
+
+it('select converter resolves option name to key on write (SI -> 1, Imperial -> 2)', () => {
+  const entity: Ientity = {
+    id: 7, mqttname: 'unit_system', converter: 'select',
+    converterParameters: { multiplier: 1, offset: 0, options: [{ key: 1, name: 'SI' }, { key: 2, name: 'Imperial' }] },
+    registerType: ModbusRegisterType.HoldingRegister, readonly: false, modbusAddress: 400,
+  }
+  spec.entities = [entity]
+  const converter = ConverterMap.getConverter(spec.entities[0])
+  expect(converter?.mqtt2modbus(spec, entity.id, 'SI')).toEqual([1])
+  expect(converter?.mqtt2modbus(spec, entity.id, 'Imperial')).toEqual([2])
+  expect(converter?.mqtt2modbus(spec, entity.id, '1')).toEqual([1])
+})

@@ -160,6 +160,7 @@ window.LANG_en = {
   reg_value: "Value",
   reg_write_prompt: "New value for ",
   reg_value_desc: "Value description",
+  reg_range: "Range",
   reg_value_display: "Display value",
   reg_select_options: "Selectable values",
 };
