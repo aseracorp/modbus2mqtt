@@ -1,5 +1,5 @@
 import { ImodbusSpecification, Ispecification } from '../shared/specification/index.js'
-import { ConfigSpecification, ConverterMap, ImodbusValues, M2mSpecification, emptyModbusValues } from '../specification/index.js'
+import { ConfigSpecification, ConverterMap, ImodbusValues, IModbusResultOrError, M2mSpecification, emptyModbusValues } from '../specification/index.js'
 import { Ientity, ImodbusEntity } from '../shared/specification/index.js'
 import { Config } from './config.js'
 import { Observable, Subject } from 'rxjs'
@@ -199,7 +199,40 @@ export class Modbus {
 
       // Mark inactive conditional entities so they are reported as not-identified / empty.
       const finalValues = values
+      // Make the condition registers available for per-entity active evaluation:
+      // the condition phase read them into a separate object, so merge them into
+      // the final values map (they are address-keyed and do not clash with reads).
+      if (conditionValues) {
+        const merge = (src: Map<number, IModbusResultOrError>, dst: Map<number, IModbusResultOrError>) => {
+          src.forEach((v, k) => { if (!dst.has(k)) dst.set(k, v) })
+        }
+        merge(conditionValues.holdingRegisters, finalValues.holdingRegisters)
+        merge(conditionValues.analogInputs, finalValues.analogInputs)
+        merge(conditionValues.coils, finalValues.coils)
+        merge(conditionValues.discreteInputs, finalValues.discreteInputs)
+      }
       if (hasConditional && conditionValues) {
+        // Build the set of (address, registerType) actually read for ACTIVE entities.
+        // When two conditional variants share the same register (e.g. register 0 is
+        // temperature in SI and a different mapping in Imperial, selected by another
+        // register such as 400), the inactive variant must NOT delete the shared
+        // address, or the active variant would have no data.
+        const activeAddressKeys = new Set<string>()
+        for (const ent of specification.entities) {
+          const e = ent as ImodbusEntityLike
+          if (e.modbusAddress === undefined || !ent.registerType) continue
+          if (ent.category === 'config') continue
+          if (ent.condition) {
+            const ctype = ent.condition.registerType ?? EntRegisterType(ent.registerType)
+            const cval = getRegValue(conditionValues, ctype, ent.condition.register)
+            if (cval === undefined || !Modbus.isEntityActive(ent, cval)) continue
+          }
+          const converter = ConverterMap.getConverter(ent)
+          const length = converter ? converter.getModbusLength(ent) : 1
+          for (let i = 0; i < length; i++) {
+            activeAddressKeys.add(e.modbusAddress + i + '|' + ent.registerType)
+          }
+        }
         for (const ent of specification.entities) {
           if (!ent.condition) continue
           const type = ent.condition.registerType ?? EntRegisterType(ent.registerType)
@@ -207,12 +240,19 @@ export class Modbus {
           if (val === undefined) continue
           if (!Modbus.isEntityActive(ent, val)) {
             // Remove the entity's full register span (a 32-bit entity covers two registers),
-            // so a leftover second register cannot be misread as a standalone value during
-            // population and make NumberConverter throw on a partial (1-register) array.
+            // but only if no ACTIVE entity reads the same span - otherwise the active
+            // variant loses its value.
             const e = ent as ImodbusEntityLike
             if (e.modbusAddress !== undefined) {
               const converter = ConverterMap.getConverter(ent)
               const length = converter ? converter.getModbusLength(ent) : 1
+              const spansShared = (() => {
+                for (let i = 0; i < length; i++) {
+                  if (activeAddressKeys.has(e.modbusAddress + i + '|' + ent.registerType)) return true
+                }
+                return false
+              })()
+              if (spansShared) continue // an active variant needs this address - keep the data
               for (let i = 0; i < length; i++) {
                 finalValues.holdingRegisters.delete(e.modbusAddress + i)
                 finalValues.analogInputs.delete(e.modbusAddress + i)
