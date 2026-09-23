@@ -12,7 +12,7 @@ import {
 } from '@angular/forms'
 import { ApiService } from '../services/api-service'
 import { TranslationService } from '../services/translation.service'
-import { Iconfiguration, IUserAuthenticationStatus } from '@shared/server'
+import { Iconfiguration, IUserAuthenticationStatus, IdebugComponentInfo } from '@shared/server'
 import { Observable } from 'rxjs'
 import { ActivatedRoute, Router } from '@angular/router'
 import { MatOption } from '@angular/material/core'
@@ -72,7 +72,7 @@ export class ConfigureComponent implements OnInit {
     private translation: TranslationService
   ) {
     this.ghPersonalAccessToken = _formBuilder.control([''])
-    this.debugComponentsFormControl = _formBuilder.control([''])
+    this.debugComponentsFormControl = _formBuilder.control([] as string[])
     this.configObservable = this.entityApiService.getConfiguration()
     this.configureMqttFormGroup = this._formBuilder.group({
       mqttserverurl: [null as string | null, this.requiredInNonAddonScenario],
@@ -107,9 +107,11 @@ export class ConfigureComponent implements OnInit {
   mqttConnectMessage: string = 'unknown'
   authStatus: IUserAuthenticationStatus | undefined = undefined
   configureMqttFormGroup: FormGroup
+  compareDebugComponentName = (a: string, b: string): boolean => a === b
   t = (key: string) => this.translation.map()[key] ?? key
   ghPersonalAccessToken: FormControl
   debugComponentsFormControl: FormControl
+  knownDebugComponents: IdebugComponentInfo[] = []
   discoveryLanguageFormControl = new FormControl<string | null>(null)
   connectMessage: string = ''
   ngOnInit(): void {
@@ -137,8 +139,11 @@ export class ConfigureComponent implements OnInit {
         this.configureMqttFormGroup.get('mqttkeyfile')!.setValue(config.mqttkeyFile)
       }
       if (config.debugComponents) {
-        this.debugComponentsFormControl!.setValue(config.debugComponents)
+        this.debugComponentsFormControl!.setValue(config.debugComponents.split(',') as string[])
       }
+      this.entityApiService.getDebugComponents().subscribe((rc) => {
+        this.knownDebugComponents = rc
+      })
 
       this.entityApiService.getSslFiles().subscribe((rc) => {
         this.sslFiles = rc
@@ -173,7 +178,7 @@ export class ConfigureComponent implements OnInit {
         else delete config.mqttcertFile
         if (mqttkeyfile) config.mqttkeyFile = mqttkeyfile.value ? mqttkeyfile.value : undefined
         else delete config.mqttkeyFile
-        if (config.debugComponents) config.debugComponents = this.debugComponentsFormControl!.value
+        if (config.debugComponents) config.debugComponents = (this.debugComponentsFormControl!.value as string[]).join(',')
       }
     }
   }
@@ -206,7 +211,10 @@ export class ConfigureComponent implements OnInit {
     if (this.ghPersonalAccessToken && this.ghPersonalAccessToken.value.length > 0)
       this.config.githubPersonalToken = this.ghPersonalAccessToken.value
     if (this.debugComponentsFormControl && this.debugComponentsFormControl.value.length > 0)
-      this.config.debugComponents = this.debugComponentsFormControl.value
+      this.config.debugComponents = (this.debugComponentsFormControl.value as string[])
+        .filter((name) => name && name.length > 0)
+        .join(',')
+    else if (this.debugComponentsFormControl !== undefined) delete this.config.debugComponents
     this.entityApiService.postConfiguration(this.config).subscribe(() => {
       this.close()
     })

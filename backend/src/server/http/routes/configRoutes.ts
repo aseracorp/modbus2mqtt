@@ -8,7 +8,7 @@ import { Bus } from '../../bus.js'
 import { MqttConnector } from '../../mqttconnector.js'
 import { ConverterMap, ConfigSpecification, LogLevelEnum, Logger } from '../../../specification/index.js'
 import { HttpErrorsEnum } from '../../../shared/specification/index.js'
-import { IUserAuthenticationStatus, apiUri } from '../../../shared/server/index.js'
+import { IUserAuthenticationStatus, apiUri, debugComponentCatalog } from '../../../shared/server/index.js'
 import type { AuthSession } from '../auth/oidc.js'
 import { sendResult } from '../sendResult.js'
 import { ApiError, Registrar, Result, ok } from '../routeHelpers.js'
@@ -43,6 +43,8 @@ export function registerConfigRoutes(r: Registrar): void {
   })
 
   r.get(apiUri.converters, () => ok(ConverterMap.getConverters()))
+
+  r.get(apiUri.debugComponents, () => ok(debugComponentCatalog))
 
   r.get(apiUri.configuration, () => {
     try {

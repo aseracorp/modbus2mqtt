@@ -13,6 +13,7 @@ export enum apiUri {
   authLogout = '/api/auth/logout',
   authConfig = '/api/auth/config',
   converters = '/api/converters',
+  debugComponents = '/api/debugComponents',
   sslFiles = '/api/sslfiles',
   busses = '/api/busses',
   bus = '/api/bus',

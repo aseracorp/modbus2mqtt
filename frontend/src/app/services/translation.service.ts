@@ -124,6 +124,12 @@ const DICT: Dict = {
   'configure.pat': { en: 'Personal Access Token', de: 'Persönliches Zugriffstoken', fr: 'Jeton d\'accès personnel', it: 'Token di accesso personale' },
   'configure.debugTitle': { en: 'Configure Debug', de: 'Debug konfigurieren', fr: 'Configurer le débogage', it: 'Configura debug' },
   'configure.debugComponents': { en: 'Debug components', de: 'Debug-Komponenten', fr: 'Composants de débogage', it: 'Componenti di debug' },
+  'configure.debugComponentsHint': {
+    en: 'Select components to log. Enables detailed logging after saving (logged to the add-on log).',
+    de: 'Komponenten zum Loggen wählen. Aktiviert nach dem Speichern detaillierte Logs (im Add-on-Log).',
+    fr: 'Sélectionnez les composants à journaliser. Active une journalisation détaillée après enregistrement (dans le journal de l\'add-on).',
+    it: "Seleziona i componenti da registrare. Abilita log dettagliati dopo il salvataggio (nel log dell'add-on).",
+  },
 
   // ---- select-slave (extended) ----
   'slave.showAllPublicSpecs': { en: 'Show all public specifications', de: 'Alle öffentlichen Spezifikationen anzeigen', fr: 'Afficher toutes les spécifications publiques', it: 'Mostra tutte le specifiche pubbliche' },
