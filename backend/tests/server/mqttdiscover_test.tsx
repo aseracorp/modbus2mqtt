@@ -606,6 +606,65 @@ test('issue #228: hw_version is written when deviceHWversion entity has mqttValu
   expect(payload.device.hw_version).toBe('RevB')
 })
 
+test('generateDiscoveryPayloads skips inactive conditional entities (empty mqttValue)', () => {
+  const conn = new MqttConnector()
+  const disc = new MqttDiscover(conn, msub1)
+  const active: ImodbusEntity = {
+    id: 21,
+    mqttname: 'temperature',
+    converter: 'number',
+    modbusValue: [],
+    mqttValue: 24,
+    identified: 1,
+    converterParameters: { uom: '°C' },
+    registerType: ModbusRegisterType.HoldingRegister,
+    readonly: true,
+    modbusAddress: 0,
+    condition: { register: 501, bit: 0, comparator: 'eq', value: 1 },
+  }
+  const inactive: ImodbusEntity = {
+    id: 31,
+    mqttname: 'relative_humidity',
+    converter: 'number',
+    modbusValue: [],
+    mqttValue: '',
+    identified: 0,
+    converterParameters: { uom: '%' },
+    registerType: ModbusRegisterType.HoldingRegister,
+    readonly: true,
+    modbusAddress: 1,
+    condition: { register: 501, bit: 1, comparator: 'eq', value: 1 },
+  }
+  const s = {
+    filename: 'conditional',
+    manufacturer: 'Acme',
+    model: 'X1',
+    i18n: [
+      {
+        lang: 'en',
+        texts: [
+          { textId: 'name', text: 'Acme Device' },
+          { textId: 'e21', text: 'Temperature' },
+          { textId: 'e31', text: 'Relative humidity' },
+        ],
+      },
+    ],
+    entities: [active, inactive],
+  } as any as ImodbusSpecification
+  const sl = new Slave(
+    0,
+    { slaveid: 47, specificationid: 'conditional', specification: s as any } as Islave,
+    Config.getConfiguration().mqttbasetopic
+  )
+  // With values read: the active entity has a real mqttValue, the inactive one an
+  // empty string -> only the active entity must be announced to Home Assistant.
+  const payloads = disc['generateDiscoveryPayloads'](sl, s)
+  expect(payloads.length).toBe(1)
+  const topic = payloads[0].topic
+  expect(topic).toContain('/e21/config')
+  expect(topic).not.toContain('e31')
+})
+
 test('issue #228: republishDiscoveryIfChanged publishes delta after first poll', () => {
   const conn = new MqttConnector()
   const disc = new MqttDiscover(conn, msub1)

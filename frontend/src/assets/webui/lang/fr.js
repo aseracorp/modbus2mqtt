@@ -96,7 +96,7 @@ window.LANG_fr = {
   cfg_mqtt_ca_file_help: "Certificat CA pour vérifier le broker MQTT (TLS).",
   cfg_mqtt_cert_file_help: "Certificat client présenté au broker MQTT (mTLS).",
   cfg_mqtt_key_file_help: "Clé privée correspondant au certificat client.",
-  cfg_debug_components_help: "Noms de composants séparés par des virgules pour un journal verbeux.",
+  cfg_debug_components_help: "Sélectionnez les composants pour un journal verbeux (lectures Modbus, MQTT, découverte, etc.).",
   cfg_display_hex_help: "Afficher les valeurs de registre en hexadécimal.",
   'help_be-type': "Type de connexion : TCP (réseau) ou RTU (série).",
   'help_be-host': "Nom d'hôte ou IP du périphérique Modbus TCP.",
