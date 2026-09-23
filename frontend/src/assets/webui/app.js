@@ -830,7 +830,7 @@ function renderTemplateRegisters() {
   const tbody = $('te-reg-body');
   const ents = sortRegisters((templateSpec && templateSpec.entities) || []);
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + t('reg_none') + '</td></tr>';
     return;
   }
   // The template shows every register (no values loaded); there is no Value column
@@ -843,7 +843,6 @@ function renderTemplateRegisters() {
     const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
     return '<tr data-idx="' + i + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
-      '<td>' + escapeHtml(en.mqttname || '') + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
       '<td>' + escapeHtml(rw) + '</td>' +
@@ -880,7 +879,7 @@ function renderDeviceRegisters() {
     return en.mqttValue !== '' && en.mqttValue !== undefined
   })
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + t('reg_none') + '</td></tr>';
     return;
   }
   tbody.innerHTML = ents.map((en, i) => {
@@ -889,21 +888,21 @@ function renderDeviceRegisters() {
     const rw = en.readonly ? 'R' : 'R/W';
     const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
     const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
+    const shown = en.mqttValue != null ? en.mqttValue : '—';
+    const writeBtn = en.readonly ? '' :
+      '<button class="icon-btn reg-write" data-idx="' + i + '" title="' + t('reg_write') + '">✏️</button>';
     return '<tr data-idx="' + i + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
-      '<td>' + escapeHtml(en.mqttname || '') + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
       '<td>' + escapeHtml(String(en.modbusAddress == null ? '' : en.modbusAddress)) + '</td>' +
       '<td>' + escapeHtml(rw) + '</td>' +
       '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
-      '<td><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(en.mqttValue != null ? en.mqttValue : '—') + '</span>' +
-        (en.readonly ? '' : '<button class="icon-btn reg-write" data-idx="' + i + '" title="' + t('reg_write') + '">✏️</button>') +
-      '</td>' +
+      '<td class="reg-value-cell"><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(shown) + '</span>' + writeBtn + '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
-        '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
+        (en.readonly ? '' : '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>') +
       '</div></td></tr>';
   }).join('');
   tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => { activeSpec = slaveSpec; openRegEdit(Number(b.getAttribute('data-idx'))); }));
@@ -933,7 +932,23 @@ function valueTooltip(en) {
   const parts = []
   const d = en.converterParameters && (en.converterParameters.description || en.converterParameters.valueDescription)
   if (d) parts.push(d)
-  if (en.mqttValue != null) parts.push(t('reg_value') + ': ' + en.mqttValue)
+  // A selection (select converter) has a fixed set of raw->label options.
+  if (converterName(en) === 'select' && en.converterParameters && Array.isArray(en.converterParameters.options)) {
+    const opts = en.converterParameters.options
+      .map((o) => (o && o.name != null ? o.key + ' = ' + o.name : String(o)))
+      .join(', ')
+    if (opts) parts.push(t('reg_select_options') + ': ' + opts)
+  }
+  if (en.mqttValue != null && en.mqttValue !== '') {
+    const unit = en.converterParameters && en.converterParameters.uom ? en.converterParameters.uom : ''
+    // For select-sensors show the matching option label when available.
+    let shown = en.mqttValue
+    if (converterName(en) === 'select' && en.converterParameters && Array.isArray(en.converterParameters.options)) {
+      const hit = en.converterParameters.options.find((o) => String(o.key) === String(en.mqttValue))
+      if (hit && hit.name != null) shown = hit.name + ' (' + en.mqttValue + ')'
+    }
+    parts.push(t('reg_value_display') + ': ' + shown + (unit ? ' ' + unit : ''))
+  }
   return parts.join('\n') || t('reg_value')
 }
 
@@ -1161,6 +1176,37 @@ async function writeRegisterValue(busid, slaveid, spec, entityid, value) {
     '&entityid=' + entityid + '&mqttValue=' + encodeURIComponent(String(value));
   await api(url, { method: 'POST', body: JSON.stringify(spec) });
 }
+// Inline-edit a register value (r/w registers only): clicking the pencil turns the
+// value cell into an editable input with a confirm (✓) and cancel (✕) button.
+function startInlineEdit(btn, spec, idx) {
+  const en = spec && spec.entities && spec.entities[idx];
+  if (!en) return;
+  const cell = btn.closest('td');
+  if (!cell) return;
+  const cur = en.mqttValue != null ? en.mqttValue : '';
+  cell.innerHTML = '<span class="reg-inline">' +
+    '<input type="text" value="' + escapeHtml(String(cur)) + '">' +
+    '<button class="reg-ok" title="' + t('save') + '">✓</button>' +
+    '<button class="reg-cancel" title="' + t('cancel') + '">✕</button>' +
+    '</span>';
+  const input = cell.querySelector('input');
+  input.focus();
+  const finish = (ok) => {
+    if (ok) {
+      const val = input.value;
+      const busid = editingSlaveBus != null ? editingSlaveBus : (state.busses[0] && state.busses[0].busId);
+      const slaveid = editingSlaveId != null ? editingSlaveId : (state.busses[0] && state.busses[0].slaves && state.busses[0].slaves[0] && state.busses[0].slaves[0].slaveid);
+      writeRegisterValue(busid, slaveid, spec, en.id, val)
+        .then(() => { toast(t('config_saved'), 'success'); en.mqttValue = val; renderDeviceRegisters(); })
+        .catch((err) => { toast((err && err.message) || t('err_save_config'), 'error'); renderDeviceRegisters(); });
+    } else {
+      renderDeviceRegisters();
+    }
+  };
+  cell.querySelector('.reg-ok').addEventListener('click', () => finish(true));
+  cell.querySelector('.reg-cancel').addEventListener('click', () => finish(false));
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') finish(true); if (ev.key === 'Escape') finish(false); });
+}
 // Delegate reg-write clicks on both register tables (template editor uses a bus/slave context via editingBus/editingSlave when set)
 document.addEventListener('click', (e) => {
   const btn = e.target && e.target.closest ? e.target.closest('.reg-write') : null;
@@ -1168,16 +1214,7 @@ document.addEventListener('click', (e) => {
   const tbody = btn.closest('tbody');
   const idx = Number(btn.getAttribute('data-idx'));
   const spec = (tbody && tbody.id === 'te-reg-body') ? templateSpec : slaveSpec;
-  const en = spec && spec.entities && spec.entities[idx];
-  if (!en) return;
-  const cur = en.mqttValue != null ? en.mqttValue : '';
-  const val = prompt(t('reg_write_prompt') + (en.name || en.mqttname || ''), String(cur));
-  if (val === null) return;
-  const busid = editingSlaveBus != null ? editingSlaveBus : (state.busses[0] && state.busses[0].busId);
-  const slaveid = editingSlaveId != null ? editingSlaveId : (state.busses[0] && state.busses[0].slaves && state.busses[0].slaves[0] && state.busses[0].slaves[0].slaveid);
-  writeRegisterValue(busid, slaveid, spec, en.id, val)
-    .then(() => { toast(t('config_saved') , 'success'); en.mqttValue = val; (tbody.click ? tbody : document).dispatchEvent ? renderActiveRegisters() : null; })
-    .catch((err) => toast((err && err.message) || t('err_save_config'), 'error'));
+  startInlineEdit(btn, spec, idx);
 });
 
 /* ---------------- add-options ---------------- */
@@ -1286,8 +1323,9 @@ function renderConfigField(flatGet, field, idPrefix) {
     const opts = (stateDebugComponents || [])
       .map((c) => '<option value="' + escapeHtml(c.name) + '"' + (selected.includes(c.name) ? ' selected' : '') + '>' + escapeHtml(c.name + (c.description ? ' — ' + c.description : '')) + '</option>')
       .join('');
-    return '<div class="field"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
-      '<select multiple size="' + Math.min(8, (stateDebugComponents || []).length || 4) + '" id="' + id + '" data-cfgkey="' + field.key + '" data-multiselect="1" style="width:100%">' + opts + '</select>' +
+    const size = Math.max(10, Math.min(14, (stateDebugComponents || []).length || 10));
+    return '<div class="field field-multiselect"><label for="' + id + '">' + escapeHtml(label) + ' ' + helpIcon(field) + '</label>' +
+      '<select multiple size="' + size + '" id="' + id + '" data-cfgkey="' + field.key + '" data-multiselect="1" style="width:100%; min-height:220px">' + opts + '</select>' +
       '<div class="field-help">' + escapeHtml(t(field.helpKey)) + '</div></div>';
   }
   if (field.type === 'file-combo') {
