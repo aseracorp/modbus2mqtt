@@ -845,3 +845,82 @@ test('issue #228: republishDiscoveryIfChanged is a no-op when nothing changed', 
   disc.republishDiscoveryIfChanged(sl)
   expect(publishCount).toBe(0)
 })
+
+test('issue: republishDiscoveryIfChanged deletes inactive conditional discovery topics', () => {
+  const conn = new MqttConnector()
+  const disc = new MqttDiscover(conn, msub1)
+  const published: { topic: string; payload: string }[] = []
+  conn.getMqttClient = function (cb: (c: MqttClient) => void) {
+    cb({
+      publish: (topic: string, payload: Buffer | string) => {
+        published.push({ topic, payload: payload.toString() })
+      },
+    } as any as MqttClient)
+  }
+
+  const active: ImodbusEntity = {
+    id: 21,
+    mqttname: 'temperature',
+    converter: 'number',
+    modbusValue: [],
+    mqttValue: 24,
+    identified: 1,
+    converterParameters: { uom: '°C' },
+    registerType: ModbusRegisterType.HoldingRegister,
+    readonly: true,
+    modbusAddress: 0,
+    condition: { register: 501, bit: 0, comparator: 'eq', value: 1 },
+  }
+  const inactive: ImodbusEntity = {
+    id: 31,
+    mqttname: 'relative_humidity',
+    converter: 'number',
+    modbusValue: [],
+    mqttValue: '',
+    identified: 0,
+    converterParameters: { uom: '%' },
+    registerType: ModbusRegisterType.HoldingRegister,
+    readonly: true,
+    modbusAddress: 1,
+    condition: { register: 501, bit: 1, comparator: 'eq', value: 1 },
+  }
+  const s = {
+    filename: 'conddel',
+    manufacturer: 'Acme',
+    model: 'X',
+    i18n: [
+      {
+        lang: 'en',
+        texts: [
+          { textId: 'name', text: 'Cond' },
+          { textId: 'e21', text: 'Temperature' },
+          { textId: 'e31', text: 'Relative humidity' },
+        ],
+      },
+    ],
+    entities: [active, inactive],
+  } as any as ImodbusSpecification
+  const sl = new Slave(
+    0,
+    { slaveid: 47, specificationid: 'conddel', specification: s as any } as Islave,
+    Config.getConfiguration().mqttbasetopic
+  )
+
+  // Simulate the boot announcement: the inactive entity WAS announced (pre-poll, no values known).
+  const bootPayloads = disc['generateDiscoveryPayloads'](sl, {
+    ...s,
+    entities: [active, { ...inactive, mqttValue: undefined }],
+  } as any)
+  for (const tp of bootPayloads) {
+    disc['lastDiscoveryPayloads'].set(tp.topic, tp.payload.toString())
+  }
+
+  // After the poll the inactive entity has mqttValue '' -> it must be deleted from HA.
+  disc.republishDiscoveryIfChanged(sl, s as any)
+
+  const deletions = published.filter((p) => p.payload === '')
+  expect(deletions.length).toBe(1)
+  expect(deletions[0].topic).toContain('/e31/config')
+  // the active entity is not deleted
+  expect(published.find((p) => p.topic.includes('/e21/config') && p.payload === '')).toBeUndefined()
+})
