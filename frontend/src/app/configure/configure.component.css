@@ -6,3 +6,17 @@
   padding-top: 1em;
   color: var(--text);
 }
+
+.debugComponentName {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.debugComponentDescription {
+  display: block;
+  font-size: 0.75em;
+  color: var(--text-muted, rgba(0, 0, 0, 0.6));
+  margin-top: 0.15em;
+  white-space: normal;
+}

@@ -114,7 +114,19 @@
         <mat-card-content>
           <mat-form-field class="width250pt">
             <mat-label>{{ t('configure.debugComponents') }}</mat-label>
-            <input matInput [formControl]="debugComponentsFormControl" />
+            <mat-select multiple [formControl]="debugComponentsFormControl" [compareWith]="compareDebugComponentName">
+              @for (c of knownDebugComponents; track c.name) {
+                <mat-option [value]="c.name">
+                  <div>
+                    <span class="debugComponentName">{{ c.name }}</span>
+                    <div class="debugComponentDescription">{{ c.description }}</div>
+                  </div>
+                </mat-option>
+              }
+            </mat-select>
+            <mat-hint>
+              {{ t('configure.debugComponentsHint') }}
+            </mat-hint>
           </mat-form-field>
         </mat-card-content>
       </mat-card>
