@@ -830,14 +830,16 @@ function renderTemplateRegisters() {
   const tbody = $('te-reg-body');
   const ents = sortRegisters((templateSpec && templateSpec.entities) || []);
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + t('reg_none') + '</td></tr>';
     return;
   }
+  // The template shows every register (no values loaded); there is no Value column
+  // because a template does not hold any live values.
   tbody.innerHTML = ents.map((en, i) => {
     const cp = en.converterParameters || {};
     const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
-    const cat = en.category === 'config' ? 'config' : 'value';
+    const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
     const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
     return '<tr data-idx="' + i + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
@@ -848,9 +850,6 @@ function renderTemplateRegisters() {
       '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
-      '<td><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(en.mqttValue != null ? en.mqttValue : '—') + '</span>' +
-        (en.readonly ? '' : '<button class="icon-btn reg-write" data-idx="' + i + '" title="' + t('reg_write') + '">✏️</button>') +
-      '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-idx="' + i + '" title="' + t('edit_device') + '">✎</button>' +
         '<button class="icon-btn reg-del" data-idx="' + i + '" title="' + t('remove_device') + '">✕</button>' +
@@ -872,7 +871,14 @@ function renderActiveRegisters() {
 function renderDeviceRegisters() {
   const tbody = $('se-reg-body');
   if (!tbody) return;
-  const ents = sortRegisters((slaveSpec && slaveSpec.entities) || []);
+  const all = sortRegisters((slaveSpec && slaveSpec.entities) || []);
+  // In the device view, hide registers the device does not actually have:
+  // conditional entities whose condition bit is not set (mqttValue empty / not identified)
+  // are still in the spec but are not present on the device. Config registers are kept.
+  const ents = all.filter((en) => {
+    if (!en.condition) return true
+    return en.mqttValue !== '' && en.mqttValue !== undefined
+  })
   if (!ents.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="10">' + t('reg_none') + '</td></tr>';
     return;
@@ -881,7 +887,7 @@ function renderDeviceRegisters() {
     const cp = en.converterParameters || {};
     const isNum = converterName(en) === 'number';
     const rw = en.readonly ? 'R' : 'R/W';
-    const cat = en.category === 'config' ? 'config' : 'value';
+    const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
     const cond = en.condition ? '<span class="reg-cond-mark" title="' + t('reg_cond') + ': ' + escapeHtml(String(en.condition.register) + (en.condition.bit != null ? '.' + en.condition.bit : '')) + '">⚑</span>' : '';
     return '<tr data-idx="' + i + '">' +
       '<td>' + escapeHtml(en.name || '') + ' ' + cond + '</td>' +
