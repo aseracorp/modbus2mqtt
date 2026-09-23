@@ -544,7 +544,14 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .cfg-badge { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; }
 .cfg-badge.value { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
 .cfg-badge.config { color: #b8860b; background: color-mix(in srgb, #b8860b 14%, transparent); }
+.cfg-badge.diagnostic { color: #8a2be2; background: color-mix(in srgb, #8a2be2 14%, transparent); }
 .reg-cond-mark { color: var(--primary); margin-left: 3px; font-size: 11px; vertical-align: 1px; }
+/* inline value editor in the register table */
+.reg-inline { display: inline-flex; align-items: center; gap: 2px; }
+.reg-inline input { width: 7em; font-size: 12px; padding: 1px 4px; border: 1px solid var(--border, #888); border-radius: 4px; background: var(--surface, #fff); color: var(--text, #000); }
+.reg-inline .reg-ok, .reg-inline .reg-cancel { font-size: 13px; cursor: pointer; background: none; border: none; padding: 0 2px; }
+.reg-inline .reg-ok { color: #2e8b57; }
+.reg-inline .reg-cancel { color: #b22222; }
 
 
 /* converter-specific groups in the register editor */
