@@ -154,15 +154,18 @@ export class Modbus {
 
     // ---- Phase 2: determine active entities, then read only their registers ----
     try {
-      let activeEntities = specification.entities.filter((e) => e.category !== 'config')
-      let skipReads = new Set<number>() // (address*10+registerType) of inactive entities
+      // Config entities are read too (so the webui can show their current value),
+      // but they are still excluded from the MQTT state payload and HA discovery.
+      const activeEntities0 = [...specification.entities]
+      let activeEntities = activeEntities0.filter((e) => e.category !== 'config')
       let conditionValues: ImodbusValues | undefined = undefined
 
       const hasConditional = specification.entities.some((e) => e.condition)
       if (hasConditional) {
         // Read the condition registers first.
         conditionValues = await modbusAPI.readModbusRegister(slaveid, conditionAddresses, { task: task, errorHandling: { retry: true } })
-        // Mark inactive entities: clear their modbusAddress so they are not read.
+        // Mark inactive entities: keep them out of the address read but still report
+        // them (not identified) so the UI can hide them in the device view.
         activeEntities = activeEntities.filter((e) => {
           if (!e.condition) return true
           const type = e.condition.registerType ?? EntRegisterType(e.registerType)
@@ -175,12 +178,19 @@ export class Modbus {
       }
 
       const addresses = new Set<ImodbusAddress>()
-      for (const ent of activeEntities) {
+      const addEntityAddresses = (ent: Ientity) => {
         const converter = ConverterMap.getConverter(ent)
         if (ent.modbusAddress != undefined && converter && ent.registerType)
           for (let i = 0; i < converter.getModbusLength(ent); i++) {
             addresses.add({ address: ent.modbusAddress + i, registerType: ent.registerType })
           }
+      }
+      for (const ent of activeEntities) addEntityAddresses(ent)
+      // Config registers carry no conditions and are always read: they keep their
+      // value in the spec so the webui can display them (they are still excluded
+      // from the MQTT state payload and HA discovery).
+      for (const ent of specification.entities) {
+        if (ent.category === 'config') addEntityAddresses(ent)
       }
 
       debugAction('getModbusSpecificationFromData start read from modbus')
