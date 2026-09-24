@@ -267,6 +267,10 @@ export class ModbusAutoDiscover {
    * `probeKnownEndpoints`).
    */
   private async probeNamedHosts(): Promise<DiscoveredModbusServer[]> {
+    // Honor the configuration even when called directly: with network scanning
+    // disabled there is nothing to probe and the DNS/port sweeps would just
+    // hang until their timeouts (which is also what the CI test expects).
+    if (!this.networkScanEnabled()) return []
     const interfaces = this.localInterfaces()
     const found: DiscoveredModbusServer[] = []
     for (const host of await scanNamedHosts(this.dns, (h, p, t) => this.tcpProbe(h, p, t), interfaces)) {
