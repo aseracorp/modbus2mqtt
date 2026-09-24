@@ -884,11 +884,15 @@ function renderDeviceRegisters() {
   if (!tbody) return;
   const all = sortRegisters((slaveSpec && slaveSpec.entities) || []);
   // In the device view, hide registers the device does not actually have:
-  // conditional entities whose condition bit is not set (mqttValue empty / not identified)
-  // are still in the spec but are not present on the device. Config registers are kept.
+  // conditional entities whose conditions are not met (mqttValue empty / not
+  // identified) are still in the spec but are not present on the device.
+  // Config registers are kept. Handles both `condition` and `conditions`.
   const ents = all.filter((en) => {
-    if (!en.condition) return true
-    return en.mqttValue !== '' && en.mqttValue !== undefined
+    const hasCond = (en.conditions && en.conditions.length > 0) || en.condition
+    if (!hasCond) return true
+    // Inactive conditional entity (backend reports mqttValue '' and/or notIdentified)
+    if (en.mqttValue === '' || en.mqttValue === undefined || en.mqttValue === null) return false
+    return true
   })
   if (!ents.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + t('reg_none') + '</td></tr>';
@@ -1111,7 +1115,7 @@ function openRegEditForEntity(en) {
   $('re-swapbytes').checked = !!cp.swapBytes;
   $('re-stringlength').value = cp.stringlength == null ? '' : String(cp.stringlength);
   regConverterShown();
-  $('regedit-title').textContent = idx == null ? t('reg_add') : t('reg_edit');
+  $('regedit-title').textContent = editingRegIdx == null ? t('reg_add') : t('reg_edit');
   // Re-apply translations for the dynamically-opened editor (hints, labels).
   const form = $('regedit-form');
   form.querySelectorAll('[data-i18n]').forEach((el) => {

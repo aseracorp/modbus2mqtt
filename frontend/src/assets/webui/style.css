@@ -731,6 +731,22 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   align-content: start;
 }
 
+/* Any tall form inside a wide modal (device editor, template editor, ...) must
+   be scrollable itself, otherwise on small screens the modal is clipped and
+   only the page behind it scrolls. */
+.modal.modal-xlg .add-form.add-stack {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 120px;
+}
+.modal.modal-xlg .modal-actions { flex: 0 0 auto; }
+/* On phones keep the modal within the viewport with a little breathing room. */
+@media (max-width: 480px) {
+  .modal.modal-xlg { max-height: 94vh; max-width: calc(100vw - 16px); padding: 14px; }
+  .modal.modal-xlg .add-form.add-stack { min-height: 80px; }
+}
+
 .modal.modal-wide, .modal.modal.modal-wide {
   width: 640px;
   max-width: calc(100vw - 40px);
