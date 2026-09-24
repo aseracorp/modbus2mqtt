@@ -153,9 +153,11 @@ export class MqttDiscover {
             // condition register bit is not set) must not be announced to Home
             // Assistant: the device does not have that sensor. When the spec passed
             // here carries read values (post-poll republish), inactive entities are
-            // reported with an empty mqttValue and are skipped.
+            // reported with an empty mqttValue and are skipped. Handles both the
+            // legacy single `condition` and the multi-condition `conditions` array.
+            const hasCond = e.condition != undefined || (e.conditions != undefined && e.conditions.length > 0)
             const isInactiveConditional =
-              e.condition != undefined && (e as ImodbusEntity).mqttValue !== undefined && (e as ImodbusEntity).mqttValue === ''
+              hasCond && (e as ImodbusEntity).mqttValue !== undefined && (e as ImodbusEntity).mqttValue === ''
             if (isInactiveConditional) continue
             const converter = ConverterMap.getConverter(e)
             const ent: ImodbusEntity = e as ImodbusEntity

@@ -924,3 +924,16 @@ test('issue: republishDiscoveryIfChanged deletes inactive conditional discovery 
   // the active entity is not deleted
   expect(published.find((p) => p.topic.includes('/e21/config') && p.payload === '')).toBeUndefined()
 })
+
+test('generateDiscoveryPayloads skips inactive multi-condition variant (SI active, Imperial inactive)', () => {
+  const conn = new MqttConnector()
+  const disc = new MqttDiscover(conn, msub1)
+  const si = { id: 2, mqttname: 'temperature', converter: 'number', modbusAddress: 0, registerType: ModbusRegisterType.HoldingRegister, readonly: true, mqttValue: 24.5, identified: 1, converterParameters: { uom: '°C' }, conditions: [{ register: 400, comparator: 'eq', value: 1 }, { register: 501, bit: 0, comparator: 'eq', value: 1 }] }
+  const imp = { id: 25, mqttname: 'temperature_imperial', converter: 'number', modbusAddress: 0, registerType: ModbusRegisterType.HoldingRegister, readonly: true, mqttValue: '', identified: 0, converterParameters: { uom: '°F' }, conditions: [{ register: 400, comparator: 'eq', value: 2 }, { register: 501, bit: 0, comparator: 'eq', value: 1 }] }
+  const s = { filename: 'mc', manufacturer: 'T', model: 'W', i18n: [{ lang: 'en', texts: [{ textId: 'name', text: 'T' }, { textId: 'e2', text: 'Temperature' }, { textId: 'e25', text: 'Temperature (Imperial)' }] }], entities: [si, imp] } as any as ImodbusSpecification
+  const sl = new Slave(0, { slaveid: 5, specificationid: 'mc', specification: s } as any as Islave, Config.getConfiguration().mqttbasetopic)
+  const payloads = disc['generateDiscoveryPayloads'](sl, s)
+  const topics = payloads.map((p) => p.topic)
+  expect(topics.some((t) => t.includes('/e25/config'))).toBe(false)
+  expect(topics.some((t) => t.includes('/e2/config'))).toBe(true)
+})
