@@ -64,17 +64,17 @@
         <div class="add-option" id="add-opt-bus" data-addcat="bus">
           <div class="add-option-icon">🔌</div>
           <div class="add-option-text"><b data-i18n="add_bus">Modbus connection</b><span class="add-option-desc" data-i18n="desc_bus">New RTU / TCP connection</span></div>
-          <button type="button" class="btn btn-primary" data-addcat="bus">Add</button>
+          <button type="button" class="btn btn-primary" data-addcat="bus" data-i18n="add">Add</button>
         </div>
         <div class="add-option" id="add-opt-slave" data-addcat="slave">
           <div class="add-option-icon">📟</div>
           <div class="add-option-text"><b data-i18n="add_slave">Modbus device</b><span class="add-option-desc" data-i18n="desc_slave">Device from a template</span></div>
-          <button type="button" class="btn btn-primary" data-addcat="slave">Add</button>
+          <button type="button" class="btn btn-primary" data-addcat="slave" data-i18n="add">Add</button>
         </div>
         <div class="add-option" id="add-opt-template" data-addcat="template">
           <div class="add-option-icon">🧩</div>
           <div class="add-option-text"><b data-i18n="add_template">Modbus template</b><span class="add-option-desc" data-i18n="desc_template">New template / specification</span></div>
-          <button type="button" class="btn btn-primary" data-addcat="template">Add</button>
+          <button type="button" class="btn btn-primary" data-addcat="template" data-i18n="add">Add</button>
         </div>
       </div>
     </section>
@@ -222,7 +222,7 @@
           <button type="button" class="btn btn-sm" id="se-scan-slaves" title="Scan bus for slaves" data-i18n="scan_slaves">Scan</button>
         </div>
       </div>
-      <div class="field"><label data-i18n="name">Name</label><input type="text" id="se-name" placeholder="device name"></div>
+      <div class="field"><label data-i18n="name">Name</label><input type="text" id="se-name" placeholder="device name" data-ph="device_name_ph"></div>
       <div class="field"><label data-i18n="template_label">Template (specification)</label>
         <div class="eep-combo">
           <input type="text" id="se-template-search" data-ph="template_placeholder" placeholder="sdm120, template…" autocomplete="off">
@@ -341,21 +341,9 @@
         <span class="field-hint" data-i18n="reg_category_hint">value → MQTT/HA · config → device configuration (not published)</span>
       </div>
       <div class="field reg-condition"><label data-i18n="reg_cond">Condition (optional)</label>
-        <div class="reg-condition-row">
-          <input type="text" id="re-cond-register" placeholder="501 or 500.1" title="Condition register address (optionally .bit, e.g. 500.1) — for a single bit use register.bit = 1">
-          <select id="re-cond-cmp">
-            <option value="eq">=</option>
-            <option value="ne">≠</option>
-            <option value="lt">&lt;</option>
-            <option value="le">≤</option>
-            <option value="gt">&gt;</option>
-            <option value="ge">≥</option>
-            <option value="contains">contains</option>
-            <option value="hasbit">has bit</option>
-          </select>
-          <input type="text" id="re-cond-value" placeholder="1" title="Value to compare the condition register (or bit value) against">
-        </div>
-        <span class="field-hint" data-i18n="reg_cond_hint">Register is only available when: condition-register (or register.bit) compares to the value. E.g. 500.1 = 1 → active if bit 1 of register 500 is set</span>
+        <div class="reg-condition-rows" id="re-cond-rows"><!-- one row per condition, populated by JS --></div>
+        <button type="button" class="btn btn-sm" id="re-cond-add" data-i18n="add_condition">Add condition</button>
+        <span class="field-hint" data-i18n="reg_cond_hint">Register is only available when ALL conditions match. E.g. 501.0 = 1 → active if bit 0 of register 501 is set. Multiple conditions are AND-combined.</span>
       </div>
       <div class="field"><label data-i18n="reg_value_desc">Value description</label><input type="text" id="re-value-desc" placeholder="e.g. Temperature in °C / 0=off 1=on"></div>
       <div class="field"><label data-i18n="reg_converter">Converter</label>
