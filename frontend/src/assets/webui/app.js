@@ -966,7 +966,7 @@ function regName(en) {
 function entityCondMark(en) {
   const conds = (en.conditions && en.conditions.length > 0) ? en.conditions : (en.condition ? [en.condition] : [])
   if (conds.length === 0) return ''
-  const parts = conds.map((c) => String(c.register) + (c.bit != null ? '.' + c.bit : '') + (c.values != null ? ' in ' + c.values.join('/') : (c.comparator && c.comparator !== 'eq' ? ' ' + c.comparator + ' ' + c.value : '')))
+  const parts = conds.map((c) => String(c.register) + (c.bit != null ? '.' + c.bit : '') + (c.mask != null ? '&0x' + c.mask.toString(16) : '') + (c.values != null ? ' in ' + c.values.join('/') : (c.comparator && c.comparator !== 'eq' ? ' ' + c.comparator + ' ' + c.value : '')))
   const title = t('reg_cond') + ': ' + parts.join(' AND ')
   return '<span class="reg-cond-mark" title="' + escapeHtml(title) + '">⚑' + (conds.length > 1 ? conds.length : '') + '</span>'
 }
@@ -1059,8 +1059,9 @@ function renderConditionRows(conds) {
   rows.innerHTML = c.map((cond, i) => {
     let regStr = cond.register != null ? String(cond.register) : '';
     if (cond.bit != null) regStr += '.' + cond.bit;
+    if (cond.mask != null) regStr += '&0x' + cond.mask.toString(16);
     return '<div class="reg-condition-row">' +
-      '<input type="text" class="rc-register" placeholder="501 or 500.1" title="Condition register address (optionally .bit, e.g. 500.1)" value="' + escapeHtml(regStr) + '">' +
+      '<input type="text" class="rc-register" placeholder="501, 500.1 or 0&0xF" title="Condition register address; optionally .bit (500.1) or &mask (0&0xF)" value="' + escapeHtml(regStr) + '">' +
       '<select class="rc-cmp">' +
         '<option value="eq"' + (cond.comparator==='eq'?' selected':'') + '>=</option>' +
         '<option value="ne"' + (cond.comparator==='ne'?' selected':'') + '>≠</option>' +
@@ -1082,10 +1083,11 @@ function readConditionRows() {
   if (!rows) return [];
   return Array.from(rows.querySelectorAll('.reg-condition-row')).map((row) => {
     const regStr = row.querySelector('.rc-register').value.trim();
-    const m = regStr.match(/^(\d+)(?:\.(\d+))?$/);
+    const m = regStr.match(/^(\d+)(?:\.(\d+))?(?:&(0x[0-9a-fA-F]+|\d+))?$/i);
     if (!m) return null;
     const cond = { register: parseInt(m[1], 10), comparator: row.querySelector('.rc-cmp').value || 'eq' };
     if (m[2] !== undefined) cond.bit = parseInt(m[2], 10);
+    if (m[3] !== undefined) cond.mask = (/^0x/i.test(m[3]) ? parseInt(m[3], 16) : parseInt(m[3], 10));
     const cv = row.querySelector('.rc-value').value.trim();
     if (cv !== '') {
       // comma-separated = OR-set (values); otherwise single numeric value
@@ -1152,9 +1154,10 @@ $('re-cond-add')?.addEventListener('click', () => {
   // append a blank row: render current rows + one empty
   const cur = Array.from(rows.querySelectorAll('.reg-condition-row')).map((row) => {
     const regStr = row.querySelector('.rc-register').value.trim();
-    const m = regStr.match(/^(\d+)(?:\.(\d+))?$/);
+    const m = regStr.match(/^(\d+)(?:\.(\d+))?(?:&(0x[0-9a-fA-F]+|\d+))?$/i);
     const cond = m ? { register: parseInt(m[1], 10), comparator: row.querySelector('.rc-cmp').value || 'eq' } : {};
     if (m && m[2] !== undefined) cond.bit = parseInt(m[2], 10);
+    if (m && m[3] !== undefined) cond.mask = (/^0x/i.test(m[3]) ? parseInt(m[3], 16) : parseInt(m[3], 10));
     const cv = row.querySelector('.rc-value').value.trim();
     if (cv !== '') {
       if (cv.includes(',')) cond.values = cv.split(',').map((s) => parseFloat(s.trim())).filter((n) => !isNaN(n));

@@ -181,6 +181,8 @@ export interface Icondition {
   value?: number
   /** OR-set: condition matches if the register value (or the resolved bit) is any of these values. */
   values?: number[]
+  /** Bitmask applied to the register value before comparing (e.g. device-type nibble). */
+  mask?: number
   bits?: number[]
   equals?: number
 }
