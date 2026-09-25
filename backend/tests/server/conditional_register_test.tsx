@@ -87,6 +87,21 @@ describe('conditional + config registers', () => {
   it('isEntityActive: no condition -> always active', () => {
     expect(Modbus.isEntityActive({}, 123)).toBe(true)
   })
+  it('isEntityActive: OR-set values (any-of)', () => {
+    expect(Modbus.isEntityActive({ condition: { register: 0, values: [1, 8] } }, 1)).toBe(true)
+    expect(Modbus.isEntityActive({ condition: { register: 0, values: [1, 8] } }, 8)).toBe(true)
+    expect(Modbus.isEntityActive({ condition: { register: 0, values: [1, 8] } }, 0)).toBe(false)
+    expect(Modbus.isEntityActive({ condition: { register: 0, values: [1, 8] } }, undefined)).toBe(false)
+    // OR-set on a bit-resolved value
+    expect(Modbus.isEntityActive({ condition: { register: 0, bit: 4, values: [0, 1] } }, 0x10)).toBe(true)
+    expect(Modbus.isEntityActive({ condition: { register: 0, bit: 4, values: [0] } }, 0x10)).toBe(false)
+  })
+  it('conditionMatches: OR-set values', async () => {
+    const { conditionMatches } = await import('../../src/specification/conditions.js')
+    expect(conditionMatches({ register: 0, values: [0x0000, 0x0009] }, 0x0009)).toBe(true)
+    expect(conditionMatches({ register: 0, values: [0x0000, 0x0009] }, 0x0001)).toBe(false)
+    expect(conditionMatches({ register: 0, values: [0x0001, 0x0008] }, 0x0008)).toBe(true)
+  })
   it('fileToModbusSpecification populates active conditional entities and leaves inactive ones empty', () => {
     const mspec = M2mSpecification.fileToModbusSpecification(spec, emptyModbusValues())
     // with empty modbus values, all entities are not-identified

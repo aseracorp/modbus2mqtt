@@ -21,6 +21,10 @@ export function conditionMatches(c: Icondition, value: number | undefined): bool
   if (c.bit !== undefined && c.bit !== null) actual = (value >> c.bit) & 1
   const expected = c.value ?? 0
   const cmp = c.comparator || 'eq'
+  // OR-set: matches if the (possibly bit-resolved) value is any of `values`.
+  if (c.values !== undefined && c.values !== null) {
+    return c.values.includes(actual)
+  }
   switch (cmp) {
     case 'eq': return actual === expected
     case 'ne': return actual !== expected
