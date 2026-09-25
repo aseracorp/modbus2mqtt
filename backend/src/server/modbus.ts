@@ -105,13 +105,15 @@ export class Modbus {
    * Entities without a `condition` are always active. Config entities are not read
    * as value registers (they are handled by the config API).
    */
-  static isEntityActive(entity: { condition?: { register: number; registerType?: number; bit?: number; comparator?: string; value?: number }; modbusAddress?: number; category?: string }, value: number | undefined): boolean {
+  static isEntityActive(entity: { condition?: { register: number; registerType?: number; bit?: number; comparator?: string; value?: number; values?: number[] }; modbusAddress?: number; category?: string }, value: number | undefined): boolean {
     if (!entity.condition) return true
     if (value === undefined || value === null) return false // condition register not readable -> not active
     const c = entity.condition
     // If a single bit is referenced (register.bit), compare the bit value (0/1).
     let actual = value
     if (c.bit !== undefined && c.bit !== null) actual = ((value >> c.bit) & 1)
+    // OR-set: matches if the (possibly bit-resolved) value is any of `values`.
+    if (c.values !== undefined && c.values !== null) return c.values.includes(actual)
     const expected = c.value ?? 0
     const cmp = c.comparator || 'eq'
     switch (cmp) {

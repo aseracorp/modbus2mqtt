@@ -585,6 +585,7 @@ async function openEditSlave(busid, slaveid) {
   const slave = bus.slaves.find((s) => s.slaveid === Number(slaveid));
   if (!slave) return;
   editingSlave = { busid: Number(busid), slaveid: Number(slaveid) };
+  slaveSpecDirty = false;
   $('slaveedit-title').textContent = t('edit_slave_title');
   $('se-busselect').value = String(bus.busId);
   $('se-slaveid').value = String(slave.slaveid);
@@ -680,8 +681,17 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
   // Registers defined inline on the device (no template): attach them as a
   // device-scoped spec so the device can be used without a template.
   const inlineEnts = (slaveSpec && slaveSpec.entities) || [];
-  if (!template && inlineEnts.length) {
-    slaveSpec.filename = slaveSpec.filename || ('slave-' + busid + '-' + slaveid);
+  // If the device is based on a template but its registers were edited, clone the
+  // template into a per-device spec and switch the device to it, so the device's
+  // changes are persisted and the public template stays untouched.
+  const deviceSpecDirty = slaveSpecDirty && template && inlineEnts.length > 0;
+  if ((!template && inlineEnts.length) || deviceSpecDirty) {
+    if (deviceSpecDirty) {
+      // clone name: <template>-<busid>-<slaveid> (a new local spec)
+      slaveSpec.filename = (slaveSpec.filename || template.filename || 'slave-' + busid + '-' + slaveid).replace(/\.yaml$/, '') + '-' + busid + '-' + slaveid + '.yaml';
+    } else {
+      slaveSpec.filename = slaveSpec.filename || ('slave-' + busid + '-' + slaveid);
+    }
     slaveSpec.entities = inlineEnts;
     slaveSpec.i18n = slaveSpec.i18n || [];
     slaveSpec.files = slaveSpec.files || [];
@@ -699,8 +709,9 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
 
   try {
     await api('/api/slave?busid=' + busid, { method: 'POST', body: JSON.stringify(body) });
-    // Save the inline device-scoped spec (registers added without a template).
-    if (!template && inlineEnts.length && slaveSpec.filename) {
+    // Save the device-scoped spec (registers added without a template, or a
+    // template that was cloned because its registers were edited).
+    if ((!template || deviceSpecDirty) && inlineEnts.length && slaveSpec.filename) {
       const specForSave = Object.assign({}, slaveSpec, { filename: slaveSpec.filename });
       await api('/api/specification?busid=' + busid + '&slaveid=' + slaveid + '&originalFilename=' +
         encodeURIComponent(slaveSpec.filename), { method: 'POST', body: JSON.stringify(specForSave) });
@@ -797,6 +808,7 @@ let editingTemplate = null;
 // working copy of the template being added/edited (full ImodbusSpecification)
 let templateSpec = null;
 let slaveSpec = null;
+let slaveSpecDirty = false;
 let editingSlaveBus = null, editingSlaveId = null;
 // spec that the register editor currently edits (templateSpec or slaveSpec)
 let activeSpec = null;
@@ -861,7 +873,7 @@ function renderTemplateRegisters() {
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
       '<td><div class="row-actions">' +
-        '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">✎</button>' +
+        '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">⚙</button>' +
         '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>' +
       '</div></td></tr>';
   }).join('');
@@ -907,7 +919,7 @@ function renderDeviceRegisters() {
     const cond = entityCondMark(en);
     const shown = en.mqttValue != null ? en.mqttValue : '—';
     const writeBtn = en.readonly ? '' :
-      '<button class="icon-btn reg-write" data-eid="' + eid + '" title="' + t('reg_write') + '">✏️</button>';
+      '<button class="icon-btn reg-write" data-eid="' + eid + '" title="' + t('reg_write') + '">✎</button>';
     return '<tr data-eid="' + eid + '">' +
       '<td>' + escapeHtml(regName(en)) + ' ' + cond + '</td>' +
       '<td>' + escapeHtml(regTypeName(en.registerType)) + '</td>' +
@@ -918,7 +930,7 @@ function renderDeviceRegisters() {
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
       '<td class="reg-value-cell"><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(shown) + '</span>' + writeBtn + '</td>' +
       '<td><div class="row-actions">' +
-        '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">✎</button>' +
+        '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">⚙</button>' +
         (en.readonly ? '' : '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>') +
       '</div></td></tr>';
   }).join('');
@@ -954,7 +966,7 @@ function regName(en) {
 function entityCondMark(en) {
   const conds = (en.conditions && en.conditions.length > 0) ? en.conditions : (en.condition ? [en.condition] : [])
   if (conds.length === 0) return ''
-  const parts = conds.map((c) => String(c.register) + (c.bit != null ? '.' + c.bit : '') + (c.comparator && c.comparator !== 'eq' ? ' ' + c.comparator + ' ' + c.value : ''))
+  const parts = conds.map((c) => String(c.register) + (c.bit != null ? '.' + c.bit : '') + (c.values != null ? ' in ' + c.values.join('/') : (c.comparator && c.comparator !== 'eq' ? ' ' + c.comparator + ' ' + c.value : '')))
   const title = t('reg_cond') + ': ' + parts.join(' AND ')
   return '<span class="reg-cond-mark" title="' + escapeHtml(title) + '">⚑' + (conds.length > 1 ? conds.length : '') + '</span>'
 }
@@ -1059,7 +1071,7 @@ function renderConditionRows(conds) {
         '<option value="contains"' + (cond.comparator==='contains'?' selected':'') + '>contains</option>' +
         '<option value="hasbit"' + (cond.comparator==='hasbit'?' selected':'') + '>has bit</option>' +
       '</select>' +
-      '<input type="text" class="rc-value" placeholder="1" title="Value to compare (or bit value)" value="' + escapeHtml(cond.value != null ? String(cond.value) : '') + '">' +
+      '<input type="text" class="rc-value" placeholder="1 or 1,8" title="Value to compare (or comma-separated OR-set, e.g. 1,8)" value="' + escapeHtml(cond.value != null ? String(cond.value) : (cond.values != null ? cond.values.join(',') : '')) + '">' +
       '<button type="button" class="btn btn-sm rc-del" title="' + t('remove') + '">✕</button>' +
     '</div>';
   }).join('');
@@ -1075,7 +1087,14 @@ function readConditionRows() {
     const cond = { register: parseInt(m[1], 10), comparator: row.querySelector('.rc-cmp').value || 'eq' };
     if (m[2] !== undefined) cond.bit = parseInt(m[2], 10);
     const cv = row.querySelector('.rc-value').value.trim();
-    if (cv !== '') cond.value = parseFloat(cv);
+    if (cv !== '') {
+      // comma-separated = OR-set (values); otherwise single numeric value
+      if (cv.includes(',')) cond.values = cv.split(',').map((s) => parseFloat(s.trim())).filter((n) => !isNaN(n));
+      else {
+        const n = parseFloat(cv);
+        if (!isNaN(n)) cond.value = n;
+      }
+    }
     return cond;
   }).filter((c) => c !== null);
 }
@@ -1137,7 +1156,10 @@ $('re-cond-add')?.addEventListener('click', () => {
     const cond = m ? { register: parseInt(m[1], 10), comparator: row.querySelector('.rc-cmp').value || 'eq' } : {};
     if (m && m[2] !== undefined) cond.bit = parseInt(m[2], 10);
     const cv = row.querySelector('.rc-value').value.trim();
-    if (cv !== '') cond.value = parseFloat(cv);
+    if (cv !== '') {
+      if (cv.includes(',')) cond.values = cv.split(',').map((s) => parseFloat(s.trim())).filter((n) => !isNaN(n));
+      else { const n = parseFloat(cv); if (!isNaN(n)) cond.value = n; }
+    }
     return cond;
   });
   renderConditionRows([...cur, {}]);
@@ -1214,6 +1236,7 @@ $('regedit-ok')?.addEventListener('click', () => {
   }
   $('regedit-overlay').hidden = true;
   editingRegEntity = null;
+  if (activeSpec === slaveSpec) slaveSpecDirty = true;
   renderActiveRegisters();
 });
 $('tpledit-ok')?.addEventListener('click', async () => {

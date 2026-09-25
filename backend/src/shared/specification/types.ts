@@ -179,6 +179,8 @@ export interface Icondition {
   bit?: number
   comparator?: string
   value?: number
+  /** OR-set: condition matches if the register value (or the resolved bit) is any of these values. */
+  values?: number[]
   bits?: number[]
   equals?: number
 }
