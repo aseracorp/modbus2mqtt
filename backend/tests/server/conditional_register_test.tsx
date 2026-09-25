@@ -102,6 +102,24 @@ describe('conditional + config registers', () => {
     expect(conditionMatches({ register: 0, values: [0x0000, 0x0009] }, 0x0001)).toBe(false)
     expect(conditionMatches({ register: 0, values: [0x0001, 0x0008] }, 0x0008)).toBe(true)
   })
+  it('conditionMatches: mask + OR-set on a device-coding register', async () => {
+    const { conditionMatches } = await import('../../src/specification/conditions.js')
+    // Thermokon JOY device coding: 0x0600 | hwtype | rH(0x20) | CO2(0x40) | SR(0x10)
+    const joy = (hwtype, bits = 0) => 0x0600 | hwtype | bits
+    const ecAo2do = { register: 0, mask: 0x000f, values: [0x01, 0x08] }
+    expect(conditionMatches(ecAo2do, joy(0x01, 0x20 | 0x40 | 0x10))).toBe(true) // EC AO2DO w/ rH+CO2+SR
+    expect(conditionMatches(ecAo2do, joy(0x08))).toBe(true)                     // EC AO2DO 24V
+    expect(conditionMatches(ecAo2do, joy(0x02))).toBe(false)                     // HC AO2DO
+    expect(conditionMatches(ecAo2do, joy(0x05))).toBe(false)                     // HC 3AO
+    // mask with a single eq value
+    expect(conditionMatches({ register: 0, mask: 0x000f, comparator: 'eq', value: 0x04 }, joy(0x04, 0x20))).toBe(true)
+    expect(conditionMatches({ register: 0, mask: 0x000f, comparator: 'eq', value: 0x04 }, joy(0x05))).toBe(false)
+  })
+  it('isEntityActive: mask + OR-set', () => {
+    const joy = (hwtype, bits = 0) => 0x0600 | hwtype | bits
+    expect(Modbus.isEntityActive({ condition: { register: 0, mask: 0x000f, values: [0x01, 0x08] } }, joy(0x01, 0x20 | 0x40 | 0x10))).toBe(true)
+    expect(Modbus.isEntityActive({ condition: { register: 0, mask: 0x000f, values: [0x01, 0x08] } }, joy(0x05))).toBe(false)
+  })
   it('fileToModbusSpecification populates active conditional entities and leaves inactive ones empty', () => {
     const mspec = M2mSpecification.fileToModbusSpecification(spec, emptyModbusValues())
     // with empty modbus values, all entities are not-identified

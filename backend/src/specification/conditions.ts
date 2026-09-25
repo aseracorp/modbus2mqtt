@@ -18,6 +18,7 @@ export function entityConditions(entity: { condition?: Icondition | undefined; c
 export function conditionMatches(c: Icondition, value: number | undefined): boolean {
   if (value === undefined || value === null) return false
   let actual = value
+  if (c.mask !== undefined && c.mask !== null) actual = value & c.mask
   if (c.bit !== undefined && c.bit !== null) actual = (value >> c.bit) & 1
   const expected = c.value ?? 0
   const cmp = c.comparator || 'eq'
