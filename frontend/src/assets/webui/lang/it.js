@@ -164,4 +164,5 @@ window.LANG_it = {
   reg_range: "Intervallo",
   reg_value_display: "Valore attuale",
   reg_select_options: "Valori selezionabili",
+  reg_select_placeholder: "Seleziona un valore…",
 };

@@ -687,8 +687,14 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
   const deviceSpecDirty = slaveSpecDirty && template && inlineEnts.length > 0;
   if ((!template && inlineEnts.length) || deviceSpecDirty) {
     if (deviceSpecDirty) {
-      // clone name: <template>-<busid>-<slaveid> (a new local spec)
-      slaveSpec.filename = (slaveSpec.filename || template.filename || 'slave-' + busid + '-' + slaveid).replace(/\.yaml$/, '') + '-' + busid + '-' + slaveid + '.yaml';
+      // clone name: <template>-<busid>-<slaveid> (a new local spec), unless the
+      // selected template already is a local clone (the device was switched to
+      // its per-device clone on an earlier save) — then keep that clone name
+      // instead of appending -<bus>-<slave> again on every save.
+      const alreadyCloned = template.status === 1 // SpecificationStatus.cloned
+      if (!alreadyCloned) {
+        slaveSpec.filename = (slaveSpec.filename || template.filename || 'slave-' + busid + '-' + slaveid).replace(/\.yaml$/, '') + '-' + busid + '-' + slaveid + '.yaml';
+      }
     } else {
       slaveSpec.filename = slaveSpec.filename || ('slave-' + busid + '-' + slaveid);
     }
@@ -774,11 +780,16 @@ function initTemplateCombo() {
 function resolveTemplate(value) {
   const v = (value || '').trim().toLowerCase();
   if (!v) return null;
-  return (state.specs || []).find((sp) =>
+  const matches = (state.specs || []).filter((sp) =>
     sp.filename.toLowerCase() === v ||
     sp.filename.toLowerCase() === (v.endsWith('.yaml') ? v : v + '.yaml') ||
     (sp.model && sp.model.toLowerCase() === v) ||
-    (sp.manufacturer && sp.manufacturer.toLowerCase() === v)) || null;
+    (sp.manufacturer && sp.manufacturer.toLowerCase() === v));
+  if (!matches.length) return null;
+  // Prefer the local (cloned/added) spec over the published one when both share
+  // the same model: a device that was switched to its per-device clone must
+  // resolve to that clone, so re-saving keeps the clone instead of re-cloning.
+  return matches.find((sp) => sp.status === 1 || sp.status === 2) || matches[0];
 }
 
 /* ---------------- poll slave ---------------- */
@@ -835,7 +846,7 @@ async function openEditTemplate(filename) {
   $('te-model').value = sp.model || '';
   $('te-manufacturer').value = sp.manufacturer || '';
   try {
-    const full = await api('/api/specification?spec=' + encodeURIComponent(sp.filename));
+    const full = await api('/api/specification?spec=' + encodeURIComponent(sp.filename) + '&filedata=true');
     templateSpec = full || emptyTemplateSpec();
     templateSpec.filename = sp.filename;
   } catch (e) {
@@ -931,7 +942,7 @@ function renderDeviceRegisters() {
       '<td class="reg-value-cell"><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(shown) + '</span>' + writeBtn + '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">⚙</button>' +
-        (en.readonly ? '' : '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>') +
+        '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>' +
       '</div></td></tr>';
   }).join('');
   tbody.querySelectorAll('.reg-edit').forEach((b) => b.addEventListener('click', () => { const en = entityByEid(slaveSpec, b.getAttribute('data-eid')); if (en) { activeSpec = slaveSpec; openRegEditForEntity(en); } }));
@@ -940,6 +951,10 @@ function renderDeviceRegisters() {
       const en = entityByEid(slaveSpec, b.getAttribute('data-eid'));
       if (!en) return;
       slaveSpec.entities = (slaveSpec.entities || []).filter((x) => x !== en);
+      // Deleting a register is a spec edit as well: when the device is based on
+      // a template this must trigger the clone-template-on-save, otherwise the
+      // removed register reappears on the next edit (the template is untouched).
+      slaveSpecDirty = true;
       renderDeviceRegisters();
     });
   });
@@ -1008,7 +1023,9 @@ function valueTooltip(en) {
     // For select-sensors show the matching option label when available.
     let shown = en.mqttValue
     if (converterName(en) === 'select' && en.converterParameters && Array.isArray(en.converterParameters.options)) {
-      const hit = en.converterParameters.options.find((o) => String(o.key) === String(en.mqttValue))
+      const hit = en.converterParameters.options.find((o) =>
+        (o.name != null && String(o.name) === String(en.mqttValue)) ||
+        (o.key != null && String(o.key) === String(en.mqttValue)))
       if (hit && hit.name != null) shown = hit.name + ' (' + en.mqttValue + ')'
     }
     parts.push(t('reg_value_display') + ': ' + shown + (unit ? ' ' + unit : ''))
@@ -1196,9 +1213,13 @@ $('regedit-ok')?.addEventListener('click', () => {
     const sl = $('re-stringlength').value.trim();
     if (sl !== '') cp.stringlength = parseInt(sl, 10);
   } else if (converter === 'select') {
-    // options preserved from existing entity
-    const old = editingRegIdx != null && templateSpec.entities[editingRegIdx] ? templateSpec.entities[editingRegIdx].converterParameters || {} : {};
-    cp.options = old.options;
+    // options preserved from the entity being edited (same spec, resolved by id)
+    const spec0 = activeSpec || templateSpec;
+    const ents0 = (spec0 && spec0.entities) || [];
+    const oldEnt = editingRegEntity || (editingRegIdx != null ? entityByEid(spec0, editingRegIdx) : null);
+    const oldCp = (oldEnt && oldEnt.converterParameters) || {};
+    if (Array.isArray(oldCp.options)) cp.options = oldCp.options;
+    else if (editingRegIdx == null && !oldEnt) cp.options = [];
   }
   const spec = activeSpec || templateSpec;
   const ents = (spec && spec.entities) || (spec.entities = []);
@@ -1258,14 +1279,9 @@ $('tpledit-ok')?.addEventListener('click', async () => {
   if (spec.identified == null) spec.identified = 0;
   if (spec.status == null) spec.status = 3;
   try {
-    // A template needs a home slave to be saved via the specification route. Find the first connection/slave.
-    const bus = (state.busses || [])[0];
-    const slave = bus && bus.slaves && bus.slaves[0];
-    if (!bus || !slave) {
-      toast(t('err_no_bus') + ' — ' + t('add_slave'), 'error');
-      return;
-    }
-    await api('/api/specification?busid=' + bus.busId + '&slaveid=' + slave.slaveid + '&originalFilename=' +
+    // Templates are self-contained: no bus/slave is required to save them (a
+    // public template is cloned into the local dir by the backend on save).
+    await api('/api/specification?originalFilename=' +
       encodeURIComponent(editingTemplate || filename + '.yaml'), { method: 'POST', body: JSON.stringify(spec) });
     toast(editingTemplate ? t('template_updated') : t('template_added'), 'success');
     $('tpledit-overlay').hidden = true;
@@ -1332,12 +1348,20 @@ function startInlineEdit(btn, spec, en) {
   const isSelect = converterName(en) === 'select' && en.converterParameters && Array.isArray(en.converterParameters.options);
   let editor
   if (isSelect) {
+    const opts = en.converterParameters.options
+    const matchedIdx = opts.findIndex((o) =>
+      (o.key != null && String(o.key) === String(cur)) ||
+      (o.name != null && String(o.name) === String(cur)))
+    // Pre-select the option matching the current value. When nothing matches
+    // (value not read yet, or a raw key), offer a placeholder instead of
+    // silently selecting the first option.
+    const optionsHtml = opts.map((o, i) => {
+      const sel = i === matchedIdx ? ' selected' : ''
+      return '<option value="' + escapeHtml(String(o.key)) + '"' + sel + '>' + escapeHtml(o.name != null ? o.name : String(o.key)) + '</option>'
+    }).join('')
     editor = '<select class="reg-inline-select">' +
-      en.converterParameters.options.map((o) => {
-        const sel = (String(o.key) === String(cur)) || (o.name != null && String(o.name) === String(cur)) ? ' selected' : ''
-        return '<option value="' + escapeHtml(String(o.key)) + '">' + escapeHtml(o.name != null ? o.name : String(o.key)) + '</option>' + sel
-      }).join('') +
-      '</select>'
+      (matchedIdx < 0 ? '<option value="" disabled selected>' + escapeHtml(t('reg_select_placeholder')) + '</option>' : '') +
+      optionsHtml + '</select>'
   } else {
     editor = '<input type="text" value="' + escapeHtml(String(cur)) + '">'
   }
@@ -1350,6 +1374,11 @@ function startInlineEdit(btn, spec, en) {
   const finish = (ok) => {
     if (ok) {
       const val = input.value;
+      if (isSelect && val === '') {
+        // Placeholder still selected — no real option chosen; leave the value untouched.
+        renderDeviceRegisters();
+        return;
+      }
       const busid = editingSlaveBus != null ? editingSlaveBus : (state.busses[0] && state.busses[0].busId);
       const slaveid = editingSlaveId != null ? editingSlaveId : (state.busses[0] && state.busses[0].slaves && state.busses[0].slaves[0] && state.busses[0].slaves[0].slaveid);
       writeRegisterValue(busid, slaveid, spec, en.id, val)

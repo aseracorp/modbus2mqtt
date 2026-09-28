@@ -164,4 +164,5 @@ window.LANG_fr = {
   reg_range: "Plage",
   reg_value_display: "Valeur actuelle",
   reg_select_options: "Valeurs sélectionnables",
+  reg_select_placeholder: "Choisir une valeur…",
 };

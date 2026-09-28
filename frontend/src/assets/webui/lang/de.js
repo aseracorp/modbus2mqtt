@@ -165,4 +165,5 @@ window.LANG_de = {
   reg_range: "Bereich",
   reg_value_display: "aktueller Wert",
   reg_select_options: "Auswählbare Werte",
+  reg_select_placeholder: "Wert wählen…",
 };

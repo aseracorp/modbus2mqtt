@@ -239,8 +239,20 @@ describe('POST ' + apiUri.uploadSpec, () => {
 })
 
 describe('POST ' + apiUri.specfication, () => {
-  it('fails without busid/slaveid', async () => {
-    await ts.request().post(apiUri.specfication).send(spec).parse(rawText).expect(HttpErrorsEnum.ErrBadRequest)
+  it('saves a template without busid/slaveid (public template clone / standalone edit)', async () => {
+    const standalone: ImodbusSpecification = {
+      ...spec,
+      filename: 'standalone-template',
+      status: SpecificationStatus.new,
+    }
+    await ts
+      .request()
+      .post(apiUri.specfication + '?originalFilename=standalone-template')
+      .send(standalone)
+      .expect(HttpErrorsEnum.OkCreated)
+    const written = ConfigSpecification.getSpecificationByFilename('standalone-template')
+    expect(written).toBeDefined()
+    expect(written!.entities.length).toBe(1)
   })
   it('add new Specification rename device.specification', async () => {
     ConfigBus['listeners'] = []
