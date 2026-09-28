@@ -15,7 +15,7 @@ import {
 } from '../../../shared/specification/index.js'
 import { Islave, PollModes, apiUri } from '../../../shared/server/index.js'
 import { sendResult } from '../sendResult.js'
-import { ApiError, Registrar, created, ok, requireBusSlave, requireQuery, stripSpecFileData } from '../routeHelpers.js'
+import { ApiError, Registrar, created, ok, requireQuery, stripSpecFileData } from '../routeHelpers.js'
 
 const debug = Debug('httpserver')
 const log = new Logger('httpserver')
@@ -67,15 +67,15 @@ export function registerSpecificationRoutes(r: Registrar): void {
   r.post(apiUri.specfication, (ctx) => {
     debug('POST /specification: ' + String(ctx.query['busid']) + '/' + String(ctx.query['slaveid']))
     const rd = new ConfigSpecification()
-    let ids: { busid: number; slaveid: number }
-    try {
-      ids = requireBusSlave(ctx)
-    } catch (e) {
-      // this route wraps the validation message in a pseudo JSON object
-      throw new ApiError(HttpErrorsEnum.ErrBadRequest, "{message: '" + (e as Error).message + "'}")
-    }
-    const bus: Bus | undefined = Bus.getBus(ids.busid)
-    const slave: Islave | undefined = bus ? bus.getSlaveBySlaveId(ids.slaveid) : undefined
+    // busid/slaveid are optional: a template can be saved (and a public template
+    // cloned into the local dir) even when no modbus connection/device exists yet.
+    // When given, the referenced slave is repointed to the saved specification —
+    // exactly what the device-register editor needs when cloning a per-device spec.
+    const busidRaw = ctx.query['busid']
+    const slaveidRaw = ctx.query['slaveid']
+    const bus: Bus | undefined = busidRaw !== undefined && busidRaw !== '' ? Bus.getBus(Number.parseInt(busidRaw)) : undefined
+    const slave: Islave | undefined =
+      bus != undefined && slaveidRaw !== undefined && slaveidRaw !== '' ? bus.getSlaveBySlaveId(Number.parseInt(slaveidRaw)) : undefined
 
     const originalFilename: string | null =
       ctx.query['originalFilename'] !== undefined ? String(ctx.query['originalFilename']) : null

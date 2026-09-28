@@ -165,4 +165,5 @@ window.LANG_en = {
   reg_range: "Range",
   reg_value_display: "Present value",
   reg_select_options: "Selectable values",
+  reg_select_placeholder: "Select value…",
 };
