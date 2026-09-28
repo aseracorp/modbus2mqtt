@@ -687,13 +687,25 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
   const deviceSpecDirty = slaveSpecDirty && template && inlineEnts.length > 0;
   if ((!template && inlineEnts.length) || deviceSpecDirty) {
     if (deviceSpecDirty) {
-      // clone name: <template>-<busid>-<slaveid> (a new local spec), unless the
-      // selected template already is a local clone (the device was switched to
-      // its per-device clone on an earlier save) — then keep that clone name
-      // instead of appending -<bus>-<slave> again on every save.
-      const alreadyCloned = template.status === 1 // SpecificationStatus.cloned
-      if (!alreadyCloned) {
-        slaveSpec.filename = (slaveSpec.filename || template.filename || 'slave-' + busid + '-' + slaveid).replace(/\.yaml$/, '') + '-' + busid + '-' + slaveid + '.yaml';
+      // Build a stable, distinguishable per-device clone name:
+      //   <source-template>-<busid>-<slaveid>.yaml
+      // A device that was already switched to its clone (earlier save) keeps
+      // that clone name — but only when it really is a per-device clone
+      // (<source>-<bus>-<slave>), never the bare template name: creating a new
+      // device from a *cloned* template must still produce its own clone name
+      // instead of silently sharing the source template's filename.
+      const tplBase = (template.filename || '').replace(/\.yaml$/, '')
+      const curBase = (slaveSpec.filename || '').replace(/\.yaml$/, '')
+      const cloneSuffix = '-' + busid + '-' + slaveid
+      // Already a per-device clone of this very template (either selected as the
+      // template, or the device was switched to it earlier and the selected
+      // template fell back to the published original): keep the clone name,
+      // never append the suffix a second time.
+      const isPerDeviceClone =
+        curBase === tplBase + cloneSuffix ||
+        (curBase === tplBase && tplBase.endsWith(cloneSuffix))
+      if (!isPerDeviceClone) {
+        slaveSpec.filename = (tplBase || 'slave-' + busid + '-' + slaveid) + cloneSuffix + '.yaml'
       }
     } else {
       slaveSpec.filename = slaveSpec.filename || ('slave-' + busid + '-' + slaveid);
@@ -736,6 +748,12 @@ let _tplSearchList = [];
 function populateTemplateList() {
   const ul = $('se-template-list');
   if (!ul) return;
+  // Don't clobber an open dropdown while the user is interacting with it:
+  // loadAll() re-runs every 5s and would rebuild the list, losing the filter
+  // and scroll position (observed as "dropdown resets after a few seconds").
+  const drop = $('se-template-drop');
+  const input = $('se-template-search');
+  if (drop && !drop.hidden && input && document.activeElement === input) return;
   _tplSearchList = state.specs || [];
   ul.innerHTML = _tplSearchList.map((sp) =>
     '<li data-tpl="' + escapeHtml(sp.filename) + '" data-model="' + escapeHtml(sp.model || '') + '" data-manufacturer="' + escapeHtml(sp.manufacturer || '') + '">' +
@@ -760,18 +778,31 @@ function initTemplateCombo() {
     });
     return count;
   };
-  input.addEventListener('focus', () => { render(); drop.hidden = false; });
+  // Sync the filter from the input value on focus: opening the dropdown on an
+  // already-prefilled field (editing an existing device) must show only the
+  // matching templates instead of the full unfiltered list.
+  input.addEventListener('focus', () => { filter = input.value; render(); drop.hidden = false; });
   input.addEventListener('input', () => { filter = input.value; render(); drop.hidden = false; });
   input.addEventListener('blur', () => setTimeout(() => { drop.hidden = true; }, 150));
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); const c = list.querySelector('li:not([hidden])'); if (c) c.focus(); }
     else if (e.key === 'Escape') drop.hidden = true;
   });
+  // Select with mousedown: it fires before the input's blur, so the click is
+  // never swallowed by the blur-hide timeout.
+  list.addEventListener('mousedown', (e) => {
+    const li = e.target.closest('li[data-tpl]');
+    if (!li) return;
+    e.preventDefault();
+    input.value = li.getAttribute('data-model') || li.getAttribute('data-tpl');
+    drop.hidden = true;
+  });
   list.addEventListener('click', (e) => {
     const li = e.target.closest('li[data-tpl]');
     if (!li) return;
     input.value = li.getAttribute('data-model') || li.getAttribute('data-tpl');
     drop.hidden = true;
+    filter = input.value;
   });
   list.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); const li = e.target.closest('li[data-tpl]'); if (li) li.click(); }
@@ -1296,8 +1327,8 @@ window.openAddTemplate = openAddTemplate;
 let pendingRemoveTemplate = null;
 function confirmRemoveTemplate(filename) {
   pendingRemoveTemplate = filename;
-  $('modal-title').textContent = t('remove_device');
-  $('modal-body').textContent = t('remove_bus_body');
+  $('modal-title').textContent = t('remove_template_title');
+  $('modal-body').textContent = t('remove_template_body');
   $('modal-overlay').hidden = false;
 }
 
@@ -1325,7 +1356,8 @@ $('modal-ok')?.addEventListener('click', async () => {
     }
     await loadAll();
   } catch (e) {
-    toast(t('err_remove_device') + e.message, 'error');
+    const label = tpl != null ? t('err_remove_template') : t('err_remove_device');
+    toast(label + e.message, 'error');
   }
 });
 
