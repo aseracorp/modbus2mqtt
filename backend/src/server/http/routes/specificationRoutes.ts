@@ -13,7 +13,7 @@ import {
   IspecificationSummary,
   SpecificationStatus,
 } from '../../../shared/specification/index.js'
-import { Islave, PollModes, apiUri } from '../../../shared/server/index.js'
+import { Islave, apiUri } from '../../../shared/server/index.js'
 import { sendResult } from '../sendResult.js'
 import { ApiError, Registrar, created, ok, requireQuery, stripSpecFileData } from '../routeHelpers.js'
 
@@ -97,17 +97,27 @@ export function registerSpecificationRoutes(r: Registrar): void {
     const rd = new ConfigSpecification()
     if (ctx.query['spec']) {
       const specName = String(ctx.query['spec'])
-      const rc = rd.deleteSpecification(specName)
+      // Block deletion while the template is in use by a device (slave). A slave
+      // uses the spec directly via specificationid, or indirectly when it
+      // references another slave (referenceSlaveId) that carries it.
+      const inUse: string[] = []
       Bus.getBusses().forEach((bus) => {
         bus.getSlaves().forEach((slave) => {
-          // Referencing slaves inherit the specification; clearing it on their root covers them.
-          if (slave.specificationid == specName && slave.referenceSlaveId == undefined) {
-            delete slave.specificationid
-            if (slave.pollMode == undefined) slave.pollMode = PollModes.intervall
-            bus.writeSlave(slave)
+          const owns = slave.specificationid === specName
+          if (owns) {
+            inUse.push('bus ' + bus.getId() + ' / slave ' + slave.slaveid)
+            return
+          }
+          if (slave.referenceSlaveId != undefined) {
+            const ref = bus.getSlaveBySlaveId(slave.referenceSlaveId)
+            if (ref && ref.specificationid === specName) inUse.push('bus ' + bus.getId() + ' / slave ' + slave.slaveid + ' (via ' + ref.slaveid + ')')
           }
         })
       })
+      if (inUse.length > 0) {
+        throw new ApiError(HttpErrorsEnum.ErrConflict, 'Template is in use by: ' + inUse.join(', '))
+      }
+      const rc = rd.deleteSpecification(specName)
       return ok(rc)
     }
     throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'No specification passed')
