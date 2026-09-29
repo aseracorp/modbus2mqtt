@@ -883,7 +883,7 @@ async function openAddTemplate() {
   editingTemplate = null;
   templateSpec = emptyTemplateSpec();
   $('tpledit-title').textContent = t('add_template');
-  $('te-filename').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
+  $('te-name').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
   renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
   applyHelpIcons();
@@ -892,8 +892,8 @@ async function openEditTemplate(filename) {
   const sp = (state.specs || []).find((s) => s.filename === filename);
   if (!sp) return;
   editingTemplate = filename;
-  $('tpledit-title').textContent = t('edit_bus') + ' — ' + filename;
-  $('te-filename').value = sp.filename.replace(/\.yaml$/, '');
+  $('tpledit-title').textContent = t('edit_template') + ' — ' + (sp.model || filename);
+  $('te-name').value = sp.model || filename.replace(/\.yaml$/, '');
   $('te-model').value = sp.model || '';
   $('te-manufacturer').value = sp.manufacturer || '';
   try {
@@ -1314,14 +1314,20 @@ $('regedit-ok')?.addEventListener('click', () => {
   if (activeSpec === slaveSpec) slaveSpecDirty = true;
   renderActiveRegisters();
 });
+function slugifyFilename(name) {
+  // Template name -> file name: lowercase, accents stripped, non-alnum -> '-'
+  return (name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
 $('tpledit-ok')?.addEventListener('click', async () => {
-  const filename = $('te-filename').value.trim().replace(/\.yaml$/, '');
+  const name = $('te-name').value.trim();
   const model = $('te-model').value.trim();
   const manufacturer = $('te-manufacturer').value.trim();
-  if (!filename) return toast(t('err_no_name'), 'error');
+  if (!name) return toast(t('err_no_name'), 'error');
+  const filename = slugifyFilename(name) || 'template';
   const spec = Object.assign({}, templateSpec || emptyTemplateSpec(), {
     filename: filename + '.yaml',
-    model: model || undefined,
+    model: model || name || undefined,
     manufacturer: manufacturer || undefined
   });
   if (!Array.isArray(spec.entities)) spec.entities = [];
