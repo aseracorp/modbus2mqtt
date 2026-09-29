@@ -41,6 +41,7 @@ async function api(path, opts = {}) {
 
 /* ---------------- i18n ---------------- */
 let currentLang = 'en';
+let lastRenderedLang = null;
 function setLang(lang) {
   currentLang = (lang === 'de' || lang === 'fr' || lang === 'it' || lang === 'en') ? lang : 'en';
   try { localStorage.setItem('m2m-lang', currentLang); } catch (e) { /* ignore */ }
@@ -66,6 +67,18 @@ function applyTranslations() {
     const key = el.getAttribute('data-ph');
     if (key && t(key)) el.setAttribute('placeholder', t(key));
   });
+  // Dynamic lists render spec-derived text (localized template names), so they
+  // must be re-rendered on language change too — otherwise the template names
+  // (and other dynamic i18n text) keep the previous language until a refresh.
+  // (renderGateway is intentionally omitted: it would fire a (throttled) live
+  // MQTT probe on every language switch for no benefit.)
+  if (currentLang !== lastRenderedLang) {
+    lastRenderedLang = currentLang;
+    renderBusses?.();
+    renderTemplates?.();
+    populateSlaveSelect?.();
+    populateTemplateList?.();
+  }
 }
 $('lang-select')?.addEventListener('change', (e) => setLang(e.target.value));
 
@@ -888,6 +901,10 @@ function confirmRemoveSlave(busid, slaveid) {
 
 /* ---------------- templates add/edit/remove ---------------- */
 let editingTemplate = null;
+// original filename/name the edit popup opened with (used to detect a real
+// user rename, so saving an untouched popup never renames the YAML file)
+let editingTemplateOriginalFilename = null;
+let editingTemplateOriginalName = null;
 // working copy of the template being added/edited (full ImodbusSpecification)
 let templateSpec = null;
 let slaveSpec = null;
@@ -902,6 +919,8 @@ function emptyTemplateSpec() {
 
 async function openAddTemplate() {
   editingTemplate = null;
+  editingTemplateOriginalFilename = null;
+  editingTemplateOriginalName = null;
   templateSpec = emptyTemplateSpec();
   $('tpledit-title').textContent = t('add_template');
   $('te-name').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
@@ -913,8 +932,13 @@ async function openEditTemplate(filename) {
   const sp = (state.specs || []).find((s) => s.filename === filename);
   if (!sp) return;
   editingTemplate = filename;
-  $('tpledit-title').textContent = t('edit_template') + ' — ' + (getSpecificationText(sp, 'name') || sp.model || filename);
-  $('te-name').value = sp.model || filename.replace(/\.yaml$/, '');
+  // Remember what the popup was opened with so the save handler can tell a
+  // real name edit from an untouched prefilled field (and avoid renaming the
+  // file just because the popup was opened and OK'd).
+  editingTemplateOriginalFilename = filename;
+  editingTemplateOriginalName = getSpecificationText(sp, 'name') || sp.model || filename.replace(/\.yaml$/, '');
+  $('tpledit-title').textContent = t('edit_template') + ' — ' + editingTemplateOriginalName;
+  $('te-name').value = editingTemplateOriginalName;
   $('te-model').value = sp.model || '';
   $('te-manufacturer').value = sp.manufacturer || '';
   try {
@@ -1345,10 +1369,21 @@ $('tpledit-ok')?.addEventListener('click', async () => {
   const model = $('te-model').value.trim();
   const manufacturer = $('te-manufacturer').value.trim();
   if (!name) return toast(t('err_no_name'), 'error');
-  const filename = slugifyFilename(name) || 'template';
+  // Only derive a new YAML filename when the user actually renamed the
+  // template; opening the popup and saving it untouched must keep the existing
+  // file (the name field is prefilled with the localized name, not the model).
+  const editingOriginalBase = editingTemplateOriginalFilename
+    ? editingTemplateOriginalFilename.replace(/\.yaml$/, '')
+    : null;
+  const userEditedName = editingTemplateOriginalName !== null && name !== editingTemplateOriginalName;
+  const filename = (userEditedName && slugifyFilename(name)) || editingOriginalBase || slugifyFilename(name) || 'template';
   const spec = Object.assign({}, templateSpec || emptyTemplateSpec(), {
     filename: filename + '.yaml',
-    model: model || name || undefined,
+    // model stays the bare model code when set; falls back to the name for
+    // adds / renames (so name-only templates still get a model), but never
+    // overwrites an existing model with the (possibly localized) display name
+    // when the user didn't actually change anything.
+    model: model || ((userEditedName || editingOriginalBase === null) ? name : undefined) || undefined,
     manufacturer: manufacturer || undefined
   });
   if (!Array.isArray(spec.entities)) spec.entities = [];
