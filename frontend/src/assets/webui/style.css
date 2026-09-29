@@ -843,3 +843,20 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .empty-row-inline { text-align: center; color: var(--text-muted); padding: 22px; }
 
 #toast.warning { border-color: rgba(250,173,20,0.6); }
+
+/* Per-language translated name inputs in the register editor */
+.i18n-name-grid {
+  display: grid;
+  grid-template-columns: 2.5em 1fr;
+  gap: 0.4em 0.6em;
+  align-items: center;
+}
+.i18n-name-grid .i18n-lang {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-dim, #888);
+  text-align: right;
+}
+.i18n-name-grid input {
+  min-width: 0;
+}

@@ -61,6 +61,7 @@ window.LANG_fr = {
   reg_edit: "Modifier le registre",
   reg_none: "Aucun registre",
   reg_name: "Nom",
+  reg_name_translated: 'Noms traduits', reg_name_translated_hint: 'Affiché dans la liste selon la langue de l\'interface. L\'anglais sert de nom technique.', reg_name_en: 'Anglais', reg_name_de: 'Allemand', reg_name_fr: 'Français', reg_name_it: 'Italien',
   reg_mqtt_id: "ID MQTT",
   reg_type: "Type",
   reg_addr: "Adresse",
