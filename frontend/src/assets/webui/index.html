@@ -320,7 +320,17 @@
   <div class="modal modal-xlg">
     <h3 id="regedit-title" data-i18n="reg_edit">Edit register</h3>
     <div class="add-form add-stack in-regedit" id="regedit-form">
-      <div class="field"><label data-i18n="reg_name">Name</label><input type="text" id="re-name"></div>
+      <div class="field"><label data-i18n="reg_name">Name</label><input type="text" id="re-name" placeholder="English"></div>
+      <div class="field i18n-names" id="re-i18n-names">
+        <label data-i18n="reg_name_translated">Translated names</label>
+        <div class="i18n-name-grid">
+          <span class="i18n-lang">EN</span><input type="text" id="re-name-en" placeholder="English" data-i18n-ph="reg_name_en">
+          <span class="i18n-lang">DE</span><input type="text" id="re-name-de" placeholder="Deutsch" data-i18n-ph="reg_name_de">
+          <span class="i18n-lang">FR</span><input type="text" id="re-name-fr" placeholder="Français" data-i18n-ph="reg_name_fr">
+          <span class="i18n-lang">IT</span><input type="text" id="re-name-it" placeholder="Italiano" data-i18n-ph="reg_name_it">
+        </div>
+        <span class="field-hint" data-i18n="reg_name_translated_hint">Shown in the register list according to the UI language. English is used as the technical name.</span>
+      </div>
       <div class="field"><label data-i18n="reg_mqtt_id">MQTT ID</label><input type="text" id="re-mqttname"></div>
       <div class="field"><label data-i18n="reg_type">Type</label>
         <select id="re-registertype">

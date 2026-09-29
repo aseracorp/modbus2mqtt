@@ -67,6 +67,10 @@ function applyTranslations() {
     const key = el.getAttribute('data-ph');
     if (key && t(key)) el.setAttribute('placeholder', t(key));
   });
+  document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-ph');
+    if (key && t(key)) el.setAttribute('placeholder', t(key));
+  });
   // Dynamic lists render spec-derived text (localized template names), so they
   // must be re-rendered on language change too — otherwise the template names
   // (and other dynamic i18n text) keep the previous language until a refresh.
@@ -197,16 +201,17 @@ function getSlaveTemplateManufacturer(filename) {
   return s ? s.manufacturer : '';
 }
 // Localized template name from the spec i18n (falls back to en, then to model/filename).
-// Mirrors the backend getSpecificationI18nText(): look up `textId` in the current
-// language block first, then in the 'en' block.
-function getSpecificationText(spec, textId) {
+// Mirrors the backend getSpecificationI18nText(): look up `textId` in the given
+// (or current UI) language block first, then in the 'en' block.
+function getSpecificationText(spec, textId, lang) {
   if (!spec || !spec.i18n) return null;
-  const langBlock = spec.i18n.find((b) => b.lang === currentLang);
+  const want = lang || currentLang;
+  const langBlock = spec.i18n.find((b) => b.lang === want);
   if (langBlock) {
     const tx = langBlock.texts.find((t) => t.textId === textId);
     if (tx && tx.text) return tx.text;
   }
-  if (currentLang !== 'en') {
+  if (want !== 'en') {
     const enBlock = spec.i18n.find((b) => b.lang === 'en');
     if (enBlock) {
       const tx = enBlock.texts.find((t) => t.textId === textId);
@@ -1059,6 +1064,25 @@ function renderDeviceRegisters() {
 // Render a register's condition marker(s). Supports a legacy single `condition`
 // and the newer `conditions` array (all must be met); multiple conditions are
 // shown with a count.
+// Mirror the backend setSpecificationI18nText(): set (or delete when text is
+// null/empty) a translated text for `textId` in the given language block.
+function setSpecText(spec, lang, textId, text) {
+  if (!spec || !Array.isArray(spec.i18n)) spec.i18n = [];
+  let block = spec.i18n.find((b) => b.lang === lang);
+  if (!block) {
+    block = { lang: lang, texts: [] };
+    spec.i18n.push(block);
+  }
+  if (!Array.isArray(block.texts)) block.texts = [];
+  const idx = block.texts.findIndex((t) => t.textId === textId);
+  if (idx >= 0) {
+    if (text && text.trim() !== '') block.texts[idx].text = text.trim();
+    else block.texts.splice(idx, 1);
+  } else if (text && text.trim() !== '') {
+    block.texts.push({ textId: textId, text: text.trim() });
+  }
+}
+
 // Resolve a register's display name: prefer the spec's i18n name for the current
 // language (template translations), fall back to the English/`name` field.
 function regName(en) {
@@ -1226,6 +1250,13 @@ function openRegEditForEntity(en) {
   editingRegIdx = en && en.id != null ? en.id : null;
   const cp = (en && en.converterParameters) || {};
   $('re-name').value = en.name || '';
+  // Per-language translated names: prefill from the active spec's i18n block.
+  const i18nSpec = activeSpec || templateSpec;
+  const i18nEnt = (i18nSpec && en && en.id != null) ? i18nSpec : null;
+  ['en', 'de', 'fr', 'it'].forEach((l) => {
+    const el = $('re-name-' + l);
+    if (el) el.value = (i18nEnt && getSpecificationText(i18nEnt, 'e' + en.id, l)) || '';
+  });
   $('re-mqttname').value = en.mqttname || '';
   $('re-registertype').value = String(en.registerType == null ? 3 : en.registerType);
   $('re-modbusaddress').value = en.modbusAddress == null ? '' : String(en.modbusAddress);
@@ -1328,6 +1359,19 @@ $('regedit-ok')?.addEventListener('click', () => {
     converterParameters: cp,
     valid: true
   };
+  // Persist per-language translated names into the spec's i18n blocks (the
+  // register list renders these via regName()/getSpecificationText()). The
+  // textId is 'e<id>', same scheme the backend uses for register names.
+  if (spec && en.id != null) {
+    const enNameEl = $('re-name-en');
+    // A fresh register may have its English name typed into the translated
+    // EN field only; make sure the canonical en.name stays in sync.
+    if ((!name || name === '') && enNameEl && enNameEl.value.trim() !== '') en.name = enNameEl.value.trim();
+    ['de', 'fr', 'it', 'en'].forEach((l) => {
+      const el = $('re-name-' + l);
+      if (el) setSpecText(spec, l, 'e' + en.id, el.value.trim());
+    });
+  }
   // category: 'value' (default), 'config' (device config - not published), 'diagnostic'
   const category = $('re-category').value || 'value';
   if (category === 'config') en.category = 'config';
