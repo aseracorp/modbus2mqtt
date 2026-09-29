@@ -716,6 +716,26 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
     slaveSpec.identified = slaveSpec.identified == null ? 0 : slaveSpec.identified;
     slaveSpec.status = slaveSpec.status == null ? 3 : slaveSpec.status;
     body.specificationid = slaveSpec.filename.replace(/\.yaml$/, '');
+    // Give the per-device clone a display name distinct from the source
+    // template: the Templates table, the template dropdown and the device card
+    // all show the spec's `model`, so a clone must not look identical to the
+    // original (the bare filename is not shown anywhere prominent). On re-save
+    // the loaded clone already carries the suffix — keep it (never double it).
+    if (deviceSpecDirty) {
+      const devSuffix = ' (Device ' + busid + '-' + slaveid + ')'
+      // The base is the template model without any per-device suffix: when the
+      // selected template IS an existing clone (re-save), its model already
+      // carries " (Device x-y)" and must not be appended again.
+      const baseModel = (template.model || template.filename || 'template')
+        .replace(/\.yaml$/, '')
+        .replace(/\s*\(Device \d+-\d+\)$/, '')
+      // Rename only when the model is still the template's plain model (fresh
+      // clone, or the resolved template fell back to the original) or empty —
+      // never clobber a custom model the user set on a clone.
+      const needsDistinctName =
+        !slaveSpec.model || slaveSpec.model === baseModel || slaveSpec.model === baseModel + devSuffix
+      if (needsDistinctName) slaveSpec.model = baseModel + devSuffix
+    }
   }
   body.pollMode = pollMode;
   if (pollInterval && !isNaN(pollInterval)) body.pollInterval = pollInterval;
