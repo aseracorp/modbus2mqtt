@@ -177,11 +177,30 @@ function getSlaveName(slave) {
 function getSlaveTemplateName(filename) {
   const s = state.specs.find((sp) => sp.filename === filename);
   if (!s) return filename;
-  return s.model || filename;
+  return getSpecificationText(s, 'name') || s.model || filename;
 }
 function getSlaveTemplateManufacturer(filename) {
   const s = state.specs.find((sp) => sp.filename === filename);
   return s ? s.manufacturer : '';
+}
+// Localized template name from the spec i18n (falls back to en, then to model/filename).
+// Mirrors the backend getSpecificationI18nText(): look up `textId` in the current
+// language block first, then in the 'en' block.
+function getSpecificationText(spec, textId) {
+  if (!spec || !spec.i18n) return null;
+  const langBlock = spec.i18n.find((b) => b.lang === currentLang);
+  if (langBlock) {
+    const tx = langBlock.texts.find((t) => t.textId === textId);
+    if (tx && tx.text) return tx.text;
+  }
+  if (currentLang !== 'en') {
+    const enBlock = spec.i18n.find((b) => b.lang === 'en');
+    if (enBlock) {
+      const tx = enBlock.texts.find((t) => t.textId === textId);
+      if (tx && tx.text) return tx.text;
+    }
+  }
+  return null;
 }
 
 function getTemplateFiles(filename) {
@@ -318,10 +337,11 @@ function renderTemplates() {
     const docCell = docUrl
       ? '<td class="tpl-doc"><a href="' + escapeHtml(docUrl) + '" target="_blank" rel="noopener" title="' + escapeHtml(t('datasheet')) + '">📄</a></td>'
       : '<td class="tpl-doc"></td>';
+    const tplName = getSpecificationText(s, 'name') || s.model || s.filename;
     return `
     <tr data-filename="${escapeHtml(s.filename)}">
       ${imgCell}
-      <td>${escapeHtml(s.model || s.filename)}</td>
+      <td>${escapeHtml(tplName)}</td>
       <td>${escapeHtml(s.model || '')}</td>
       <td>${escapeHtml(s.manufacturer || '')}</td>
       ${docCell}
@@ -775,11 +795,12 @@ function populateTemplateList() {
   const input = $('se-template-search');
   if (drop && !drop.hidden && input && document.activeElement === input) return;
   _tplSearchList = state.specs || [];
-  ul.innerHTML = _tplSearchList.map((sp) =>
-    '<li data-tpl="' + escapeHtml(sp.filename) + '" data-model="' + escapeHtml(sp.model || '') + '" data-manufacturer="' + escapeHtml(sp.manufacturer || '') + '">' +
+  ul.innerHTML = _tplSearchList.map((sp) => {
+    const tplName = getSpecificationText(sp, 'name') || sp.model || sp.filename;
+    return '<li data-tpl="' + escapeHtml(sp.filename) + '" data-model="' + escapeHtml(sp.model || '') + '" data-manufacturer="' + escapeHtml(sp.manufacturer || '') + '">' +
       '<span class="eep-code">' + escapeHtml(sp.filename) + '</span>' +
-      '<span class="eep-name">' + escapeHtml(sp.model || '') + (sp.manufacturer ? ' · ' + escapeHtml(sp.manufacturer) : '') + '</span></li>'
-  ).join('');
+      '<span class="eep-name">' + escapeHtml(tplName) + (sp.manufacturer ? ' · ' + escapeHtml(sp.manufacturer) : '') + '</span></li>';
+  }).join('');
 }
 function initTemplateCombo() {
   const input = $('se-template-search');
@@ -892,7 +913,7 @@ async function openEditTemplate(filename) {
   const sp = (state.specs || []).find((s) => s.filename === filename);
   if (!sp) return;
   editingTemplate = filename;
-  $('tpledit-title').textContent = t('edit_template') + ' — ' + (sp.model || filename);
+  $('tpledit-title').textContent = t('edit_template') + ' — ' + (getSpecificationText(sp, 'name') || sp.model || filename);
   $('te-name').value = sp.model || filename.replace(/\.yaml$/, '');
   $('te-model').value = sp.model || '';
   $('te-manufacturer').value = sp.manufacturer || '';
