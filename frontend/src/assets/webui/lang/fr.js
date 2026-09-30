@@ -84,6 +84,7 @@ window.LANG_fr = {
   reg_stringlength: "Longueur de chaîne",
   mqtt_server: "Serveur MQTT",
   cfg_browse_files: "Parcourir les fichiers serveur",
+  cfg_browse_empty: "Aucun fichier serveur disponible",
   datasheet: "Fiche technique / spécification",
   footer_specs: "Spécification Modbus",
   col_img: "Image",
