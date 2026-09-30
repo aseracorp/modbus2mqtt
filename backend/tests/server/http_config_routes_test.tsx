@@ -149,3 +149,19 @@ test('POST configuration without language change does not republish discovery', 
     new Config().writeConfiguration(oldConfig)
   }
 })
+
+test('POST configuration persists debugComponents string round-trip', async () => {
+  const oldConfig = Config.getConfiguration()
+  try {
+    const config = { ...oldConfig, debugComponents: 'mqtt,modbus,discovery' }
+    await ts.request().post(apiUri.configuration).send(config).expect(HttpErrorsEnum.OkNoContent)
+    // Re-reading must succeed (no secret-corruption YAML error) and the value
+    // must round-trip. Regression: saving any config used to corrupt
+    // mqttuser/password with embedded quotes, breaking the next read.
+    const fresh = new Config()
+    await fresh.readYamlAsync()
+    expect(Config.getConfiguration().debugComponents).toBe('mqtt,modbus,discovery')
+  } finally {
+    new Config().writeConfiguration(oldConfig)
+  }
+})

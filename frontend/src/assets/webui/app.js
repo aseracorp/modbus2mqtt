@@ -870,11 +870,19 @@ function initTemplateCombo() {
 function resolveTemplate(value) {
   const v = (value || '').trim().toLowerCase();
   if (!v) return null;
-  const matches = (state.specs || []).filter((sp) =>
-    sp.filename.toLowerCase() === v ||
-    sp.filename.toLowerCase() === (v.endsWith('.yaml') ? v : v + '.yaml') ||
-    (sp.model && sp.model.toLowerCase() === v) ||
-    (sp.manufacturer && sp.manufacturer.toLowerCase() === v));
+  const matches = (state.specs || []).filter((sp) => {
+    if (sp.filename.toLowerCase() === v) return true;
+    if (sp.filename.toLowerCase() === (v.endsWith('.yaml') ? v : v + '.yaml')) return true;
+    if (sp.model && sp.model.toLowerCase() === v) return true;
+    if (sp.manufacturer && sp.manufacturer.toLowerCase() === v) return true;
+    // The template input is pre-filled with the localized display name when
+    // editing an existing device (getSlaveTemplateName), so a name like
+    // "Water Level Sensor" must resolve back to the spec even when it differs
+    // from model/filename.
+    const display = getSpecificationText(sp, 'name');
+    if (display && display.toLowerCase() === v) return true;
+    return false;
+  });
   if (!matches.length) return null;
   // Prefer the local (cloned/added) spec over the published one when both share
   // the same model: a device that was switched to its per-device clone must
@@ -1684,8 +1692,17 @@ function configDottedKey(fieldKey) {
 }
 // ssl file list cache
 let stateSslFiles = [];
+let stateSslFilesError = '';
 async function loadSslFiles() {
-  try { stateSslFiles = await api('/api/sslfiles'); } catch (e) { stateSslFiles = []; }
+  try {
+    stateSslFiles = await api('/api/sslfiles');
+    stateSslFilesError = '';
+  } catch (e) {
+    // 404 = no ssl dir configured on the server; any other failure is reported
+    // so the user knows the listing failed instead of seeing a fake "no files".
+    stateSslFiles = [];
+    stateSslFilesError = e.message || 'error';
+  }
 }
 // ---- server file browser (cert/key picker) ----
 // Opens a small modal listing the files in the ssl directory (from
@@ -1698,7 +1715,9 @@ async function openFileBrowser(btn) {
   const overlay = $('filebrowse-overlay');
   if (!list || !overlay) return;
   await loadSslFiles();
-  if (!stateSslFiles.length) {
+  if (stateSslFilesError) {
+    list.innerHTML = '<div class="fb-empty fb-error">' + escapeHtml(t('cfg_browse_error') || 'Could not load server files') + ': ' + escapeHtml(stateSslFilesError) + '</div>';
+  } else if (!stateSslFiles.length) {
     list.innerHTML = '<div class="fb-empty">' + escapeHtml(t('cfg_browse_empty') || 'No server files available') + '</div>';
   } else {
     list.innerHTML = stateSslFiles.map((f) =>
@@ -1827,8 +1846,10 @@ async function openMqttEdit() {
 }
 $('mqtt-status')?.addEventListener('click', openMqttEdit);
 $('mqttedit-cancel')?.addEventListener('click', () => { $('mqttedit-overlay').hidden = true; });
-$('mqttedit-save')?.addEventListener('click', async () => {
-  const merged = JSON.parse(JSON.stringify(state.config || {}));
+// Collect the current MQTT popup field values into `merged` without saving. Shared by
+// the save handler and the "Test connection" button so the test always reflects what is
+// currently typed in the form (even unsaved changes).
+function collectMqttForm(merged) {
   const fieldMap = {
     mqttuser: 'mqttconnect.username',
     mqttpassword: 'mqttconnect.password',
@@ -1843,6 +1864,47 @@ $('mqttedit-save')?.addEventListener('click', async () => {
     if (v === '') v = undefined;
     configSet(merged, k, v);
   });
+  return merged;
+}
+$('mqttedit-test')?.addEventListener('click', async () => {
+  const resultEl = $('mqtt-test-result');
+  const btn = $('mqttedit-test');
+  if (!resultEl || !btn) return;
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = '…';
+  try {
+    const merged = collectMqttForm(JSON.parse(JSON.stringify(state.config || {})));
+    const url = merged.mqttconnect && merged.mqttconnect.mqttserverurl;
+    if (!url) {
+      resultEl.className = 'mqtt-test-result mqtt-test-error';
+      resultEl.textContent = t('mqtt_test_no_url') || 'Enter an MQTT server URL first.';
+      resultEl.hidden = false;
+      return;
+    }
+    const r = await api('/api/validate/mqtt', {
+      method: 'POST',
+      body: JSON.stringify({ mqttconnect: merged.mqttconnect })
+    });
+    if (r && r.valid) {
+      resultEl.className = 'mqtt-test-result mqtt-test-ok';
+      resultEl.textContent = t('mqtt_test_ok') || 'Connection successful';
+    } else {
+      resultEl.className = 'mqtt-test-result mqtt-test-error';
+      resultEl.textContent = (r && r.message) || (t('mqtt_test_fail') || 'Connection failed');
+    }
+    resultEl.hidden = false;
+  } catch (e) {
+    resultEl.className = 'mqtt-test-result mqtt-test-error';
+    resultEl.textContent = t('mqtt_test_fail') + ' ' + (e && e.message ? e.message : '');
+    resultEl.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+});
+$('mqttedit-save')?.addEventListener('click', async () => {
+  const merged = collectMqttForm(JSON.parse(JSON.stringify(state.config || {})));
   try {
     await api('/api/configuration', { method: 'POST', body: JSON.stringify(merged) });
     toast(t('config_saved'), 'success');
