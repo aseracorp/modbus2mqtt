@@ -860,3 +860,50 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .i18n-name-grid input {
   min-width: 0;
 }
+
+/* ---------------- image lightbox (hover preview) ---------------- */
+.img-lightbox-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: var(--overlay);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.img-lightbox-overlay[hidden] { display: none !important; }
+.img-lightbox-overlay img {
+  max-width: min(88vw, 880px);
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+}
+
+/* The thumbnail itself gets a zoom affordance when hovered. */
+.tpl-img img:hover, .slave-img img:hover {
+  cursor: zoom-in;
+  transform: scale(1.06);
+  transition: transform 0.12s ease;
+}
+
+/* ---------------- config popups: narrower & taller ---------------- */
+.modal.modal-config, .modal.modal.modal-config {
+  width: 560px;                 /* ~0.5x of the 1120px modal-xlg */
+  max-width: calc(100vw - 40px);
+  max-height: 96vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal.modal-config .config-grid {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 220px;
+  -webkit-overflow-scrolling: touch;
+}
+.modal.modal-config .modal-actions { flex: 0 0 auto; }
+@media (max-width: 480px) {
+  .modal.modal-config { max-height: 96vh; max-width: calc(100vw - 16px); padding: 14px; }
+}
