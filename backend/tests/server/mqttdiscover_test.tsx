@@ -925,6 +925,58 @@ test('issue: republishDiscoveryIfChanged deletes inactive conditional discovery 
   expect(published.find((p) => p.topic.includes('/e21/config') && p.payload === '')).toBeUndefined()
 })
 
+
+test('language change: republishDiscoveryIfChanged re-announces translated names without restart', () => {
+  const conn = new MqttConnector()
+  const disc = new MqttDiscover(conn, msub1)
+  const published: { topic: string; payload: string }[] = []
+  conn.getMqttClient = function (cb: (c: MqttClient) => void) {
+    cb({
+      publish: (topic: string, payload: Buffer | string) => {
+        published.push({ topic, payload: payload.toString() })
+      },
+    } as any as MqttClient)
+  }
+
+  // Spec with both en + de entity names for entity 2.
+  const s = {
+    filename: 'langtest',
+    manufacturer: 'Acme',
+    model: 'X1',
+    i18n: [
+      { lang: 'en', texts: [{ textId: 'name', text: 'Acme Device' }, { textId: 'e2', text: 'Power' }] },
+      { lang: 'de', texts: [{ textId: 'name', text: 'Acme Gerät' }, { textId: 'e2', text: 'Leistung' }] },
+    ],
+    entities: [
+      {
+        id: 2, mqttname: 'power', converter: 'number', modbusAddress: 0,
+        registerType: ModbusRegisterType.HoldingRegister, readonly: true,
+        mqttValue: 42, identified: 1, converterParameters: { uom: 'W' },
+      } as ImodbusEntity,
+    ],
+  } as any as ImodbusSpecification
+  const sl = new Slave(0, { slaveid: 6, specificationid: 'langtest', specification: s } as any as Islave, Config.getConfiguration().mqttbasetopic)
+
+  // Prime the cache as if the initial discovery ran in English.
+  const enPayloads = disc['generateDiscoveryPayloads'](sl, s)
+  for (const tp of enPayloads) disc['lastDiscoveryPayloads'].set(tp.topic, tp.payload.toString())
+  expect(JSON.parse(enPayloads[0].payload.toString()).name).toBe('Power')
+
+  // User switches the discovery language to German and saves the config
+  // (same as POST /api/configuration: writeConfiguration + setMqttdiscoverylanguage).
+  const oldLang = Config.getConfiguration().mqttdiscoverylanguage
+  new Config().writeConfiguration({ ...Config.getConfiguration(), mqttdiscoverylanguage: 'de' })
+  ConfigSpecification.setMqttdiscoverylanguage('de')
+  expect(Config.getConfiguration().mqttdiscoverylanguage).toBe('de')
+  expect(oldLang).not.toBe('de')
+
+  disc.republishDiscoveryIfChanged(sl)
+
+  expect(published.length).toBe(1)
+  const payload = JSON.parse(published[0].payload)
+  expect(payload.name).toBe('Leistung')
+})
+
 test('generateDiscoveryPayloads skips inactive multi-condition variant (SI active, Imperial inactive)', () => {
   const conn = new MqttConnector()
   const disc = new MqttDiscover(conn, msub1)

@@ -1687,6 +1687,46 @@ let stateSslFiles = [];
 async function loadSslFiles() {
   try { stateSslFiles = await api('/api/sslfiles'); } catch (e) { stateSslFiles = []; }
 }
+// ---- server file browser (cert/key picker) ----
+// Opens a small modal listing the files in the ssl directory (from
+// /api/sslfiles). Clicking a file writes its name into the field the browse
+// button belongs to and closes the modal.
+let fileBrowserTarget = null;
+async function openFileBrowser(btn) {
+  fileBrowserTarget = btn.getAttribute('data-for');
+  const list = $('filebrowse-list');
+  const overlay = $('filebrowse-overlay');
+  if (!list || !overlay) return;
+  await loadSslFiles();
+  if (!stateSslFiles.length) {
+    list.innerHTML = '<div class="fb-empty">' + escapeHtml(t('cfg_browse_empty') || 'No server files available') + '</div>';
+  } else {
+    list.innerHTML = stateSslFiles.map((f) =>
+      '<div class="fb-entry" data-file="' + escapeHtml(f) + '">' +
+      '<span class="fb-icon">📄</span><span>' + escapeHtml(f) + '</span></div>'
+    ).join('');
+  }
+  overlay.hidden = false;
+}
+function bindFileBrowser() {
+  const overlay = $('filebrowse-overlay');
+  const list = $('filebrowse-list');
+  if (!overlay || !list) return;
+  overlay.addEventListener('click', (e) => {
+    const entry = e.target.closest('.fb-entry');
+    if (!entry) return;
+    const key = fileBrowserTarget;
+    const grid = $('mqtt-grid');
+    const target = grid ? grid.querySelector('input[data-cfgkey="' + key + '"]') : null;
+    if (target) target.value = entry.getAttribute('data-file') || '';
+    overlay.hidden = true;
+    fileBrowserTarget = null;
+  });
+  $('filebrowse-cancel')?.addEventListener('click', () => {
+    overlay.hidden = true;
+    fileBrowserTarget = null;
+  });
+}
 // debug component catalog cache (for the multi-select in the config modal)
 let stateDebugComponents = [];
 async function loadDebugComponents() {
@@ -1780,17 +1820,7 @@ async function openMqttEdit() {
   grid.innerHTML = MQTT_FIELDS.map((f) => renderConfigField(getter, f, 'mcfg-')).join('');
   bindConfigCheckboxes(grid);
   grid.querySelectorAll('.file-browse').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const key = btn.getAttribute('data-for');
-      const target = grid.querySelector('input[data-cfgkey="' + key + '"]');
-      // Use the picked file from the ssl files list (the combobox datalist already lists them).
-      // If a native file picker is available (input type=file overlay), we'd use it; here we
-      // cycle through the known ssl files as the "file browser".
-      if (!target || !stateSslFiles.length) return;
-      const cur = (stateSslFiles || []).indexOf(target.value);
-      const next = stateSslFiles[(cur + 1) % stateSslFiles.length];
-      target.value = next || '';
-    });
+    btn.addEventListener('click', () => openFileBrowser(btn));
   });
   $('mqttedit-overlay').hidden = false;
   applyHelpIcons($('mqtt-grid'));
@@ -2130,6 +2160,7 @@ function initCustomSelect(selectId) {
   } catch (e) { /* ignore */ }
   initCustomSelect('lang-select');
   initTemplateCombo();
+  bindFileBrowser();
   applyTranslations();
   loadAll();
   maybeAutoOpenMqtt();

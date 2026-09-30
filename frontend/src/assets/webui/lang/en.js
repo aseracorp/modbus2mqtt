@@ -85,6 +85,7 @@ window.LANG_en = {
   reg_stringlength: "String length",
   mqtt_server: "MQTT server",
   cfg_browse_files: "Browse server files",
+  cfg_browse_empty: "No server files available",
   datasheet: "Datasheet / specification",
   footer_specs: "Modbus specification",
   col_img: "Image",
