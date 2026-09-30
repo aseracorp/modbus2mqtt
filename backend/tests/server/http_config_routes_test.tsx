@@ -116,3 +116,36 @@ test('GET ' + apiUri.serialDevices + ' returns a device list', async () => {
   const response = await ts.request().get(apiUri.serialDevices).expect(200)
   expect(Array.isArray(response.body)).toBeTruthy()
 })
+
+test('POST configuration with changed mqttdiscoverylanguage republishes discovery immediately', async () => {
+  // Spy on the discovery republish so we can assert it gets invoked for the
+  // subscribed slaves without depending on the exact fixture topics.
+  const disc = (await import('../../src/server/mqttdiscover.js')).MqttDiscover
+  const republishSpy = vi.spyOn(disc.getInstance(), 'republishDiscoveryIfChanged').mockImplementation(() => {})
+
+  const oldConfig = Config.getConfiguration()
+  try {
+    const config = { ...oldConfig, mqttdiscoverylanguage: oldConfig.mqttdiscoverylanguage === 'de' ? 'en' : 'de' }
+    await ts.request().post(apiUri.configuration).send(config).expect(HttpErrorsEnum.OkNoContent)
+    expect(Config.getConfiguration().mqttdiscoverylanguage).toBe(config.mqttdiscoverylanguage)
+    expect(republishSpy).toHaveBeenCalled()
+  } finally {
+    republishSpy.mockRestore()
+    new Config().writeConfiguration(oldConfig)
+  }
+})
+
+test('POST configuration without language change does not republish discovery', async () => {
+  const disc = (await import('../../src/server/mqttdiscover.js')).MqttDiscover
+  const republishSpy = vi.spyOn(disc.getInstance(), 'republishDiscoveryIfChanged').mockImplementation(() => {})
+
+  const oldConfig = Config.getConfiguration()
+  try {
+    const config = { ...oldConfig } // same language
+    await ts.request().post(apiUri.configuration).send(config).expect(HttpErrorsEnum.OkNoContent)
+    expect(republishSpy).not.toHaveBeenCalled()
+  } finally {
+    republishSpy.mockRestore()
+    new Config().writeConfiguration(oldConfig)
+  }
+})
