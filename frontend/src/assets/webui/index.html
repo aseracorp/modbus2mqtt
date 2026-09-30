@@ -283,6 +283,16 @@
 <div class="modal-overlay" id="tpledit-overlay" hidden>
   <div class="modal modal-xlg">
     <h3 id="tpledit-title" data-i18n="add_template">Add Modbus template</h3>
+    <div class="tpl-lang-row">
+      <label data-i18n="tpl_lang_label" for="te-lang-select">Template language</label>
+      <select id="te-lang-select">
+        <option value="en">English</option>
+        <option value="de">Deutsch</option>
+        <option value="fr">Français</option>
+        <option value="it">Italiano</option>
+      </select>
+      <span class="field-hint" data-i18n="tpl_lang_hint">The popup's own language - switch to edit names in each language. All languages are saved together.</span>
+    </div>
     <div class="add-form add-stack">
       <div class="field"><label data-i18n="template_name">Template name</label><input type="text" id="te-name" data-ph="template_name_ph" placeholder="thevios" autocomplete="off"></div>
       <div class="field"><label data-i18n="template_model">Model</label><input type="text" id="te-model" data-ph="template_model_ph" placeholder="thevios" autocomplete="off"></div>
@@ -405,8 +415,8 @@
   </div>
 </div>
 
-<div id="imglightbox-overlay" class="img-lightbox-overlay" hidden>
-  <img id="imglightbox-img" src="" alt="">
+<div id="img-pop" class="img-pop" hidden>
+  <img id="img-pop-img" src="" alt="">
 </div>
 
 <div id="toast"></div>

@@ -4,7 +4,7 @@ window.LANG_fr = {
   add_device: 'Ajouter un appareil', add_sub: 'Choisissez quoi ajouter',
   add_bus: 'Connexion Modbus', desc_bus: 'Nouvelle connexion RTU / TCP',
   add_slave: 'Appareil Modbus', desc_slave: 'Appareil à partir d\'un modèle',
-  add_template: 'Modèle Modbus', desc_template: 'Nouveau modèle / spécification', edit_template: 'Modifier le modèle',
+  add_template: 'Modèle Modbus', desc_template: 'Nouveau modèle / spécification', edit_template: 'Modifier le modèle', tpl_lang_label: 'Langue du modèle', tpl_lang_hint: 'Langue propre au popup - changez pour éditer les noms dans chaque langue. Toutes les langues sont enregistrées ensemble.',
   template_name: 'Nom du modèle', template_name_ph: 'Nom du modèle (le nom de fichier est dérivé)', template_model: 'Modèle', template_manufacturer: 'Fabricant', template_model_ph: 'Modèle, p. ex. thevios', template_manufacturer_ph: 'Fabricant, p. ex. thermokon',
   devices: 'Connexions & appareils', templates: 'Modèles', templates_sub: 'Spécifications disponibles',
   add: 'Ajouter', cancel: 'Annuler', save: 'Enregistrer', save_template: 'Enregistrer le modèle',

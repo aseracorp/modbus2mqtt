@@ -4,7 +4,7 @@ window.LANG_de = {
   add_device: 'Gerät hinzufügen', add_sub: 'Wählen Sie, was hinzugefügt werden soll',
   add_bus: 'Modbus-Verbindung', desc_bus: 'Neue RTU- / TCP-Verbindung',
   add_slave: 'Modbus-Gerät', desc_slave: 'Gerät aus einer Vorlage',
-  add_template: 'Modbus-Vorlage', desc_template: 'Neue Vorlage / Spezifikation', edit_template: 'Vorlage bearbeiten',
+  add_template: 'Modbus-Vorlage', desc_template: 'Neue Vorlage / Spezifikation', edit_template: 'Vorlage bearbeiten', tpl_lang_label: 'Vorlagensprache', tpl_lang_hint: 'Eigene Sprache des Popups - wechseln, um die Namen in jeder Sprache zu bearbeiten. Alle Sprachen werden zusammen gespeichert.',
   template_name: 'Vorlagenname', template_name_ph: 'Vorlagenname (Dateiname wird abgeleitet)', template_model: 'Modell', template_manufacturer: 'Hersteller', template_model_ph: 'Modell, z. B. thevios', template_manufacturer_ph: 'Hersteller, z. B. thermokon',
   devices: 'Verbindungen & Geräte', templates: 'Vorlagen', templates_sub: 'Verfügbare Spezifikationen',
   add: 'Hinzufügen', cancel: 'Abbrechen', save: 'Speichern', save_template: 'Vorlage speichern',

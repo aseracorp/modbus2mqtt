@@ -7,6 +7,7 @@ import { LogLevelEnum, Logger } from '../../../specification/index.js'
 import { HttpErrorsEnum, ImodbusSpecification, Ispecification, ModbusRegisterType } from '../../../shared/specification/index.js'
 import { ModbusTasks, apiUri } from '../../../shared/server/index.js'
 import { sendResult } from '../sendResult.js'
+import { scanProbeOk } from './slaveScan.js'
 import { ApiError, Ctx, Registrar, created, ok, requireBusSlave, stripSpecFileData } from '../routeHelpers.js'
 
 const debug = Debug('httpserver')
@@ -169,8 +170,11 @@ export function registerModbusRoutes(r: Registrar): void {
 
   // ---- Slave-ID scan ----
   // Probes slave ids 1..32 first; if none respond, probes 33..256. A slave is
-  // considered present when a holding-register read succeeds without a Modbus
-  // timeout/exception for that unit id.
+  // considered present when a holding-register read for that unit id actually
+  // returns data. The Modbus API resolves with per-address results even when
+  // the read failed (the error is stored in the result map, not thrown), so a
+  // probe must check for data in the resolved values - otherwise every id in
+  // the range looks "present" (see issue: scan always finds slaves).
   r.get(apiUri.scanSlaves, async (ctx) => {
     const busid = ctx.query['busid'] ? Number.parseInt(String(ctx.query['busid'])) : undefined
     if (busid === undefined || isNaN(busid)) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'busid required')
@@ -180,12 +184,15 @@ export function registerModbusRoutes(r: Registrar): void {
     const probe = async (id: number): Promise<boolean> => {
       try {
         const addresses = new Set([{ address: 0, registerType: ModbusRegisterType.HoldingRegister }])
-        await modbusAPI.readModbusRegister(id, addresses, {
+        const values = await modbusAPI.readModbusRegister(id, addresses, {
           task: ModbusTasks.poll,
           errorHandling: { retry: false },
           maxRegistersPerRequest: 1,
         } as never)
-        return true
+        // A failed read is not thrown: it is recorded as {error} in the result
+        // map for the probed address. Only a data-bearing result means the
+        // slave answered (see scanProbeOk).
+        return scanProbeOk(values)
       } catch {
         return false
       }
