@@ -4,7 +4,7 @@ window.LANG_en = {
   add_device: 'Add device', add_sub: 'Choose what to add',
   add_bus: 'Modbus connection', desc_bus: 'New RTU / TCP connection',
   add_slave: 'Modbus device', desc_slave: 'Device from a template',
-  add_template: 'Modbus template', desc_template: 'New template / specification', edit_template: 'Edit template',
+  add_template: 'Modbus template', desc_template: 'New template / specification', edit_template: 'Edit template', tpl_lang_label: 'Template language', tpl_lang_hint: 'The popup\'s own language - switch to edit names in each language. All languages are saved together.',
   template_name: 'Template name', template_name_ph: 'Template name (file name is derived)', template_model: 'Model', template_manufacturer: 'Manufacturer', template_model_ph: 'Model, e.g. thevios', template_manufacturer_ph: 'Manufacturer, e.g. thermokon',
   devices: 'Connections & devices', templates: 'Templates', templates_sub: 'Available specifications',
   add: 'Add', cancel: 'Cancel', save: 'Save', save_template: 'Save template',

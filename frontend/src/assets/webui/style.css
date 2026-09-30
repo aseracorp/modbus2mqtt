@@ -741,6 +741,21 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   min-height: 120px;
 }
 .modal.modal-xlg .modal-actions { flex: 0 0 auto; }
+
+/* Template popup: own language selector row (independent of the global UI
+   language - used to view/edit the template's names in each language). */
+.tpl-lang-row {
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 0 8px; flex: 0 0 auto;
+}
+.tpl-lang-row label { font-size: 13px; font-weight: 600; color: var(--text); }
+.tpl-lang-row select {
+  font-size: 13px; padding: 4px 8px;
+  background: var(--bg-surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+}
+.tpl-lang-row .field-hint { font-size: 12px; color: var(--text-muted); flex: 1; min-width: 0; }
+
 /* On phones keep the modal within the viewport with a little breathing room. */
 @media (max-width: 480px) {
   .modal.modal-xlg { max-height: 94vh; max-width: calc(100vw - 16px); padding: 14px; }
@@ -861,27 +876,33 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   min-width: 0;
 }
 
-/* ---------------- image lightbox (hover preview) ---------------- */
-.img-lightbox-overlay {
-  position: fixed; inset: 0; z-index: 200;
-  background: var(--overlay);
-  backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-  cursor: zoom-out;
-}
-.img-lightbox-overlay[hidden] { display: none !important; }
-.img-lightbox-overlay img {
-  max-width: min(88vw, 880px);
-  max-height: 86vh;
-  object-fit: contain;
+/* ---------------- image hover popup (no lightbox) ---------------- */
+/* A small floating popup shows the full image while the mouse is on the
+   thumbnail and disappears again when the mouse leaves it. */
+.img-pop {
+  position: fixed;
+  z-index: 300;
+  pointer-events: none;
+  display: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
+  padding: 6px;
+  max-width: min(60vw, 520px);
+  max-height: 60vh;
 }
+.img-pop img {
+  display: block;
+  max-width: min(58vw, 500px);
+  max-height: 56vh;
+  object-fit: contain;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+.img-pop.show { display: block; }
 
-/* The thumbnail itself gets a zoom affordance when hovered. */
+/* The thumbnail itself gets a subtle zoom affordance when hovered. */
 .tpl-img img:hover, .slave-img img:hover {
   cursor: zoom-in;
   transform: scale(1.06);
@@ -889,21 +910,29 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 }
 
 /* ---------------- config popups: narrower & taller ---------------- */
+/* Same sizing strategy as the other popups (modal-xlg): a flex column with a
+   fixed header + actions and a scrollable body that grows with the window.
+   The modal itself scales up to 92vh (matching the template/device popups)
+   and never shrinks below a usable height. */
 .modal.modal-config, .modal.modal.modal-config {
   width: 560px;                 /* ~0.5x of the 1120px modal-xlg */
   max-width: calc(100vw - 40px);
-  max-height: 96vh;
+  height: auto;
+  min-height: 420px;            /* same floor as other tall popups */
+  max-height: 92vh;             /* matches modal-xlg - scales with the window */
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .modal.modal-config .config-grid {
-  flex: 1 1 auto;
+  flex: 1 1 0;                  /* grow to fill the window up to max-height */
   overflow-y: auto;
-  min-height: 220px;
+  /* Floor that scales with the viewport: on a tall window the popup grows
+     with it (up to max-height), on a small window it keeps a usable size. */
+  min-height: min(40vh, 480px);
   -webkit-overflow-scrolling: touch;
 }
 .modal.modal-config .modal-actions { flex: 0 0 auto; }
 @media (max-width: 480px) {
-  .modal.modal-config { max-height: 96vh; max-width: calc(100vw - 16px); padding: 14px; }
+  .modal.modal-config { min-height: 340px; max-height: 94vh; max-width: calc(100vw - 16px); padding: 14px; }
 }

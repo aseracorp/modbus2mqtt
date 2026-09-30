@@ -931,6 +931,10 @@ async function openAddTemplate() {
   // activeSpec left over from a previously closed slave popup.
   activeSpec = null;
   $('tpledit-title').textContent = t('add_template');
+  // Reset the popup language and use it for the shown fields.
+  templatePopupLang = 'en';
+  const tplSel = $('te-lang-select');
+  if (tplSel) tplSel.value = templatePopupLang;
   $('te-name').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
   renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
@@ -949,7 +953,12 @@ async function openEditTemplate(filename) {
   editingTemplateOriginalFilename = filename;
   editingTemplateOriginalName = getSpecificationText(sp, 'name') || sp.model || filename.replace(/\.yaml$/, '');
   $('tpledit-title').textContent = t('edit_template') + ' — ' + editingTemplateOriginalName;
-  $('te-name').value = editingTemplateOriginalName;
+  // Popup language starts at en so editing a template always shows the
+  // canonical English name first; the popup selector then switches views.
+  templatePopupLang = 'en';
+  const tplSel = $('te-lang-select');
+  if (tplSel) tplSel.value = templatePopupLang;
+  $('te-name').value = getSpecTextRaw(sp, 'en', 'name') || sp.model || filename.replace(/\.yaml$/, '');
   $('te-model').value = sp.model || '';
   $('te-manufacturer').value = sp.manufacturer || '';
   try {
@@ -964,6 +973,26 @@ async function openEditTemplate(filename) {
   $('tpledit-overlay').hidden = false;
   applyHelpIcons();
 }
+// Persist the name currently shown in the popup back into the spec's i18n
+// block for the active popup language, then switch the popup to another
+// language. All languages stay in templateSpec.i18n and are saved together.
+function switchTemplatePopupLang(lang) {
+  if (!templateSpec) return;
+  const nameEl = $('te-name');
+  if (nameEl) setSpecText(templateSpec, templatePopupLang, 'name', nameEl.value);
+  templatePopupLang = (lang === 'de' || lang === 'fr' || lang === 'it' || lang === 'en') ? lang : 'en';
+  const sel = $('te-lang-select');
+  if (sel) sel.value = templatePopupLang;
+  // Reload the shown name from the newly selected language block (fall back
+  // to the model / original name when that language has no translation yet).
+  const spec0 = templateSpec || emptyTemplateSpec();
+  const raw = getSpecTextRaw(spec0, templatePopupLang, 'name');
+  const fallback = editingTemplateOriginalName || spec0.model || (spec0.filename || '').replace(/\.yaml$/, '');
+  if (nameEl) nameEl.value = raw || fallback;
+  // Register names follow the popup language, so re-render the table.
+  renderTemplateRegisters();
+}
+$('te-lang-select')?.addEventListener('change', (e) => switchTemplatePopupLang(e.target.value));
 $('tpledit-cancel')?.addEventListener('click', () => { $('tpledit-overlay').hidden = true; templateSpec = null; });
 $('te-reg-add')?.addEventListener('click', () => openRegEdit(null));
 function renderTemplateRegisters() {
@@ -1070,6 +1099,20 @@ function renderDeviceRegisters() {
 // Render a register's condition marker(s). Supports a legacy single `condition`
 // and the newer `conditions` array (all must be met); multiple conditions are
 // shown with a count.
+// Read a raw translated text from a spec i18n block (no UI-language fallback).
+function getSpecTextRaw(spec, lang, textId) {
+  if (!spec || !Array.isArray(spec.i18n)) return null;
+  const block = spec.i18n.find((b) => b.lang === lang);
+  if (!block || !Array.isArray(block.texts)) return null;
+  const tx = block.texts.find((t) => t.textId === textId);
+  return (tx && tx.text) ? tx.text : null;
+}
+
+// The template popup owns a language selector that is independent of the
+// global UI language: it controls which language's names are shown/edited in
+// the popup, while the UI stays in the global language.
+let templatePopupLang = 'en';
+
 // Mirror the backend setSpecificationI18nText(): set (or delete when text is
 // null/empty) a translated text for `textId` in the given language block.
 function setSpecText(spec, lang, textId, text) {
@@ -1095,7 +1138,12 @@ function regName(en) {
   if (en && en.id != null) {
     const specForI18n = (activeSpec !== null && activeSpec === slaveSpec) ? slaveSpec : templateSpec
     if (specForI18n && Array.isArray(specForI18n.i18n)) {
-      const langEntry = specForI18n.i18n.find((i) => i.lang === currentLang) || specForI18n.i18n.find((i) => i.lang === 'en')
+      // While the template popup is open, show the popup's own language
+      // instead of the global UI language; the device popup and the closed
+      // popup keep the global language.
+      const tplOpen = !!templateSpec && $('tpledit-overlay') && !$('tpledit-overlay').hidden
+      const want = tplOpen ? templatePopupLang : currentLang
+      const langEntry = specForI18n.i18n.find((i) => i.lang === want) || specForI18n.i18n.find((i) => i.lang === 'en')
       if (langEntry && Array.isArray(langEntry.texts)) {
         const hit = langEntry.texts.find((tx) => tx.textId === 'e' + en.id)
         if (hit && hit.text) return hit.text
@@ -1415,25 +1463,33 @@ function slugifyFilename(name) {
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 $('tpledit-ok')?.addEventListener('click', async () => {
+  // Persist the currently shown language before reading anything, so the
+  // final spec.i18n contains the edits made in every language (the popup
+  // shows one language at a time, but saves all of them together).
+  if (templateSpec) setSpecText(templateSpec, templatePopupLang, 'name', $('te-name').value);
   const name = $('te-name').value.trim();
   const model = $('te-model').value.trim();
   const manufacturer = $('te-manufacturer').value.trim();
   if (!name) return toast(t('err_no_name'), 'error');
+  // The canonical (English) name drives the file name; the visible field may
+  // show a different language. Prefer the EN i18n block, then the model.
+  const enName = getSpecTextRaw(templateSpec, 'en', 'name') || templateSpec.model ||
+    (editingTemplateOriginalName || name);
   // Only derive a new YAML filename when the user actually renamed the
   // template; opening the popup and saving it untouched must keep the existing
   // file (the name field is prefilled with the localized name, not the model).
   const editingOriginalBase = editingTemplateOriginalFilename
     ? editingTemplateOriginalFilename.replace(/\.yaml$/, '')
     : null;
-  const userEditedName = editingTemplateOriginalName !== null && name !== editingTemplateOriginalName;
-  const filename = (userEditedName && slugifyFilename(name)) || editingOriginalBase || slugifyFilename(name) || 'template';
+  const userEditedName = editingTemplateOriginalName !== null && enName !== editingTemplateOriginalName;
+  const filename = (userEditedName && slugifyFilename(enName)) || editingOriginalBase || slugifyFilename(enName) || 'template';
   const spec = Object.assign({}, templateSpec || emptyTemplateSpec(), {
     filename: filename + '.yaml',
     // model stays the bare model code when set; falls back to the name for
     // adds / renames (so name-only templates still get a model), but never
     // overwrites an existing model with the (possibly localized) display name
     // when the user didn't actually change anything.
-    model: model || ((userEditedName || editingOriginalBase === null) ? name : undefined) || undefined,
+    model: model || ((userEditedName || editingOriginalBase === null) ? enName : undefined) || undefined,
     manufacturer: manufacturer || undefined
   });
   if (!Array.isArray(spec.entities)) spec.entities = [];
@@ -1999,49 +2055,69 @@ function initCustomSelect(selectId) {
   });
 }
 
-/* ---------------- image lightbox (hover preview) ---------------- */
-(function initImageLightbox() {
-  const overlay = document.getElementById('imglightbox-overlay');
-  const img = document.getElementById('imglightbox-img');
-  if (!overlay || !img) return;
+/* ---------------- image hover popup (no lightbox) ---------------- */
+/* Hovering a template/device thumbnail shows a small popup with the full
+   image. It follows the mouse and disappears again as soon as the mouse
+   leaves the thumbnail - no overlay, no click-to-dismiss. */
+(function initImagePopup() {
+  const pop = document.getElementById('img-pop');
+  const img = document.getElementById('img-pop-img');
+  if (!pop || !img) return;
   let hideTimer = null;
   let shown = false;
 
   function show(src) {
     clearTimeout(hideTimer);
+    if (!img.src || img.src !== src) img.src = src;
     shown = true;
-    img.src = src;
-    overlay.hidden = false;
+    pop.classList.add('show');
+    pop.hidden = false;
+    pop.style.left = ''; pop.style.top = '';
+    img.onload = () => { if (shown) position(); };
   }
   function hide() {
     clearTimeout(hideTimer);
     if (!shown) return;
     shown = false;
-    overlay.hidden = true;
+    pop.classList.remove('show');
+    pop.hidden = true;
     img.src = '';
   }
-  // Hovering a template/device thumbnail shows the larger preview.
+  function position() {
+    if (!shown || !pop._thumb) return;
+    const r = pop._thumb.getBoundingClientRect();
+    let left = r.left;
+    let top = r.bottom + 8;
+    const pw = pop.offsetWidth || 300;
+    const ph = pop.offsetHeight || 300;
+    if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8);
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 8);
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+  // Hovering a template/device thumbnail shows the popup next to it.
   document.addEventListener('mouseover', (e) => {
     const t = e.target;
     if (t && t.tagName === 'IMG' && (t.closest('.tpl-img') || t.closest('.slave-img'))) {
-      // The thumbnail is a small object-fit box; use the same src, the
-      // lightbox renders it at natural size (capped by the overlay).
-      if (t.src) show(t.src);
+      pop._thumb = t;
+      show(t.src);
+      // The popup may not be laid out yet; the img.onload repositions.
+      if (img.complete && img.naturalWidth > 0) position();
+      else setTimeout(position, 10);
     }
   });
   document.addEventListener('mouseout', (e) => {
     const t = e.target;
     if (t && t.tagName === 'IMG' && (t.closest('.tpl-img') || t.closest('.slave-img'))) {
-      hideTimer = setTimeout(hide, 120);
+      hideTimer = setTimeout(hide, 60);
     }
   });
-  // Click anywhere on the lightbox (or press ESC) dismisses it.
-  overlay.addEventListener('click', hide);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') hide();
-  });
-  // Moving the mouse back over the overlay keeps it open (no flicker).
-  overlay.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+  // Keep it open while the mouse is moving over the popup itself (no flicker).
+  pop.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+  pop.addEventListener('mouseleave', hide);
+  // Recount when the window is resized.
+  window.addEventListener('resize', () => { if (shown) position(); });
+  window.addEventListener('scroll', () => { if (shown) position(); }, true);
 })();
 
 /* ---------------- init ---------------- */
