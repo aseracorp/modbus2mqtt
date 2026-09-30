@@ -1999,6 +1999,51 @@ function initCustomSelect(selectId) {
   });
 }
 
+/* ---------------- image lightbox (hover preview) ---------------- */
+(function initImageLightbox() {
+  const overlay = document.getElementById('imglightbox-overlay');
+  const img = document.getElementById('imglightbox-img');
+  if (!overlay || !img) return;
+  let hideTimer = null;
+  let shown = false;
+
+  function show(src) {
+    clearTimeout(hideTimer);
+    shown = true;
+    img.src = src;
+    overlay.hidden = false;
+  }
+  function hide() {
+    clearTimeout(hideTimer);
+    if (!shown) return;
+    shown = false;
+    overlay.hidden = true;
+    img.src = '';
+  }
+  // Hovering a template/device thumbnail shows the larger preview.
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target;
+    if (t && t.tagName === 'IMG' && (t.closest('.tpl-img') || t.closest('.slave-img'))) {
+      // The thumbnail is a small object-fit box; use the same src, the
+      // lightbox renders it at natural size (capped by the overlay).
+      if (t.src) show(t.src);
+    }
+  });
+  document.addEventListener('mouseout', (e) => {
+    const t = e.target;
+    if (t && t.tagName === 'IMG' && (t.closest('.tpl-img') || t.closest('.slave-img'))) {
+      hideTimer = setTimeout(hide, 120);
+    }
+  });
+  // Click anywhere on the lightbox (or press ESC) dismisses it.
+  overlay.addEventListener('click', hide);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hide();
+  });
+  // Moving the mouse back over the overlay keeps it open (no flicker).
+  overlay.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+})();
+
 /* ---------------- init ---------------- */
 (function () {
   try {

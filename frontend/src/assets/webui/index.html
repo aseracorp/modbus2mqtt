@@ -144,7 +144,7 @@
 
 <!-- MQTT server popup (separate from main config; accessed via the MQTT pill in the header) -->
 <div class="modal-overlay" id="mqttedit-overlay" hidden>
-  <div class="modal modal-xlg">
+  <div class="modal modal-config">
     <h3 data-i18n="mqtt_server">MQTT server</h3>
     <div class="config-grid" id="mqtt-grid"></div>
     <div class="modal-actions">
@@ -156,7 +156,7 @@
 
 <!-- Config edit popup (general settings only; MQTT lives in its own popup) -->
 <div class="modal-overlay" id="configedit-overlay" hidden>
-  <div class="modal modal-xlg">
+  <div class="modal modal-config">
     <h3 data-i18n="edit_config">Edit configuration</h3>
     <div class="config-grid" id="config-grid"></div>
     <div class="modal-actions">
@@ -403,6 +403,10 @@
       <button class="btn btn-primary" id="regedit-ok" data-i18n="save">Save</button>
     </div>
   </div>
+</div>
+
+<div id="imglightbox-overlay" class="img-lightbox-overlay" hidden>
+  <img id="imglightbox-img" src="" alt="">
 </div>
 
 <div id="toast"></div>
