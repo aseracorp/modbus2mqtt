@@ -927,6 +927,9 @@ async function openAddTemplate() {
   editingTemplateOriginalFilename = null;
   editingTemplateOriginalName = null;
   templateSpec = emptyTemplateSpec();
+  // The template editor owns the register context; drop any stale device
+  // activeSpec left over from a previously closed slave popup.
+  activeSpec = null;
   $('tpledit-title').textContent = t('add_template');
   $('te-name').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
   renderTemplateRegisters();
@@ -937,6 +940,9 @@ async function openEditTemplate(filename) {
   const sp = (state.specs || []).find((s) => s.filename === filename);
   if (!sp) return;
   editingTemplate = filename;
+  // The template editor owns the register context; drop any stale device
+  // activeSpec left over from a previously closed slave popup.
+  activeSpec = null;
   // Remember what the popup was opened with so the save handler can tell a
   // real name edit from an untouched prefilled field (and avoid renaming the
   // file just because the popup was opened and OK'd).
@@ -1087,7 +1093,7 @@ function setSpecText(spec, lang, textId, text) {
 // language (template translations), fall back to the English/`name` field.
 function regName(en) {
   if (en && en.id != null) {
-    const specForI18n = (activeSpec === slaveSpec ? slaveSpec : templateSpec)
+    const specForI18n = (activeSpec !== null && activeSpec === slaveSpec) ? slaveSpec : templateSpec
     if (specForI18n && Array.isArray(specForI18n.i18n)) {
       const langEntry = specForI18n.i18n.find((i) => i.lang === currentLang) || specForI18n.i18n.find((i) => i.lang === 'en')
       if (langEntry && Array.isArray(langEntry.texts)) {
