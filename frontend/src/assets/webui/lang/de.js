@@ -170,4 +170,16 @@ window.LANG_de = {
   reg_value_display: "aktueller Wert",
   reg_select_options: "Auswählbare Werte",
   reg_select_placeholder: "Wert wählen…",
+
+  tpl_media: "Bild & Datenblätter",
+  tpl_image: "Bild",
+  tpl_img_url_ph: "Bild-URL (https://…)",
+  tpl_upload: "Hochladen",
+  tpl_remove: "Entfernen",
+  tpl_image_hint: "Bild, das neben der Vorlage angezeigt wird. URL angeben oder Datei hochladen (Bilder sind nicht sprachspezifisch).",
+  tpl_datasheets: "Datenblätter",
+  tpl_datasheets_hint: "Datenblatt pro Sprache. Der Link in der Vorlagenliste öffnet das Datenblatt der aktuellen Oberflächensprache; fehlende Sprachen fallen auf Englisch, dann auf das erste verfügbare zurück.",
+  tpl_doc_url_ph: "Datenblatt-URL (https://…)",
+  tpl_file_staged: "Datei angehängt: ",
+  tpl_image_removed: "Bild entfernt",
 };

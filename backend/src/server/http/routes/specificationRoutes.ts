@@ -41,7 +41,7 @@ export function registerSpecificationRoutes(r: Registrar): void {
         filename: spec.filename,
         model: spec.model,
         manufacturer: spec.manufacturer,
-        files: spec.files.map((f) => ({ url: f.url, usage: f.usage })),
+        files: spec.files.map((f) => ({ url: f.url, usage: f.usage, lang: f.lang })),
         status: spec.status,
         i18n: spec.i18n,
         pullUrl: spec.pullUrl,

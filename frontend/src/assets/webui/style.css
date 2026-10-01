@@ -988,3 +988,52 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   .img-pop { padding: 16px; }
   .modal-sm { max-width: calc(100vw - 24px); }
 }
+
+/* ---------------- template media (image + per-language datasheets) ---------------- */
+.tpl-media { display: flex; flex-direction: column; gap: 10px; }
+.tpl-media-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.tpl-media-row input[type="text"] {
+  flex: 1 1 auto; min-width: 160px; padding: 7px 10px;
+  background: var(--bg-surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  font-size: 13.5px;
+}
+.tpl-media-row input[type="text"]:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+.tpl-media-or { color: var(--text-muted); font-size: 12px; }
+.tpl-file-input {
+  position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden;
+}
+.tpl-file-btn, .tpl-doc-upload, .tpl-doc-clear, .tpl-img-clear {
+  flex: 0 0 auto; padding: 6px 10px; font-size: 12.5px; line-height: 1;
+  background: var(--bg-surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); color: var(--text-secondary); cursor: pointer;
+}
+.tpl-file-btn:hover, .tpl-doc-upload:hover, .tpl-doc-clear:hover, .tpl-img-clear:hover {
+  background: var(--bg-hover); color: var(--text);
+}
+.tpl-img-preview { margin-top: 6px; }
+.tpl-img-preview:empty { display: none; }
+.tpl-img-thumb {
+  max-width: 120px; max-height: 120px; object-fit: contain;
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tpl-docs-field .tpl-doc-rows { display: flex; flex-direction: column; gap: 6px; }
+.tpl-doc-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--bg-elevated, #1e1e1e);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 5px 8px;
+}
+.tpl-doc-lang {
+  flex: 0 0 auto; min-width: 28px; text-align: center; font-weight: 600;
+  font-size: 11px; text-transform: uppercase; color: var(--text-secondary);
+  padding: 3px 6px; border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--bg-surface);
+}
+.tpl-doc-row input[type="text"].tpl-doc-url {
+  flex: 1 1 auto; min-width: 140px; padding: 6px 9px;
+  background: var(--bg-surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: 13px;
+}
+.tpl-doc-row input[type="text"].tpl-doc-url:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+.tpl-doc-row input[type="file"].tpl-doc-file { display: none; }

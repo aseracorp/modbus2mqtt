@@ -170,4 +170,16 @@ window.LANG_en = {
   reg_value_display: "Present value",
   reg_select_options: "Selectable values",
   reg_select_placeholder: "Select value…",
+
+  tpl_media: "Image & datasheets",
+  tpl_image: "Image",
+  tpl_img_url_ph: "Image URL (https://…)",
+  tpl_upload: "Upload",
+  tpl_remove: "Remove",
+  tpl_image_hint: "Image shown next to the template. Provide a URL or upload a file (images are not language-specific).",
+  tpl_datasheets: "Datasheets",
+  tpl_datasheets_hint: "Datasheet per language. The link in the template list opens the datasheet of the current UI language; missing languages fall back to English, then the first one available.",
+  tpl_doc_url_ph: "Datasheet URL (https://…)",
+  tpl_file_staged: "File attached: ",
+  tpl_image_removed: "Image removed",
 };

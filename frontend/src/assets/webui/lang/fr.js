@@ -169,4 +169,16 @@ window.LANG_fr = {
   reg_value_display: "Valeur actuelle",
   reg_select_options: "Valeurs sélectionnables",
   reg_select_placeholder: "Choisir une valeur…",
+
+  tpl_media: "Image & fiches techniques",
+  tpl_image: "Image",
+  tpl_img_url_ph: "URL de l'image (https://…)",
+  tpl_upload: "Téléverser",
+  tpl_remove: "Supprimer",
+  tpl_image_hint: "Image affichée à côté du modèle. Fournissez une URL ou téléversez un fichier (les images ne sont pas spécifiques à une langue).",
+  tpl_datasheets: "Fiches techniques",
+  tpl_datasheets_hint: "Fiche technique par langue. Le lien dans la liste des modèles ouvre la fiche de la langue d'interface actuelle ; les langues manquantes retombent sur l'anglais, puis la première disponible.",
+  tpl_doc_url_ph: "URL de la fiche (https://…)",
+  tpl_file_staged: "Fichier joint : ",
+  tpl_image_removed: "Image supprimée",
 };

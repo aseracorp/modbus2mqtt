@@ -305,6 +305,7 @@ export interface IimageAndDocumentUrl {
   url: string
   fileLocation: FileLocation
   usage: SpecificationFileUsage
+  lang?: string // language code for documents (e.g. 'en', 'de'); images leave this unset
   data?: string // base64-encoded content (Local files)
   mimeType?: string // e.g., 'image/jpeg'
 }
@@ -312,6 +313,7 @@ export interface IimageAndDocumentUrl {
 export interface IfileReference {
   url: string
   usage: SpecificationFileUsage
+  lang?: string
 }
 
 export interface IspecificationSummary {

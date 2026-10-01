@@ -235,10 +235,19 @@ function getTemplateImageUrl(filename) {
   const img = files.find((f) => f.usage === 'img') || files.find((f) => f.usage === 'icon');
   return img ? resolveFileUrl(img) : '';
 }
-function getTemplateDocUrl(filename) {
+// Language-aware datasheet resolution. A datasheet file may carry a `lang`
+// (en/de/fr/it); pick the current UI language first, fall back to English,
+// then to the first datasheet available.
+function getTemplateDocUrl(filename, lang) {
   const files = getTemplateFiles(filename);
-  const doc = files.find((f) => f.usage === 'doc');
-  return doc ? resolveFileUrl(doc) : '';
+  const docs = files.filter((f) => f.usage === 'doc');
+  if (!docs.length) return '';
+  const want = lang || currentLang;
+  let doc = docs.find((f) => f.lang === want);
+  if (!doc) doc = docs.find((f) => f.lang === 'en');
+  if (!doc) doc = docs.find((f) => !f.lang);
+  if (!doc) doc = docs[0];
+  return resolveFileUrl(doc);
 }
 
 /* ---------------- render busses ---------------- */
@@ -944,6 +953,7 @@ async function openAddTemplate() {
   const tplSel = $('te-lang-select');
   if (tplSel) tplSel.value = templatePopupLang;
   $('te-name').value = ''; $('te-model').value = ''; $('te-manufacturer').value = '';
+  seedTemplateMedia(null);
   renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
   applyHelpIcons();
@@ -977,6 +987,7 @@ async function openEditTemplate(filename) {
     templateSpec = emptyTemplateSpec();
     templateSpec.filename = sp.filename;
   }
+  seedTemplateMedia(templateSpec);
   renderTemplateRegisters();
   $('tpledit-overlay').hidden = false;
   applyHelpIcons();
@@ -1001,8 +1012,36 @@ function switchTemplatePopupLang(lang) {
   renderTemplateRegisters();
 }
 $('te-lang-select')?.addEventListener('change', (e) => switchTemplatePopupLang(e.target.value));
-$('tpledit-cancel')?.addEventListener('click', () => { $('tpledit-overlay').hidden = true; templateSpec = null; });
+$('tpledit-cancel')?.addEventListener('click', () => { $('tpledit-overlay').hidden = true; templateSpec = null; resetTemplateMedia(); });
 $('te-reg-add')?.addEventListener('click', () => openRegEdit(null));
+
+/* ---- template media listeners ---- */
+// image: URL typed manually
+$('te-img-url')?.addEventListener('input', () => {
+  const v = $('te-img-url').value.trim();
+  if (v) {
+    tplMedia.image = { url: v, data: '', mimeType: '' };
+  } else if (tplMedia.image && !tplMedia.image.data) {
+    tplMedia.image = null;
+  }
+  renderTemplateMedia();
+});
+// image: upload
+$('te-img-file')?.addEventListener('change', () => {
+  const f = $('te-img-file').files && $('te-img-file').files[0];
+  if (!f) return;
+  readFileAsBase64(f).then((r) => {
+    tplMedia.image = { url: r.name, data: r.data, mimeType: r.mimeType };
+    toast(t('tpl_file_staged') + ' ' + f.name, 'info');
+    renderTemplateMedia();
+  });
+});
+// image: clear
+document.querySelector('.tpl-img-clear')?.addEventListener('click', () => {
+  const had = tplMedia.image;
+  resetTemplateMedia();
+  if (had) toast(t('tpl_image_removed'), 'info');
+});
 function renderTemplateRegisters() {
   const tbody = $('te-reg-body');
   const ents = sortRegisters((templateSpec && templateSpec.entities) || []);
@@ -1040,6 +1079,126 @@ function renderTemplateRegisters() {
       templateSpec.entities = (templateSpec.entities || []).filter((x) => x !== en);
       renderTemplateRegisters();
     });
+  });
+}
+/* ---------------- template media (image + datasheets) ---------------- */
+// Editable media state for the template popup. We work on a copy that is
+// written back into templateSpec.files on save, so cancelled edits never leak.
+const TEMPLATE_LANGS = ['en', 'de', 'fr', 'it'];
+let tplMedia = { image: null, docs: {} }; // image: {url,data,mimeType} | null; docs: {lang: {url,data,mimeType}|null}
+
+function resetTemplateMedia() {
+  tplMedia = { image: null, docs: {} };
+  TEMPLATE_LANGS.forEach((l) => { tplMedia.docs[l] = null; });
+  const urlEl = $('te-img-url');
+  if (urlEl) urlEl.value = '';
+  const preview = $('te-img-preview');
+  if (preview) preview.innerHTML = '';
+  const fileEl = $('te-img-file');
+  if (fileEl) fileEl.value = '';
+}
+// Seed the editable media state from an existing spec's files array.
+function seedTemplateMedia(spec) {
+  resetTemplateMedia();
+  const files = (spec && spec.files) || [];
+  files.forEach((f) => {
+    if (!f || !f.url) return;
+    if (f.usage === 'img' || f.usage === 'icon') {
+      tplMedia.image = { url: f.url, data: f.data || '', mimeType: f.mimeType || '' };
+    } else if (f.usage === 'doc') {
+      const lang = TEMPLATE_LANGS.includes(f.lang) ? f.lang : (f.lang || 'en');
+      tplMedia.docs[lang] = { url: f.url, data: f.data || '', mimeType: f.mimeType || '' };
+    }
+  });
+  renderTemplateMedia();
+}
+function renderTemplateMedia() {
+  // image preview
+  const preview = $('te-img-preview');
+  const urlEl = $('te-img-url');
+  if (urlEl) urlEl.value = tplMedia.image ? tplMedia.image.url : '';
+  if (preview) {
+    if (tplMedia.image && tplMedia.image.url) {
+      const src = tplMedia.image.data ? 'data:' + (tplMedia.image.mimeType || 'image/png') + ';base64,' + tplMedia.image.data
+        : tplMedia.image.url;
+      preview.innerHTML = '<img src="' + escapeHtml(src) + '" alt="" class="tpl-img-thumb">';
+    } else {
+      preview.innerHTML = '';
+    }
+  }
+  // per-language datasheet rows
+  const rows = $('te-doc-rows');
+  if (rows) {
+    rows.innerHTML = TEMPLATE_LANGS.map((lang) => {
+      const v = tplMedia.docs[lang];
+      const val = v ? v.url : '';
+      return '<div class="tpl-doc-row" data-lang="' + lang + '">' +
+        '<span class="tpl-doc-lang">' + escapeHtml(lang) + '</span>' +
+        '<input type="text" class="tpl-doc-url" data-lang="' + lang + '" value="' + escapeHtml(val) + '" data-ph="tpl_doc_url_ph" placeholder="https://…/datasheet.pdf" autocomplete="off">' +
+        '<input type="file" class="tpl-doc-file" data-lang="' + lang + '" accept=".pdf,.doc,.docx,application/pdf" style="display:none">' +
+        '<button type="button" class="btn btn-sm tpl-doc-upload" data-lang="' + lang + '" data-i18n="tpl_upload">Upload</button>' +
+        '<button type="button" class="btn btn-sm tpl-doc-clear" data-lang="' + lang + '" data-i18n="tpl_remove">Remove</button>' +
+      '</div>';
+    }).join('');
+    rows.querySelectorAll('.tpl-doc-url').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const lang = inp.getAttribute('data-lang');
+        const v = inp.value.trim();
+        tplMedia.docs[lang] = v
+          ? { url: v, data: '', mimeType: '' }
+          : null;
+      });
+    });
+    rows.querySelectorAll('.tpl-doc-upload').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const lang = btn.getAttribute('data-lang');
+        const fileEl = rows.querySelector('.tpl-doc-file[data-lang="' + lang + '"]');
+        if (fileEl) fileEl.click();
+      });
+    });
+    rows.querySelectorAll('.tpl-doc-file').forEach((fileEl) => {
+      fileEl.addEventListener('change', () => {
+        const lang = fileEl.getAttribute('data-lang');
+        const f = fileEl.files && fileEl.files[0];
+        if (!f) return;
+        readFileAsBase64(f).then((r) => {
+          tplMedia.docs[lang] = { url: r.name, data: r.data, mimeType: r.mimeType };
+          // keep the row in sync: show the local filename as placeholder while data is staged
+          const urlInp = rows.querySelector('.tpl-doc-url[data-lang="' + lang + '"]');
+          if (urlInp) urlInp.value = '';
+          toast(t('tpl_file_staged') + ' ' + f.name, 'info');
+        });
+      });
+    });
+    rows.querySelectorAll('.tpl-doc-clear').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const lang = btn.getAttribute('data-lang');
+        tplMedia.docs[lang] = null;
+        const urlInp = rows.querySelector('.tpl-doc-url[data-lang="' + lang + '"]');
+        if (urlInp) urlInp.value = '';
+        const fileEl = rows.querySelector('.tpl-doc-file[data-lang="' + lang + '"]');
+        if (fileEl) fileEl.value = '';
+      });
+    });
+  }
+  applyHelpIcons();
+}
+// Read a File into { name, data(base64 payload), mimeType }. The data is the
+// raw base64 (without the data: prefix) so the backend can store it directly.
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve({
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        data: comma >= 0 ? result.substring(comma + 1) : result,
+      });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
   });
 }
 function renderActiveRegisters() {
@@ -1501,10 +1660,44 @@ $('tpledit-ok')?.addEventListener('click', async () => {
     manufacturer: manufacturer || undefined
   });
   if (!Array.isArray(spec.entities)) spec.entities = [];
-  if (typeof spec.files !== 'object' || spec.files === null) spec.files = [];
   if (!Array.isArray(spec.i18n)) spec.i18n = [];
   if (spec.identified == null) spec.identified = 0;
   if (spec.status == null) spec.status = 3;
+  // Build the files array from the media editor state. The image is the first
+  // img/icon entry; each language gets its own doc entry (with lang). Uploaded
+  // files carry base64 `data` + mimeType and must reference the canonical
+  // static path the backend writes them to: specifications/files/<name>/<base>.
+  // Remote URLs keep their fileLocation=Global (1) so they are not persisted
+  // locally.
+  const mediaBase = filename.replace(/\.yaml$/, '');
+  const mediaFiles = [];
+  if (tplMedia.image && tplMedia.image.url) {
+    const imgUrl = tplMedia.image.data
+      ? 'specifications/files/' + mediaBase + '/' + tplMedia.image.url.split('/').pop()
+      : tplMedia.image.url;
+    mediaFiles.push({
+      url: imgUrl,
+      fileLocation: tplMedia.image.data ? 0 : 1,
+      usage: 'img',
+      ...(tplMedia.image.data ? { data: tplMedia.image.data, mimeType: tplMedia.image.mimeType || 'image/png' } : {}),
+    });
+  }
+  TEMPLATE_LANGS.forEach((lang) => {
+    const d = tplMedia.docs[lang];
+    if (d && d.url) {
+      const docUrl = d.data
+        ? 'specifications/files/' + mediaBase + '/' + d.url.split('/').pop()
+        : d.url;
+      mediaFiles.push({
+        url: docUrl,
+        fileLocation: d.data ? 0 : 1,
+        usage: 'doc',
+        lang: lang,
+        ...(d.data ? { data: d.data, mimeType: d.mimeType || 'application/pdf' } : {}),
+      });
+    }
+  });
+  spec.files = mediaFiles;
   try {
     // Templates are self-contained: no bus/slave is required to save them (a
     // public template is cloned into the local dir by the backend on save).
