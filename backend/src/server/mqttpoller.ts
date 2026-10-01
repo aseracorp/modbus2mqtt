@@ -47,7 +47,9 @@ export class MqttPoller {
       const now = new Date()
 
       bus.getSlaves().forEach((slave) => {
-        if (slave.pollMode != undefined && ![PollModes.noPoll, PollModes.trigger].includes(slave.pollMode)) {
+        // dynamicPolling slaves are driven by the QoS scheduler (MqttQosPoller), not the
+        // interval tick; trigger-only and no-poll slaves are excluded as before.
+        if (slave.pollMode != undefined && ![PollModes.noPoll, PollModes.trigger, PollModes.dynamicPolling].includes(slave.pollMode)) {
           const sl = new Slave(bus.getId(), slave, Config.getConfiguration().mqttbasetopic)
           let pc: IslavePollInfo | undefined = this.slavePollInfo.get(sl.getSlaveId())
           if (pc == undefined) pc = { count: 0, processing: false }

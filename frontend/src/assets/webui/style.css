@@ -1037,3 +1037,18 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 }
 .tpl-doc-row input[type="text"].tpl-doc-url:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
 .tpl-doc-row input[type="file"].tpl-doc-file { display: none; }
+
+/* QoS (dynamic polling) */
+.reg-table td.qos-cell { text-align: center; white-space: nowrap; }
+.qos-tag { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; color: var(--text-secondary); background: var(--bg-elevated, #2a2a2a); }
+.qos-tag.qos-realtime { color: #ff5c5c; background: color-mix(in srgb, #ff5c5c 14%, transparent); }
+.qos-tag.qos-fast { color: #ffa21a; background: color-mix(in srgb, #ffa21a 14%, transparent); }
+.qos-tag.qos-regular { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.qos-tag.qos-slow { color: #4caf8a; background: color-mix(in srgb, #4caf8a 14%, transparent); }
+.qos-tag.qos-static { color: #8a8f9c; background: color-mix(in srgb, #8a8f9c 14%, transparent); }
+.qos-warn {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 10px; font-weight: 700; border-radius: 999px;
+  color: #7a4b00; background: #ffd166; border: 1px solid #e6b800;
+  cursor: help; vertical-align: middle;
+}

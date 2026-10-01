@@ -26,6 +26,7 @@ export enum apiUri {
   writeEntity = '/api/modbus/write/entity',
   configRegister = '/api/modbus/config',
   scanSlaves = '/api/modbus/scan-slaves',
+  qosWarnings = '/api/qos/warnings',
   serialDevices = '/api/serial/devices',
   nextCheck = '/api/nextGithubMergeCheck',
   download = '/download/:what',

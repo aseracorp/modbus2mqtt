@@ -172,6 +172,13 @@ export interface Ientity extends IidentEntity {
    *   and written directly via the config API to configure the device.
    */
   category?: 'value' | 'config'
+  /**
+   * Register-level Quality of Service for dynamic polling (PollModes.dynamicPolling).
+   * One of the QoSLevels values (0=realtime, 10=fast, 100=regular, 1000=slow, 10000=static).
+   * When absent, a sensible default is derived from the entity category
+   * (value → regular, diagnostic → slow, config → static).
+   */
+  qos?: number
 }
 export interface Icondition {
   register: number
