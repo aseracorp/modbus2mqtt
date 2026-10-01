@@ -1692,15 +1692,20 @@ function configDottedKey(fieldKey) {
 }
 // ssl file list cache
 let stateSslFiles = [];
+let stateSslFilesRoot = '';
 let stateSslFilesError = '';
 async function loadSslFiles() {
   try {
-    stateSslFiles = await api('/api/sslfiles');
+    const r = await api('/api/sslfiles');
+    // Backend returns { files, root }; older responses may be a bare array.
+    stateSslFiles = Array.isArray(r) ? r : (r && Array.isArray(r.files) ? r.files : []);
+    stateSslFilesRoot = (r && r.root) || '';
     stateSslFilesError = '';
   } catch (e) {
-    // 404 = no ssl dir configured on the server; any other failure is reported
-    // so the user knows the listing failed instead of seeing a fake "no files".
+    // Any failure is reported so the user knows the listing failed instead of
+    // seeing a fake "no files".
     stateSslFiles = [];
+    stateSslFilesRoot = '';
     stateSslFilesError = e.message || 'error';
   }
 }
@@ -1715,6 +1720,10 @@ async function openFileBrowser(btn) {
   const overlay = $('filebrowse-overlay');
   if (!list || !overlay) return;
   await loadSslFiles();
+  const titleEl = $('filebrowse-title');
+  if (titleEl) {
+    titleEl.textContent = (t('cfg_browse_files') || 'Browse server files') + (stateSslFilesRoot ? ' — ' + stateSslFilesRoot : '');
+  }
   if (stateSslFilesError) {
     list.innerHTML = '<div class="fb-empty fb-error">' + escapeHtml(t('cfg_browse_error') || 'Could not load server files') + ': ' + escapeHtml(stateSslFilesError) + '</div>';
   } else if (!stateSslFiles.length) {
