@@ -787,7 +787,9 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
    being forced to absorb all extra height (the body scrolls as a whole). */
 .modal.modal-xlg.tpl-popup .reg-table-wrap {
   flex: 0 1 auto;
-  min-height: 120px;
+  /* ~2.3x the default 120px: gives the register table real presence in the
+     template popup instead of a sliver on short viewports. */
+  min-height: 280px;
   max-height: none;
 }
 .modal.modal-xlg.tpl-popup .modal-actions { flex: 0 0 auto; }
@@ -1010,14 +1012,21 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 
 /* ---------------- template media (image + per-language datasheets) ---------------- */
 .tpl-media {
-  display: flex; flex-direction: column; gap: 10px;
-  /* Never let the flex column crush this section below its content: it has
-     its own max-height + internal scroll, so keep its natural size and let
-     IT scroll when the modal is too short. */
+  /* Image left, datasheets right, matching heights: each column stretches to
+     the taller of the two. Same 45vh cap + internal scroll as before so the
+     whole media block never fans the modal open. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  align-items: stretch;
   flex: 0 0 auto;
   max-height: 45vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+/* Narrower viewports fall back to stacking (image above datasheets). */
+@media (max-width: 900px) {
+  .tpl-media { grid-template-columns: 1fr; }
 }
 .tpl-media-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .tpl-media-row input[type="text"] {
