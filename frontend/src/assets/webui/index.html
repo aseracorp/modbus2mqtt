@@ -286,8 +286,9 @@
 
 <!-- edit template modal -->
 <div class="modal-overlay" id="tpledit-overlay" hidden>
-  <div class="modal modal-xlg">
+  <div class="modal modal-xlg tpl-popup">
     <h3 id="tpledit-title" data-i18n="add_template">Add Modbus template</h3>
+    <div class="tpl-body">
     <div class="tpl-lang-row">
       <label data-i18n="tpl_lang_label" for="te-lang-select">Template language</label>
       <select id="te-lang-select">
@@ -344,6 +345,7 @@
         </thead>
         <tbody id="te-reg-body"><tr class="empty-row"><td colspan="8" data-i18n="reg_none">No registers yet</td></tr></tbody>
       </table>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="te-reg-add" data-i18n="reg_add">Add register</button>
