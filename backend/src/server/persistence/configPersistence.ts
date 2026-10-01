@@ -215,12 +215,32 @@ export class ConfigPersistence implements ISingletonPersistence<Iconfiguration> 
 
   /**
    * Recursively lists all certificate files in the ssl directory.
-   * Returns paths relative to sslDir using forward slashes (e.g. "mtls/client.pem"),
-   * so certificates stored in subdirectories can be selected in the UI.
+   * Returns paths relative to the browsed root using forward slashes
+   * (e.g. "mtls/client.pem"), so certificates stored in subdirectories can be
+   * selected in the UI.
+   *
+   * When the ssl directory is missing or empty (the addon/deployment does not
+   * mount any certificates there), the browser falls back to the config
+   * directory, which always contains files (modbus2mqtt.yaml, busses/,
+   * specifications/...). Without this fallback the picker would show a
+   * misleading "no server files available" even though the container clearly
+   * has a populated filesystem — the root returned tells the UI which
+   * directory was actually browsed.
    */
-  listSslFiles(): string[] {
-    if (!ConfigPersistence.sslDir || !ConfigPersistence.sslDir.length) return []
-    const root = ConfigPersistence.sslDir
+  listSslFiles(): { files: string[]; root: string } {
+    const candidates = [ConfigPersistence.sslDir, ConfigPersistence.getLocalDir(), ConfigPersistence.configDir]
+      .filter((d): d is string => !!d && d.length > 0)
+    for (const root of candidates) {
+      const files = this.walkFiles(root)
+      if (files.length > 0) return { files, root }
+    }
+    // Nothing browsable at all — return the sslDir (even if missing) so the UI
+    // can at least show which path is being looked at.
+    return { files: [], root: ConfigPersistence.sslDir || process.cwd() }
+  }
+
+  /** Walk `root` and collect all regular files (following symlinks safely). */
+  private walkFiles(root: string): string[] {
     const result: string[] = []
     // Track visited real paths so symlink cycles (dir -> parent) cannot loop forever.
     const visited = new Set<string>()
