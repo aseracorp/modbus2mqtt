@@ -24,6 +24,7 @@ window.LANG_fr = {
   config_url: 'URL de configuration', reference: 'Reprendre les réglages de (référence)',
   interval: 'Intervalle', interval_trigger: 'Intervalle + déclencheur', trigger_only: 'Déclencheur seul',
   no_polling: 'Pas d\'interrogation', http_push: 'Push HTTP (pas de MQTT)',
+  dynamic_polling: 'Interrogation dynamique (QoS)', reg_qos: 'QoS', reg_qos_hint: 'Utilisé uniquement en mode "Interrogation dynamique (QoS)". Temps réel = 250 ms, rapide = 2 s, régulier = chaque cycle, lent = 100 s, statique = 1 h. Défauts: value → régulier, diagnostic → lent, config → statique.', http_push_url: 'HTTP push URL',
   remove_bus_title: 'Supprimer la connexion Modbus ?', remove_bus_body: 'Voulez-vous vraiment supprimer cette connexion et tous ses appareils ?',
   remove_slave_title: 'Supprimer l\'appareil ?', remove_slave_body: 'Voulez-vous vraiment supprimer cet appareil ?',
   no_devices: 'Aucun appareil configuré pour le moment.', no_busses: 'Aucune connexion configurée pour le moment.',

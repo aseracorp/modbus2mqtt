@@ -29,6 +29,53 @@ export enum PollModes {
   intervallAndTrigger = 2,
   noPoll = 3,
   intervallHttpPushNoMqtt = 4, // interval poll + HTTP push, no MQTT state publishing
+  dynamicPolling = 5, // QoS-driven polling: each register has its own polling deadline (see QoSLevels)
+}
+
+/**
+ * Register-level Quality of Service for dynamic polling (PollModes.dynamicPolling).
+ * The enum value is the QoS priority (lower = higher priority / shorter deadline).
+ * The maximum interval between two reads is derived from the QoS level:
+ *   realtime → every 250 ms      fast → every 2 s
+ *   regular  → once per poll cycle (the slave's pollInterval, default 1000 ms)
+ *   slow     → every 100 s       static → every hour
+ */
+export enum QoSLevels {
+  realtime = 0,
+  fast = 10,
+  regular = 100,
+  slow = 1000,
+  static = 10000,
+}
+/** Names of the QoS levels, indexed by level value. */
+export const QoSLevelNames: Record<number, string> = {
+  0: 'realtime',
+  10: 'fast',
+  100: 'regular',
+  1000: 'slow',
+  10000: 'static',
+}
+/** Default QoS per entity type, applied when a register has no explicit qos. */
+export const DEFAULT_QOS_BY_CATEGORY: Record<string, QoSLevels> = {
+  value: QoSLevels.regular,
+  diagnostic: QoSLevels.slow,
+  config: QoSLevels.static,
+}
+/** Resolves the effective polling interval (ms) for a QoS level and a slave's base poll cycle. */
+export function qosIntervalMs(qos: number | undefined, pollIntervalMs: number): number {
+  switch (qos) {
+    case QoSLevels.realtime:
+      return 250
+    case QoSLevels.fast:
+      return 2000
+    case QoSLevels.slow:
+      return 100000
+    case QoSLevels.static:
+      return 3600000
+    case QoSLevels.regular:
+    default:
+      return pollIntervalMs > 0 ? pollIntervalMs : 1000
+  }
 }
 export interface IhttpPush {
   url: string // full target URL, may contain {{ path }} placeholders, e.g. https://heimvio.de/readings/{{ serialnumber }}; reserved: {{ pollDate }} = poll time as ISO 8601 UTC, {{ slaveName }} = the slave's name

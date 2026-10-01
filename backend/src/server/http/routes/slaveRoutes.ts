@@ -99,6 +99,16 @@ export function registerSlaveRoutes(r: Registrar): void {
     return created(toApiSlave(rc))
   })
 
+  // QoS dynamic-polling warnings per slave (from the MqttQosPoller), keyed "busidslave".
+  r.get(apiUri.qosWarnings, () => {
+    const rc: Record<string, string[]> = {}
+    Bus.getBusses().forEach((bus) => {
+      const warnings = bus.getQosWarnings()
+      for (const k in warnings) rc[k] = warnings[k]
+    })
+    return ok(rc)
+  })
+
   // Runs one poll cycle for a slave right now: modbus read, mqtt publish and http push - the very
   // same code path the mqtt triggerPoll topic uses. It ignores pollMode and pollInterval, so a slave
   // set to "no poll" or to a rare cron schedule can be tested without changing its configuration.

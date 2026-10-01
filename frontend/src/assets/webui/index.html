@@ -238,9 +238,11 @@
           <option value="1">Trigger only</option>
           <option value="3">No polling</option>
           <option value="4">HTTP Push (no MQTT)</option>
+          <option value="5">Dynamic polling (QoS)</option>
         </select>
       </div>
       <div class="field" id="se-pollinterval-f"><label data-i18n="poll_interval">Poll interval (ms)</label><input type="text" id="se-pollinterval" placeholder="1000"></div>
+      <div class="field" id="se-httppush-f"><label data-i18n="http_push_url">HTTP push URL</label><input type="text" id="se-httppush" placeholder="https://…/readings/{{ serialnumber }}"></div>
       <div class="field"><label data-i18n="root_topic">MQTT root topic</label><input type="text" id="se-roottopic" placeholder="optional"></div>
       <div class="field"><label data-i18n="qos">QoS</label>
         <select id="se-qos">
@@ -266,11 +268,12 @@
             <th data-i18n="reg_converter">Converter</th>
             <th data-i18n="reg_uom">Unit</th>
             <th data-i18n="reg_category">Category</th>
+            <th data-i18n="reg_qos">QoS</th>
             <th data-i18n="reg_value">Value</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="se-reg-body"><tr class="empty-row"><td colspan="8" data-i18n="reg_none">No registers yet</td></tr></tbody>
+        <tbody id="se-reg-body"><tr class="empty-row"><td colspan="9" data-i18n="reg_none">No registers yet</td></tr></tbody>
       </table>
     </div>
     <div class="modal-actions">
@@ -283,8 +286,9 @@
 
 <!-- edit template modal -->
 <div class="modal-overlay" id="tpledit-overlay" hidden>
-  <div class="modal modal-xlg">
+  <div class="modal modal-xlg tpl-popup">
     <h3 id="tpledit-title" data-i18n="add_template">Add Modbus template</h3>
+    <div class="tpl-body">
     <div class="tpl-lang-row">
       <label data-i18n="tpl_lang_label" for="te-lang-select">Template language</label>
       <select id="te-lang-select">
@@ -335,11 +339,13 @@
             <th data-i18n="reg_converter">Converter</th>
             <th data-i18n="reg_uom">Unit</th>
             <th data-i18n="reg_category">Category</th>
+            <th data-i18n="reg_qos">QoS</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="te-reg-body"><tr class="empty-row"><td colspan="7" data-i18n="reg_none">No registers yet</td></tr></tbody>
+        <tbody id="te-reg-body"><tr class="empty-row"><td colspan="8" data-i18n="reg_none">No registers yet</td></tr></tbody>
       </table>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="te-reg-add" data-i18n="reg_add">Add register</button>
@@ -383,6 +389,17 @@
           <option value="config">config</option>
         </select>
         <span class="field-hint" data-i18n="reg_category_hint">value → MQTT/HA · config → device configuration (not published)</span>
+      </div>
+      <div class="field"><label data-i18n="reg_qos">QoS (dynamic polling)</label>
+        <select id="re-qos">
+          <option value="">auto</option>
+          <option value="0">0 – realtime (250 ms)</option>
+          <option value="10">10 – fast (2 s)</option>
+          <option value="100">100 – regular (per cycle)</option>
+          <option value="1000">1000 – slow (100 s)</option>
+          <option value="10000">10000 – static (1 h)</option>
+        </select>
+        <span class="field-hint" data-i18n="reg_qos_hint">Only used in "Dynamic polling (QoS)" mode. Realtime = every 250 ms, fast = every 2 s, regular = every poll cycle, slow = every 100 s, static = every hour. Defaults: value → regular, diagnostic → slow, config → static.</span>
       </div>
       <div class="field reg-condition"><label data-i18n="reg_cond">Condition (optional)</label>
         <div class="reg-condition-rows" id="re-cond-rows"><!-- one row per condition, populated by JS --></div>

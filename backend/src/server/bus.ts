@@ -25,6 +25,7 @@ import {
 import { ConfigSpecification } from '../specification/index.js'
 import { ModbusTcpRtuBridge } from './tcprtubridge.js'
 import { MqttPoller } from './mqttpoller.js'
+import { MqttQosPoller } from './mqttQosPoller.js'
 import { MqttConnector } from './mqttconnector.js'
 import { Config } from './config.js'
 import { IconsumerModbusAPI, IModbusConfiguration, ModbusAPI } from './modbusAPI.js'
@@ -401,20 +402,34 @@ export class Bus implements IModbusConfiguration {
     if (slave) slave = this.getISlave(slave)
     return slave
   }
+  /** Per-slave QoS warnings from the dynamic polling scheduler (empty object when not running). */
+  getQosWarnings(): Record<string, string[]> {
+    if (this.qosPoller) return this.qosPoller.getWarnings()
+    return {}
+  }
   public static cleanupCaches() {
     Bus.getBusses().forEach((bus) => bus.modbusAPI.cleanupCache())
   }
   private poller?: MqttPoller
+  private qosPoller?: MqttQosPoller
 
-  startPolling() {
+  startPolling(): void {
     this.poller = new MqttPoller(MqttConnector.getInstance())
     this.poller.startPolling(this)
+    // Dynamic (QoS) polling rides on the same connector: it reads registers per
+    // register-level QoS deadlines and publishes state when any register was due.
+    this.qosPoller = new MqttQosPoller(MqttConnector.getInstance(), this)
+    this.qosPoller.start()
   }
 
   stopPolling(): void {
     if (this.poller) {
       this.poller.stopPolling()
       this.poller = undefined
+    }
+    if (this.qosPoller) {
+      this.qosPoller.stop()
+      this.qosPoller = undefined
     }
   }
 

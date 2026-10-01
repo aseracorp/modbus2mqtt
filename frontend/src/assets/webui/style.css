@@ -771,7 +771,26 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   background: var(--bg-surface); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
 }
-.tpl-lang-row .field-hint { font-size: 12px; color: var(--text-muted); flex: 1; min-width: 0; }
+/* Template popup: everything between the title and the action buttons lives in
+   .tpl-body, which is THE scroll container. This keeps the header and the
+   Save/Cancel/Add-register buttons always visible while the (potentially tall)
+   register table + media section scroll as one unit. */
+.modal.modal-xlg.tpl-popup { display: flex; flex-direction: column; }
+.modal.modal-xlg.tpl-popup .tpl-body {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column;
+}
+/* Inside the scrolling body the register table grows naturally instead of
+   being forced to absorb all extra height (the body scrolls as a whole). */
+.modal.modal-xlg.tpl-popup .reg-table-wrap {
+  flex: 0 1 auto;
+  min-height: 120px;
+  max-height: none;
+}
+.modal.modal-xlg.tpl-popup .modal-actions { flex: 0 0 auto; }
 
 /* On phones keep the modal within the viewport with a little breathing room. */
 @media (max-width: 480px) {
@@ -990,7 +1009,16 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 }
 
 /* ---------------- template media (image + per-language datasheets) ---------------- */
-.tpl-media { display: flex; flex-direction: column; gap: 10px; }
+.tpl-media {
+  display: flex; flex-direction: column; gap: 10px;
+  /* Never let the flex column crush this section below its content: it has
+     its own max-height + internal scroll, so keep its natural size and let
+     IT scroll when the modal is too short. */
+  flex: 0 0 auto;
+  max-height: 45vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .tpl-media-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .tpl-media-row input[type="text"] {
   flex: 1 1 auto; min-width: 160px; padding: 7px 10px;
@@ -1019,7 +1047,7 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 }
 .tpl-docs-field .tpl-doc-rows { display: flex; flex-direction: column; gap: 6px; }
 .tpl-doc-row {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
   background: var(--bg-elevated, #1e1e1e);
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 5px 8px;
@@ -1031,9 +1059,24 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   background: var(--bg-surface);
 }
 .tpl-doc-row input[type="text"].tpl-doc-url {
-  flex: 1 1 auto; min-width: 140px; padding: 6px 9px;
+  flex: 1 1 auto; min-width: 0; padding: 6px 9px;
   background: var(--bg-surface); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: 13px;
 }
 .tpl-doc-row input[type="text"].tpl-doc-url:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
 .tpl-doc-row input[type="file"].tpl-doc-file { display: none; }
+
+/* QoS (dynamic polling) */
+.reg-table td.qos-cell { text-align: center; white-space: nowrap; }
+.qos-tag { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; color: var(--text-secondary); background: var(--bg-elevated, #2a2a2a); }
+.qos-tag.qos-realtime { color: #ff5c5c; background: color-mix(in srgb, #ff5c5c 14%, transparent); }
+.qos-tag.qos-fast { color: #ffa21a; background: color-mix(in srgb, #ffa21a 14%, transparent); }
+.qos-tag.qos-regular { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.qos-tag.qos-slow { color: #4caf8a; background: color-mix(in srgb, #4caf8a 14%, transparent); }
+.qos-tag.qos-static { color: #8a8f9c; background: color-mix(in srgb, #8a8f9c 14%, transparent); }
+.qos-warn {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 10px; font-weight: 700; border-radius: 999px;
+  color: #7a4b00; background: #ffd166; border: 1px solid #e6b800;
+  cursor: help; vertical-align: middle;
+}

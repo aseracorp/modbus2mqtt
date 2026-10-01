@@ -89,14 +89,16 @@ $('lang-select')?.addEventListener('change', (e) => setLang(e.target.value));
 /* ---------------- loading ---------------- */
 async function loadAll() {
   try {
-    const [busses, specs, auth] = await Promise.all([
+    const [busses, specs, auth, qosWarn] = await Promise.all([
       api('/api/busses'),
       api('/api/specifications'),
-      api('/userAuthenticationStatus')
+      api('/userAuthenticationStatus'),
+      api('/api/qos/warnings').catch(() => ({}))
     ]);
     state.busses = busses || [];
     state.specs = specs || [];
     state.auth = auth || {};
+    state.qosWarnings = qosWarn || {};
     renderGateway();
     renderBusses();
     renderTemplates();
@@ -271,10 +273,15 @@ function renderBusses() {
       const docCell = docUrl
         ? '<span class="slave-doc"><a href="' + escapeHtml(docUrl) + '" target="_blank" rel="noopener" title="' + escapeHtml(t('datasheet')) + '">📄</a></span>'
         : '<span class="slave-doc"></span>';
+      const warnKey = bus.busId + 's' + s.slaveid;
+      const qosWarn = (state.qosWarnings || {})[warnKey];
+      const warnBadge = qosWarn && qosWarn.length
+        ? '<span class="qos-warn" title="' + escapeHtml(qosWarn.join('\n')) + '">⚠ QoS</span>'
+        : '';
       return `
       <div class="slave-row" data-busid="${bus.busId}" data-slaveid="${s.slaveid}">
         ${imgCell}
-        <span class="slave-name">${escapeHtml(getSlaveName(s))}</span>
+        <span class="slave-name">${escapeHtml(getSlaveName(s))}${warnBadge}</span>
         <span class="slave-tpl">${escapeHtml(getSlaveTemplateName(s.specificationid))}</span>
         <span class="slave-id">#${s.slaveid}</span>
         ${docCell}
@@ -590,6 +597,7 @@ function openAddSlave(busid) {
   $('se-template-drop').hidden = true;
   $('se-pollmode').value = '0';
   $('se-pollinterval').value = '1000';
+  $('se-httppush').value = '';
   $('se-roottopic').value = '';
   $('se-qos').value = '-1';
   $('se-maxreg').value = '';
@@ -640,8 +648,9 @@ async function openEditSlave(busid, slaveid) {
   $('se-template-search').value = getSlaveTemplateName(slave.specificationid);
   $('se-template-drop').hidden = true;
   const pollMode = slave.pollMode != null ? slave.pollMode : 0;
-  $('se-pollmode').value = String(pollMode === 4 ? 4 : (pollMode === 2 ? 2 : (pollMode === 1 ? 1 : (pollMode === 3 ? 3 : 0))));
+  $('se-pollmode').value = String(pollMode === 4 ? 4 : (pollMode === 5 ? 5 : (pollMode === 2 ? 2 : (pollMode === 1 ? 1 : (pollMode === 3 ? 3 : 0)))));
   $('se-pollinterval').value = slave.pollInterval != null ? String(slave.pollInterval) : (slave.pollSchedule ? '' : '1000');
+  $('se-httppush').value = (slave.httpPush && slave.httpPush.url) || '';
   $('se-roottopic').value = slave.rootTopic || '';
   $('se-qos').value = String(slave.qos != null ? slave.qos : -1);
   $('se-maxreg').value = slave.maxRegistersPerRequest != null ? String(slave.maxRegistersPerRequest) : '';
@@ -669,7 +678,10 @@ async function openEditSlave(busid, slaveid) {
 }
 function updatePollModeFields() {
   const pm = $('se-pollmode').value;
-  $('se-pollinterval-f').hidden = !(pm === '0' || pm === '2' || pm === '4');
+  // Interval is the base polling cycle in interval/interval+trigger/http-push modes
+  // and the "regular" QoS cycle in dynamic polling mode.
+  $('se-pollinterval-f').hidden = !(pm === '0' || pm === '2' || pm === '4' || pm === '5');
+  $('se-httppush-f').hidden = (pm !== '4');
   $('se-reference-f').hidden = (pm === '4');
 }
 $('se-pollmode')?.addEventListener('change', updatePollModeFields);
@@ -787,6 +799,9 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
   body.pollMode = pollMode;
   if (pollInterval && !isNaN(pollInterval)) body.pollInterval = pollInterval;
   if (rootTopic) body.rootTopic = rootTopic;
+  const httpPushUrl = $('se-httppush').value.trim();
+  if (httpPushUrl) body.httpPush = { url: httpPushUrl };
+  else if (slave && slave.httpPush) body.httpPush = { url: '', hasPat: !!slave.httpPush.patEnc }; // clear url, keep PAT
   body.qos = qos;
   if (maxReg && !isNaN(maxReg)) body.maxRegistersPerRequest = maxReg;
   if (configUrl) body.configurationUrl = configUrl;
@@ -1046,7 +1061,7 @@ function renderTemplateRegisters() {
   const tbody = $('te-reg-body');
   const ents = sortRegisters((templateSpec && templateSpec.entities) || []);
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + t('reg_none') + '</td></tr>';
     return;
   }
   // The template shows every register (no values loaded); there is no Value column
@@ -1066,6 +1081,7 @@ function renderTemplateRegisters() {
       '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
+      '<td class="qos-cell"><span class="qos-tag ' + qosClass(en) + '">' + escapeHtml(qosName(en)) + '</span></td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">⚙</button>' +
         '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>' +
@@ -1221,7 +1237,7 @@ function renderDeviceRegisters() {
     return true
   })
   if (!ents.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + t('reg_none') + '</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + t('reg_none') + '</td></tr>';
     return;
   }
   tbody.innerHTML = ents.map((en) => {
@@ -1242,6 +1258,7 @@ function renderDeviceRegisters() {
       '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
+      '<td class="qos-cell"><span class="qos-tag ' + qosClass(en) + '">' + escapeHtml(qosName(en)) + '</span></td>' +
       '<td class="reg-value-cell"><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(shown) + '</span>' + writeBtn + '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">⚙</button>' +
@@ -1330,6 +1347,29 @@ function converterName(en) {
   if (!en || en.converter == null) return '';
   if (typeof en.converter === 'object') return en.converter.name || '';
   return String(en.converter);
+}
+// Human-readable QoS level label for the register tables.
+// Values are the QoSLevel priorities (0 realtime … 10000 static); an unset/unknown
+// value renders as the category-derived default ("auto").
+function qosName(en) {
+  if (!en) return '';
+  const v = en.qos;
+  const names = { 0: '0 · realtime', 10: '10 · fast', 100: '100 · regular', 1000: '1000 · slow', 10000: '10000 · static' };
+  if (names[v] != null) return names[v];
+  const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
+  const defs = { value: 100, diagnostic: 1000, config: 10000 };
+  return 'auto · ' + (names[defs[cat]] || '');
+}
+function qosClass(en) {
+  if (!en || en.qos == null) return '';
+  switch (en.qos) {
+    case 0: return 'qos-realtime';
+    case 10: return 'qos-fast';
+    case 100: return 'qos-regular';
+    case 1000: return 'qos-slow';
+    case 10000: return 'qos-static';
+    default: return '';
+  }
 }
 // sort: Category (config -> value -> diag) then Address (low->high)
 function catRank(en) {
@@ -1483,6 +1523,7 @@ function openRegEditForEntity(en) {
   $('re-modbusaddress').value = en.modbusAddress == null ? '' : String(en.modbusAddress);
   $('re-readonly').checked = !!en.readonly;
   $('re-category').value = en.category || en.entityCategory || 'value';
+  $('re-qos').value = en.qos != null ? String(en.qos) : '';
   // conditions (register[.bit], comparator, value) - array of AND-combined conditions
   renderConditionRows((en.conditions && en.conditions.length) ? en.conditions : (en.condition ? [en.condition] : []));
   $('re-value-desc').value = (en.converterParameters && (en.converterParameters.description || en.converterParameters.valueDescription)) || '';
@@ -1597,6 +1638,10 @@ $('regedit-ok')?.addEventListener('click', () => {
   const category = $('re-category').value || 'value';
   if (category === 'config') en.category = 'config';
   else if (category === 'diagnostic') en.entityCategory = 'diagnostic';
+  // QoS (dynamic polling): explicit level, or unset => category-derived default ("auto")
+  const qosVal = $('re-qos').value;
+  if (qosVal !== '' && qosVal != null) en.qos = parseInt(qosVal, 10);
+  else delete en.qos;
   // conditions: array of AND-combined register conditions
   const conds = readConditionRows();
   if (conds.length > 0) { en.conditions = conds; delete en.condition; }
