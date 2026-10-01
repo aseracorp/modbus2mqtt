@@ -2135,17 +2135,18 @@ $('btn-top-config')?.addEventListener('click', openConfigEdit);
 $('configedit-cancel')?.addEventListener('click', () => { $('configedit-overlay').hidden = true; });
 $('configedit-save')?.addEventListener('click', async () => {
   const merged = JSON.parse(JSON.stringify(state.config || {}));
-  // Collect debug-component checkboxes first (grouped by data-cfgkey into comma strings)
+  // Collect debug-component checkboxes first (grouped by data-cfgkey into comma
+  // strings). Every key present in the form is (re)set — even when nothing is
+  // checked, so a component can be fully disabled (previously an empty group was
+  // skipped and the stale comma-joined value stayed in the config).
   const cbGroups = new Map();
   document.querySelectorAll('#config-grid input[data-debugcb]').forEach((cb) => {
     const k = cb.getAttribute('data-cfgkey');
-    if (!cb.checked) return;
     if (!cbGroups.has(k)) cbGroups.set(k, []);
-    cbGroups.get(k).push(cb.value);
+    if (cb.checked) cbGroups.get(k).push(cb.value);
   });
   cbGroups.forEach((names, k) => {
-    const v = names.join(',');
-    configSet(merged, k, v !== '' ? v : undefined);
+    configSet(merged, k, names.length ? names.join(',') : undefined);
   });
   document.querySelectorAll('#config-grid [data-cfgkey]').forEach((inp) => {
     if (inp.type === 'checkbox') return; // debug checkboxes handled above; bool fields are handled below
