@@ -88,10 +88,10 @@ export function registerConfigRoutes(r: Registrar): void {
   })
 
   r.get(apiUri.sslFiles, () => {
-    if (ConfigPersistence.sslDir && ConfigPersistence.sslDir.length) {
-      return ok(new ConfigPersistence().listSslFiles())
-    }
-    throw new ApiError(HttpErrorsEnum.ErrNotFound, 'not found')
+    // Always answer with the file list (which falls back to the config dir when
+    // the ssl dir is empty/missing) + the path actually browsed, so the UI can
+    // show where the files come from instead of a misleading empty state.
+    return ok(new ConfigPersistence().listSslFiles())
   })
 
   r.post(apiUri.translate, () => {
