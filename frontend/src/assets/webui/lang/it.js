@@ -169,4 +169,16 @@ window.LANG_it = {
   reg_value_display: "Valore attuale",
   reg_select_options: "Valori selezionabili",
   reg_select_placeholder: "Seleziona un valore…",
+
+  tpl_media: "Immagine e schede tecniche",
+  tpl_image: "Immagine",
+  tpl_img_url_ph: "URL immagine (https://…)",
+  tpl_upload: "Carica",
+  tpl_remove: "Rimuovi",
+  tpl_image_hint: "Immagine mostrata accanto al modello. Fornisci un URL o carica un file (le immagini non dipendono dalla lingua).",
+  tpl_datasheets: "Schede tecniche",
+  tpl_datasheets_hint: "Scheda tecnica per lingua. Il collegamento nell'elenco dei modelli apre la scheda della lingua corrente dell'interfaccia; le lingue mancanti ripiegano sull'inglese, poi sulla prima disponibile.",
+  tpl_doc_url_ph: "URL scheda tecnica (https://…)",
+  tpl_file_staged: "File allegato: ",
+  tpl_image_removed: "Immagine rimossa",
 };

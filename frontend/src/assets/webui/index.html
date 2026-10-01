@@ -301,6 +301,28 @@
       <div class="field"><label data-i18n="template_manufacturer">Manufacturer</label><input type="text" id="te-manufacturer" data-ph="template_manufacturer_ph" placeholder="thermokon" autocomplete="off"></div>
     </div>
     <hr class="modal-divider">
+    <h4 class="config-section-title" data-i18n="tpl_media">Image & datasheets</h4>
+    <div class="tpl-media">
+      <div class="field tpl-img-field">
+        <label data-i18n="tpl_image">Image</label>
+        <div class="tpl-media-row">
+          <input type="text" id="te-img-url" data-ph="tpl_img_url_ph" placeholder="https://…/image.jpg" autocomplete="off">
+          <span class="tpl-media-or">or</span>
+          <input type="file" id="te-img-file" accept="image/*" class="tpl-file-input">
+          <label class="btn btn-sm tpl-file-btn" for="te-img-file" data-i18n="tpl_upload">Upload</label>
+          <button type="button" class="btn btn-sm tpl-img-clear" data-i18n="tpl_remove">Remove</button>
+        </div>
+        <div class="tpl-img-preview" id="te-img-preview"></div>
+        <span class="field-hint" data-i18n="tpl_image_hint">Image shown next to the template. Provide a URL or upload a file (images are not language-specific).</span>
+      </div>
+      <hr class="modal-divider">
+      <div class="field tpl-docs-field">
+        <label data-i18n="tpl_datasheets">Datasheets</label>
+        <div class="tpl-doc-rows" id="te-doc-rows"></div>
+        <span class="field-hint" data-i18n="tpl_datasheets_hint">Datasheet per language. The link in the template list opens the datasheet of the current UI language; missing languages fall back to English, then the first one available.</span>
+      </div>
+    </div>
+    <hr class="modal-divider">
     <h4 class="config-section-title" data-i18n="template_registers">Registers / entities</h4>
     <div class="reg-table-wrap">
       <table class="reg-table" id="te-reg-table">
