@@ -801,7 +801,13 @@ $('slaveedit-ok')?.addEventListener('click', async () => {
   if (rootTopic) body.rootTopic = rootTopic;
   const httpPushUrl = $('se-httppush').value.trim();
   if (httpPushUrl) body.httpPush = { url: httpPushUrl };
-  else if (slave && slave.httpPush) body.httpPush = { url: '', hasPat: !!slave.httpPush.patEnc }; // clear url, keep PAT
+  else {
+    // The "keep PAT" branch needs the slave currently being edited; it is not
+    // a local here (openEditSlave has its own), so resolve it from state.
+    const curSlave = ((state.busses || []).find((b) => b.busId === Number(editingSlaveBus))?.slaves || [])
+      .find((s) => s.slaveid === Number(editingSlaveId))
+    if (curSlave && curSlave.httpPush) body.httpPush = { url: '', hasPat: !!curSlave.httpPush.patEnc }; // clear url, keep PAT
+  }
   body.qos = qos;
   if (maxReg && !isNaN(maxReg)) body.maxRegistersPerRequest = maxReg;
   if (configUrl) body.configurationUrl = configUrl;
@@ -1081,7 +1087,7 @@ function renderTemplateRegisters() {
       '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
-      '<td class="qos-cell"><span class="qos-tag ' + qosClass(en) + '">' + escapeHtml(qosName(en)) + '</span></td>' +
+      '<td class="qos-cell"><span class="qos-tag ' + qosClass(en) + '" title="' + escapeHtml(qosTip(en)) + '">' + escapeHtml(qosName(en)) + '</span></td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">⚙</button>' +
         '<button class="icon-btn reg-del" data-eid="' + eid + '" title="' + t('remove_device') + '">✕</button>' +
@@ -1258,7 +1264,7 @@ function renderDeviceRegisters() {
       '<td>' + escapeHtml(converterName(en)) + '</td>' +
       '<td>' + escapeHtml(isNum ? (cp.uom || '') : '') + '</td>' +
       '<td class="cfg-badge ' + cat + '">' + cat + '</td>' +
-      '<td class="qos-cell"><span class="qos-tag ' + qosClass(en) + '">' + escapeHtml(qosName(en)) + '</span></td>' +
+      '<td class="qos-cell"><span class="qos-tag ' + qosClass(en) + '" title="' + escapeHtml(qosTip(en)) + '">' + escapeHtml(qosName(en)) + '</span></td>' +
       '<td class="reg-value-cell"><span class="reg-value" data-tip="' + escapeHtml(valueTooltip(en)) + '">' + escapeHtml(shown) + '</span>' + writeBtn + '</td>' +
       '<td><div class="row-actions">' +
         '<button class="icon-btn reg-edit" data-eid="' + eid + '" title="' + t('edit_device') + '">⚙</button>' +
@@ -1351,14 +1357,33 @@ function converterName(en) {
 // Human-readable QoS level label for the register tables.
 // Values are the QoSLevel priorities (0 realtime … 10000 static); an unset/unknown
 // value renders as the category-derived default ("auto").
+// The raw numeric priority is intentionally hidden from users — the interval
+// meaning is conveyed via tooltip instead (see qosTip).
 function qosName(en) {
   if (!en) return '';
   const v = en.qos;
-  const names = { 0: '0 · realtime', 10: '10 · fast', 100: '100 · regular', 1000: '1000 · slow', 10000: '10000 · static' };
+  const names = { 0: 'realtime', 10: 'fast', 100: 'regular', 1000: 'slow', 10000: 'static' };
   if (names[v] != null) return names[v];
   const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
   const defs = { value: 100, diagnostic: 1000, config: 10000 };
-  return 'auto · ' + (names[defs[cat]] || '');
+  const d = defs[cat];
+  return 'auto · ' + (d != null ? names[d] : '');
+}
+// Tooltip text explaining what a QoS level means, shown over the QoS tag.
+const qosLevelHelp = {
+  0: 'Realtime: read every 250 ms',
+  10: 'Fast: read every 2 s',
+  100: 'Regular: read every poll cycle',
+  1000: 'Slow: read every 100 s',
+  10000: 'Static: read every hour'
+};
+function qosTip(en) {
+  if (!en) return '';
+  if (qosLevelHelp[en.qos] != null) return qosLevelHelp[en.qos] + ' — only used in "Dynamic polling (QoS)" mode.';
+  const cat = en.category === 'config' ? 'config' : (en.entityCategory === 'diagnostic' ? 'diagnostic' : 'value');
+  const d = { value: 100, diagnostic: 1000, config: 10000 }[cat];
+  const base = d != null && qosLevelHelp[d] ? qosLevelHelp[d].toLowerCase() : '';
+  return 'Auto — uses the ' + cat + ' default (' + base + '). Only used in "Dynamic polling (QoS)" mode.';
 }
 function qosClass(en) {
   if (!en || en.qos == null) return '';
