@@ -392,11 +392,11 @@
       <div class="field"><label data-i18n="reg_qos">QoS (dynamic polling)</label>
         <select id="re-qos">
           <option value="">auto</option>
-          <option value="0">0 – realtime (250 ms)</option>
-          <option value="10">10 – fast (2 s)</option>
-          <option value="100">100 – regular (per cycle)</option>
-          <option value="1000">1000 – slow (100 s)</option>
-          <option value="10000">10000 – static (1 h)</option>
+          <option value="0">realtime (250 ms)</option>
+          <option value="10">fast (2 s)</option>
+          <option value="100">regular (per cycle)</option>
+          <option value="1000">slow (100 s)</option>
+          <option value="10000">static (1 h)</option>
         </select>
         <span class="field-hint" data-i18n="reg_qos_hint">Only used in "Dynamic polling (QoS)" mode. Realtime = every 250 ms, fast = every 2 s, regular = every poll cycle, slow = every 100 s, static = every hour. Defaults: value → regular, diagnostic → slow, config → static.</span>
       </div>
