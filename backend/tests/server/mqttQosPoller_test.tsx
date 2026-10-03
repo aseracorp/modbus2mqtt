@@ -150,3 +150,56 @@ test('config registers are excluded from the poll plan', () => {
   )!
   expect(plan.registers.map((r) => r.address)).toEqual([100])
 })
+
+test('condition-source registers are added to the plan (config or hidden register)', () => {
+  // A conditional entity whose condition source is a config register (or a register
+  // with no entity of its own) must still be read by the QoS poller. Without it the
+  // condition evaluates as inactive, the entity gets an empty mqttValue and
+  // Home Assistant deletes it (device "disappears").
+  const plan = buildQosRegisterPlan(
+    makeSlave([
+      reg(1, 0, { converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 } }),
+      { ...reg(2, 5), condition: { register: 400, comparator: 'eq', value: 2 } },
+      { ...reg(3, 6), condition: { register: 400, comparator: 'eq', value: 3 } },
+      { ...reg(4, 400), category: 'config' },
+    ]),
+    0,
+    api,
+    { baudrate: 9600 },
+    1,
+    125,
+    1000
+  )!
+  const addrs = plan.registers.map((r) => r.address)
+  // value registers 0,5,6 + condition source 400
+  expect(addrs).toContain(400)
+  expect(addrs).toContain(0)
+  expect(addrs).toContain(5)
+  expect(addrs).toContain(6)
+  // the condition source is polled realtime (250 ms) so gated values stay fresh
+  const condReg = plan.registers.find((r) => r.address === 400)!
+  expect(condReg.qos).toBe(QoSLevels.realtime)
+  expect(condReg.intervalMs).toBe(250)
+})
+
+test('condition register that is also a value register keeps its own QoS', () => {
+  // sensor_identification (reg 501) is both a value entity and the condition source
+  // for temperature/co2/voc. It must appear exactly once in the plan, with its own
+  // QoS (regular), not the condition's realtime override.
+  const plan = buildQosRegisterPlan(
+    makeSlave([
+      reg(1, 501, { qos: 100 }), // regular
+      { ...reg(2, 0), condition: { register: 501, bit: 0, comparator: 'eq', value: 1 } },
+      { ...reg(3, 5), condition: { register: 501, bit: 5, comparator: 'eq', value: 1 } },
+    ]),
+    0,
+    api,
+    { baudrate: 9600 },
+    1,
+    125,
+    1000
+  )!
+  const entries = plan.registers.filter((r) => r.address === 501)
+  expect(entries.length).toBe(1)
+  expect(entries[0].qos).toBe(QoSLevels.regular)
+})

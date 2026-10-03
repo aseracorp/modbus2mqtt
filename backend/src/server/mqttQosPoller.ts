@@ -1,6 +1,6 @@
 
 
-import { IModbusResultOrError, ImodbusValues, fileToModbusSpecification } from '../specification/index.js'
+import { IModbusResultOrError, ImodbusValues, fileToModbusSpecification, entityConditions } from '../specification/index.js'
 import { ModbusRegisterType, ImodbusSpecification, Ientity } from '../shared/specification/index.js'
 import {
   QoSLevels,
@@ -76,7 +76,12 @@ export interface IQosReadBatch {
 /**
  * Builds the per-register QoS plan of a slave. One entry per physical register
  * (entities sharing an address, e.g. SI/Imperial variants, are deduplicated).
- * Config registers are excluded (handled via the config API, not polled).
+ * Config registers are excluded from the MQTT state / HA discovery (handled via
+ * the config API, not polled) - EXCEPT when a config register is the source of a
+ * condition (e.g. unit system selecting SI/Imperial variants). Condition-source
+ * registers are added with realtime QoS so every conditional entity is evaluated
+ * against a fresh selector; without them the entity reports inactive (empty
+ * mqttValue) and Home Assistant removes it from the device.
  */
 export function buildQosRegisterPlan(
   islave: Islave,
@@ -91,22 +96,42 @@ export function buildQosRegisterPlan(
   if (!spec || !spec.entities || spec.entities.length === 0) return undefined
   const registers: IQosRegister[] = []
   const seen = new Set<string>()
-  for (const ent of spec.entities) {
-    if (ent.modbusAddress == undefined || !ent.registerType) continue
-    if (ent.category === 'config') continue
-    const key = ent.registerType + ':' + ent.modbusAddress
-    if (seen.has(key)) continue
+  // Add a register at most once: entities sharing an address (e.g. SI/Imperial
+  // variants) and condition sources that are also value registers both dedupe here.
+  const addRegister = (address: number, registerType: ModbusRegisterType, length: number, qos: number): void => {
+    const key = registerType + ':' + address
+    if (seen.has(key)) return
     seen.add(key)
-    const length = modbusLengthFor(ent)
-    const qos = Number.isFinite(ent.qos as number) ? (ent.qos as number) : defaultQosFor(ent)
     registers.push({
-      address: ent.modbusAddress,
-      registerType: ent.registerType,
+      address,
+      registerType,
       length,
       qos,
       intervalMs: qosIntervalMs(qos, pollIntervalMs),
       lastRead: 0,
     })
+  }
+  for (const ent of spec.entities) {
+    if (ent.modbusAddress == undefined || !ent.registerType) continue
+    // Config registers are not exposed to MQTT/HA (handled via the config API) and
+    // are NOT polled into state - but when a config register is the source of a
+    // condition (e.g. unit system selecting SI/Imperial variants) it must still be
+    // read, otherwise every conditional entity evaluates as inactive and the entity
+    // disappears from Home Assistant. The condition pass below adds it.
+    if (ent.category === 'config') continue
+    addRegister(ent.modbusAddress, ent.registerType, modbusLengthFor(ent), Number.isFinite(ent.qos as number) ? (ent.qos as number) : defaultQosFor(ent))
+  }
+  // Condition sources: registers referenced by `condition`/`conditions` that are not
+  // already in the plan (often a config register or a register with no entity of its
+  // own). Without them `isEntityActiveByValues` reports every conditional entity as
+  // inactive - empty mqttValue - and the state payload/discovery deletes the entity
+  // in Home Assistant. They are polled realtime (250 ms) so the gated values are
+  // always evaluated against a fresh selector.
+  for (const ent of spec.entities) {
+    for (const c of entityConditions(ent)) {
+      const registerType = c.registerType ?? ent.registerType ?? ModbusRegisterType.HoldingRegister
+      addRegister(c.register, registerType, 1, QoSLevels.realtime)
+    }
   }
   return {
     islave,
