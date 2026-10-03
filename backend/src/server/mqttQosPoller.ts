@@ -276,14 +276,49 @@ function estimateDurationFor(plan: IQosSlavePlan, length: number): number {
   return 10 + length * 2
 }
 
-function mergeValues(fresh: Map<ModbusRegisterType, Map<number, IModbusResultOrError>>, values: ImodbusValues): void {
+export function mergeValues(fresh: Map<ModbusRegisterType, Map<number, IModbusResultOrError>>, values: ImodbusValues): void {
+  // Sticky last-known-value semantics: an address that resolved with an error
+  // (IModbusResultOrError.error) must NOT erase a previously known good data
+  // value in `fresh`. Otherwise a transient read failure on a condition or
+  // device-variable register makes conditional entities flip active↔inactive,
+  // and republishDiscoveryIfChanged toggles delete/re-announce every tick -
+  // an infinite MQTT discovery republish loop that also makes entities
+  // flicker in Home Assistant. Error entries only fill addresses that were
+  // never read successfully.
   const merge = (src: Map<number, IModbusResultOrError>, dst: Map<number, IModbusResultOrError>) => {
-    src.forEach((v, k) => dst.set(k, v))
+    src.forEach((v, k) => {
+      if (v && v.error != undefined) {
+        if (dst.has(k)) return // keep last-known good value
+        dst.set(k, v)
+      } else {
+        dst.set(k, v)
+      }
+    })
   }
   merge(values.holdingRegisters, fresh.get(ModbusRegisterType.HoldingRegister)!)
   merge(values.analogInputs, fresh.get(ModbusRegisterType.AnalogInputs)!)
   merge(values.coils, fresh.get(ModbusRegisterType.Coils)!)
   merge(values.discreteInputs, fresh.get(ModbusRegisterType.DiscreteInputs)!)
+}
+
+/**
+ * Marks a register as successfully read only when the merged value actually
+ * carries data. Registers whose read resolved with an error keep lastRead
+ * unchanged so the QoS deadline pressure retries them on the next tick.
+ */
+function markReadOk(
+  plan: IQosSlavePlan,
+  fresh: Map<ModbusRegisterType, Map<number, IModbusResultOrError>>,
+  batch: IQosReadBatch,
+  now: number
+): void {
+  const src = fresh.get(batch.registerType)
+  for (const reg of plan.registers) {
+    if (reg.registerType !== batch.registerType) continue
+    if (reg.address < batch.startAddress || reg.address >= batch.startAddress + batch.length) continue
+    const v = src?.get(reg.address)
+    if (v && v.error == undefined && v.data != undefined && v.data.length > 0) reg.lastRead = now
+  }
 }
 /**
  * Dynamic polling scheduler (PollModes.dynamicPolling).
@@ -376,16 +411,15 @@ export class MqttQosPoller {
           task: ModbusTasks.poll,
           errorHandling: { retry: true },
         })
-        anyRead = true
         mergeValues(fresh, values)
-        for (const reg of plan.registers) {
-          if (
-            reg.registerType === batch.registerType &&
-            reg.address >= batch.startAddress &&
-            reg.address < batch.startAddress + batch.length
-          )
-            reg.lastRead = now
-        }
+        // Only registers that actually returned data advance their deadline.
+        // Errored addresses stay due and are retried by QoS pressure instead of
+        // being treated as "fresh" (which would keep stale values forever).
+        markReadOk(plan, fresh, batch, now)
+        // anyRead only when at least one register produced data: publishing a
+        // state/discovery cycle for nothing but errors is what used to feed the
+        // republish loop.
+        if (plan.registers.some((r) => r.lastRead === now)) anyRead = true
       } catch (e) {
         // lastRead stays unchanged → the register remains due (deadline pressure retries it)
         this.log('read failed: ' + (e instanceof Error ? e.message : String(e)))

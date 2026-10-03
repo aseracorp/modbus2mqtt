@@ -5,8 +5,10 @@ import {
   planReadBatches,
   estimateReadDurationMs,
   defaultQosFor,
+  mergeValues,
 } from '../../src/server/mqttQosPoller.js'
 import { QoSLevels } from '../../src/shared/server/index.js'
+import { ModbusRegisterType } from '../../src/shared/specification/index.js'
 
 function makeSlave(entities: unknown[]) {
   return {
@@ -202,4 +204,53 @@ test('condition register that is also a value register keeps its own QoS', () =>
   const entries = plan.registers.filter((r) => r.address === 501)
   expect(entries.length).toBe(1)
   expect(entries[0].qos).toBe(QoSLevels.regular)
+})
+
+test('mergeValues is sticky: a read error never erases last-known-good data', () => {
+  // Regression: transient read failures on a condition register (or a device-variable
+  // register feeding serial_number/sw_version/entityUom) used to overwrite the sticky
+  // fresh map with {error}. fileToModbusSpecification then saw the condition register
+  // as unknown, conditional entities flipped inactive, and republishDiscoveryIfChanged
+  // toggled delete/re-announce every tick - an infinite discovery republish loop that
+  // also made entities flicker in Home Assistant.
+  const emptyValueMap = () => {
+    const m = new Map<
+      ModbusRegisterType,
+      Map<number, { data?: number[]; error?: Error }>
+    >()
+    m.set(ModbusRegisterType.HoldingRegister, new Map())
+    m.set(ModbusRegisterType.AnalogInputs, new Map())
+    m.set(ModbusRegisterType.Coils, new Map())
+    m.set(ModbusRegisterType.DiscreteInputs, new Map())
+    return m
+  }
+  const fresh = emptyValueMap()
+  const hreg = fresh.get(ModbusRegisterType.HoldingRegister)!
+  // first tick: register 400 (unit system selector) reads fine
+  mergeValues(fresh, {
+    holdingRegisters: new Map([[400, { data: [1] }]]),
+    analogInputs: new Map(),
+    coils: new Map(),
+    discreteInputs: new Map(),
+  } as never)
+  expect(hreg.get(400)!.data).toEqual([1])
+  // second tick: the same register times out -> {error} must NOT erase the good value
+  mergeValues(fresh, {
+    holdingRegisters: new Map([[400, { error: new Error('timeout') }]]),
+    analogInputs: new Map(),
+    coils: new Map(),
+    discreteInputs: new Map(),
+  } as never)
+  expect(hreg.get(400)!.data).toEqual([1])
+  expect(hreg.get(400)!.error).toBeUndefined()
+  // an error DOES fill an address that was never read (keep the error visible)
+  const neverRead = emptyValueMap()
+  const nreg = neverRead.get(ModbusRegisterType.HoldingRegister)!
+  mergeValues(neverRead, {
+    holdingRegisters: new Map([[999, { error: new Error('timeout') }]]),
+    analogInputs: new Map(),
+    coils: new Map(),
+    discreteInputs: new Map(),
+  } as never)
+  expect(nreg.get(999)!.error).toBeInstanceOf(Error)
 })
