@@ -36,4 +36,13 @@ export enum apiUri {
   discoveredModbusServers = '/api/discovered/modbus/servers',
   discoveredModbusAdd = '/api/discovered/modbus/add',
   discoveredModbusIgnore = '/api/discovered/modbus/ignore',
+  // RTU sniffer (passive diagnosis). RTU only - the sniffer observes the bus
+  // traffic of the active ModbusAPI (stack hook) or a dedicated tap port.
+  snifferConfig = '/api/sniffer/config',
+  snifferStart = '/api/sniffer/start',
+  snifferStop = '/api/sniffer/stop',
+  snifferState = '/api/sniffer/state',
+  snifferTelegrams = '/api/sniffer/telegrams',
+  snifferDevices = '/api/sniffer/devices',
+  snifferRegisters = '/api/sniffer/registers',
 }

@@ -30,7 +30,10 @@ RUN pnpm run build
 
 # ---- stage 2: runtime ----
 FROM node:22-alpine AS runtime
-RUN apk add --no-cache tzdata git jq
+# better-sqlite3 compiles a native binding during npm install; the build toolchain
+# (make, g++, python3 for node-gyp) is required in this stage. It is removed at
+# the end of the stage to keep the image lean.
+RUN apk add --no-cache tzdata git jq make g++ python3
 ENV TZ=Europe/London
 WORKDIR /app
 

@@ -5,6 +5,7 @@ import { join } from 'path'
 import Debug from 'debug'
 import { IBus, IModbusConnection, Islave, OWN_SLAVE_FIELDS } from '../../shared/server/index.js'
 import { ICollectionPersistence } from './persistence.js'
+import { SnifferBusConfig } from '../sniffer/types.js'
 
 const debug = Debug('busPersistence')
 
@@ -123,6 +124,38 @@ export class BusPersistence implements ICollectionPersistence<IBus> {
     const busDir = join(this.localDir, 'busses', 'bus.' + busId)
     if (fs.existsSync(busDir)) {
       fs.rmSync(busDir, { recursive: true })
+    }
+  }
+
+  readSnifferConfig(busId: number): SnifferBusConfig | undefined {
+    const busDir = join(this.localDir, 'busses', 'bus.' + busId)
+    const snifferYaml = join(busDir, 'sniffer.yaml')
+    if (!fs.existsSync(snifferYaml)) return undefined
+    try {
+      return parse(fs.readFileSync(snifferYaml, { encoding: 'utf8' })) as SnifferBusConfig
+    } catch (e) {
+      debug('Unable to parse sniffer config for bus ' + busId + ': ' + e)
+      return undefined
+    }
+  }
+
+  writeSnifferConfig(config: SnifferBusConfig): void {
+    const busDir = join(this.localDir, 'busses', 'bus.' + config.busId)
+    if (!fs.existsSync(busDir)) {
+      fs.mkdirSync(busDir, { recursive: true })
+      debug('creating bus path for sniffer config: ' + busDir)
+    }
+    fs.writeFileSync(join(busDir, 'sniffer.yaml'), stringify(config), { encoding: 'utf8' })
+  }
+
+  deleteSnifferConfig(busId: number): void {
+    const snifferYaml = join(this.localDir, 'busses', 'bus.' + busId, 'sniffer.yaml')
+    if (fs.existsSync(snifferYaml)) {
+      try {
+        fs.unlinkSync(snifferYaml)
+      } catch (e) {
+        debug(e)
+      }
     }
   }
 

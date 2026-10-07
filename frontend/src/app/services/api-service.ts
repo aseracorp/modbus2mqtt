@@ -26,6 +26,11 @@ import {
   IidentificationSpecification,
   IModbusConnection,
   IdebugComponentInfo,
+  SnifferBusConfig,
+  SnifferState,
+  SnifferTelegramRow,
+  SnifferDeviceRow,
+  SnifferRegisterRow,
 } from '@shared/server'
 
 @Injectable({
@@ -473,5 +478,37 @@ export class ApiService {
         return new Observable<void>()
       })
     )
+  }
+  // ---- RTU sniffer ----
+  getSnifferConfig(busId: number): Observable<SnifferBusConfig> {
+    return this.httpClient.get<SnifferBusConfig>(this.getFullUri(apiUri.snifferConfig) + `?busid=${busId}`)
+  }
+  postSnifferConfig(config: SnifferBusConfig): Observable<{ busId: number }> {
+    return this.httpClient.post<{ busId: number }>(this.getFullUri(apiUri.snifferConfig), config).pipe(
+      catchError((err) => {
+        this.errorHandler(err)
+        return new Observable<{ busId: number }>()
+      })
+    )
+  }
+  snifferStart(busId: number): Observable<{ busId: number; running: boolean }> {
+    return this.httpClient.post<{ busId: number; running: boolean }>(this.getFullUri(apiUri.snifferStart) + `?busid=${busId}`, {})
+  }
+  snifferStop(busId: number): Observable<{ busId: number; running: boolean }> {
+    return this.httpClient.post<{ busId: number; running: boolean }>(this.getFullUri(apiUri.snifferStop) + `?busid=${busId}`, {})
+  }
+  getSnifferState(busId: number): Observable<SnifferState> {
+    return this.httpClient.get<SnifferState>(this.getFullUri(apiUri.snifferState) + `?busid=${busId}`)
+  }
+  getSnifferTelegrams(busId: number, slaveId?: number, limit = 100): Observable<SnifferTelegramRow[]> {
+    const slave = slaveId !== undefined ? `&slaveid=${slaveId}` : ''
+    return this.httpClient.get<SnifferTelegramRow[]>(this.getFullUri(apiUri.snifferTelegrams) + `?busid=${busId}${slave}&limit=${limit}`)
+  }
+  getSnifferDevices(busId: number): Observable<SnifferDeviceRow[]> {
+    return this.httpClient.get<SnifferDeviceRow[]>(this.getFullUri(apiUri.snifferDevices) + `?busid=${busId}`)
+  }
+  getSnifferRegisters(busId: number, slaveId?: number): Observable<SnifferRegisterRow[]> {
+    const slave = slaveId !== undefined ? `&slaveid=${slaveId}` : ''
+    return this.httpClient.get<SnifferRegisterRow[]>(this.getFullUri(apiUri.snifferRegisters) + `?busid=${busId}${slave}`)
   }
 }

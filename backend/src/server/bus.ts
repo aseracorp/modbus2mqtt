@@ -190,6 +190,7 @@ export class Bus implements IModbusConfiguration {
   properties: IBus
   private tcprtuBridge: ModbusTcpRtuBridge | undefined
   private modbusAPI: ModbusAPI
+  private snifferSink: import('./sniffer/transport.js').SnifferByteSink | undefined
   constructor(ibus: IBus) {
     this.properties = ibus
     this.modbusAPI = new ModbusAPI(this)
@@ -197,6 +198,16 @@ export class Bus implements IModbusConfiguration {
     if (rtuConnection.serialport && typeof rtuConnection.tcpBridgePort === 'number') {
       this.startTcpRtuBridge(rtuConnection.tcpBridgePort)
     }
+  }
+
+  /**
+   * Attaches/detaches the sniffer sink at runtime. The ModbusAPI forwards every
+   * observed request/response byte to it. Called by the sniffer registry when a
+   * sniffer starts/stops on this bus.
+   */
+  setSnifferSink(sink: import('./sniffer/transport.js').SnifferByteSink | undefined): void {
+    this.snifferSink = sink
+    this.modbusAPI.setSnifferSink(sink)
   }
   getModbusAPI(): IconsumerModbusAPI {
     return this.modbusAPI
