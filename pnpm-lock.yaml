@@ -17,6 +17,9 @@ importers:
       async-mutex:
         specifier: ^0.5.0
         version: 0.5.0
+      better-sqlite3:
+        specifier: ^11.10.0
+        version: 11.10.0
       bootstrap:
         specifier: ^5.3.3
         version: 5.3.8(@popperjs/core@2.11.8)
@@ -3194,6 +3197,9 @@ packages:
   beasties@0.3.5:
     resolution: {integrity: sha512-NaWu+f4YrJxEttJSm16AzMIFtVldCvaJ68b1L098KpqXmxt9xOLtKoLkKxb8ekhOrLqEJAbvT6n6SEvB/sac7A==}
     engines: {node: '>=14.0.0'}
+
+  better-sqlite3@11.10.0:
+    resolution: {integrity: sha512-EwhOpyXiOEL/lKzHz9AW1msWFNzGc/z+LzeB3/jnFJpxu+th2yqvzsSWas1v9jgs9+xiXJcD5A8CJxAG2TaghQ==}
 
   big.js@5.2.2:
     resolution: {integrity: sha512-vyL2OymJxmarO8gxMr0mhChsO9QGwhynfuu4+MHTAW6czfq9humCB7rKpUjDd9YUiDPU4mzpyupFSvOClAwbmQ==}
@@ -10018,6 +10024,8 @@ snapshots:
       picocolors: 1.1.1
       postcss: 8.5.6
       postcss-media-query-parser: 0.2.3
+
+  better-sqlite3@11.10.0: {}
 
   big.js@5.2.2: {}
 
