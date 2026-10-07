@@ -20,6 +20,7 @@
     "adm-zip": "^0.5.16",
     "assert": "^2.1.0",
     "async-mutex": "^0.5.0",
+    "better-sqlite3": "^11.10.0",
     "bonjour-service": "^1.4.4",
     "bootstrap": "^5.3.3",
     "commander": "^14.0.2",
@@ -43,6 +44,7 @@
     "@babel/preset-typescript": "^7.27.1",
     "@opengovsg/credits-generator": "^1.0.7",
     "@types/adm-zip": "^0.5.5",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/debug": "^4.1.12",
     "@types/express": "^5.0.0",
     "@types/express-session": "^1.19.0",
@@ -78,5 +80,11 @@
     "typescript-eslint": "^8.46.4",
     "typescript-map": "^0.1.0",
     "vitest": "^1.6.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "@serialport/bindings-cpp"
+    ]
   }
 }

@@ -23,6 +23,8 @@ import { IModbusAPI } from './modbusWorker.js'
 import { submitGetHoldingRegisterRequest } from './submitRequestMock.js'
 import { ModbusRTUWorker } from './modbusRTUworker.js'
 import { IQueueOptions, ModbusRTUQueue } from './modbusRTUqueue.js'
+import { StackHookTransport } from './sniffer/hookTransport.js'
+import type { SnifferByteSink } from './sniffer/transport.js'
 import Debug from 'debug'
 
 const log = new Logger('bus')
@@ -58,12 +60,43 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
   private modbusClient: ModbusRTULike | undefined
   private modbusClientTimedOut: boolean = false
   private _modbusRTUWorker: ModbusRTUWorker
+  private snifferSink: SnifferByteSink | undefined
   constructor(
     private modbusConfiguration: IModbusConfiguration,
     private modbusRTUQueue = new ModbusRTUQueue(),
     private modbusRTUprocessor = new ModbusRTUProcessor(modbusRTUQueue)
   ) {
     this._modbusRTUWorker = new ModbusRTUWorker(this, modbusRTUQueue)
+  }
+
+  /** Attaches/detaches the sniffer sink at runtime (see Bus.setSnifferSink). */
+  setSnifferSink(sink: SnifferByteSink | undefined): void {
+    this.snifferSink = sink
+  }
+
+  /**
+   * Emits a request frame to the sniffer sink. The frame is a minimal ADU
+   * (address, function, addrHi/Lo, qtyHi/Lo) without CRC; the RtuFrameParser
+   * reconstructs the framing from the silence gaps. Slave id is included so
+   * response pairing works.
+   */
+  private emitSnifferRequest(slaveId: number, functionCode: number, address: number, length: number): void {
+    if (!this.snifferSink) return
+    this.snifferSink.onBytes('request', [
+      slaveId & 0xff,
+      functionCode,
+      (address >> 8) & 0xff,
+      address & 0xff,
+      (length >> 8) & 0xff,
+      length & 0xff,
+    ])
+  }
+
+  private emitSnifferResponse(slaveId: number, functionCode: number, data: number[]): void {
+    if (!this.snifferSink) return
+    const bytes: number[] = [slaveId & 0xff, functionCode, (data.length * 2) & 0xff]
+    data.forEach((w) => bytes.push((w >> 8) & 0xff, w & 0xff))
+    this.snifferSink.onBytes('response', bytes)
   }
   getCacheId(): string {
     return this.modbusConfiguration.getName()
@@ -152,11 +185,15 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
         this.modbusClient!.setTimeout(slaveTimout)
         const start = Date.now()
         debugMClient('%s call: %d %d', fctName, dataaddress, length)
+        // Observe request/response for the sniffer (function code derived from fctName).
+        const fc = this.snifferFunctionCode(fctName)
+        if (fc !== undefined) this.emitSnifferRequest(slaveid, fc, dataaddress, length)
         fct(dataaddress, length)
           .then((result) => {
             this.clearModbusTimout()
             const rc = resultMapper(result, start)
             debugMClient('%s success: %d %d %o', fctName, dataaddress, length, rc.data)
+            if (fc !== undefined) this.emitSnifferResponse(slaveid, fc, rc.data)
             resolve(rc)
           })
           .catch((e) => {
@@ -167,6 +204,21 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
     })
     return rc
   }
+  private snifferFunctionCode(fctName: string): number | undefined {
+    switch (fctName) {
+      case 'Holding':
+        return 0x03
+      case 'Input':
+        return 0x04
+      case 'Coil':
+        return 0x01
+      case 'Discrete':
+        return 0x02
+      default:
+        return undefined
+    }
+  }
+
   private static registerResultMapper(inp: ReadRegisterResult, start: number): IModbusResultWithDuration {
     return {
       data: inp.data,
@@ -240,9 +292,11 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
       } else {
         this.modbusClient!.setID(slaveid)
         this.modbusClient!.setTimeout((this.modbusConfiguration.getModbusConnection() as IRTUConnection).timeout)
+        this.emitSnifferRequest(slaveid, 0x10, dataaddress, data.length)
         this.modbusClient!.writeRegisters(dataaddress, data)
           .then(() => {
             this.modbusClientTimedOut = false
+            this.emitSnifferResponse(slaveid, 0x10, data)
             resolve()
           })
           .catch((e) => {
@@ -262,10 +316,12 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
         this.modbusClient!.setID(slaveid)
         this.modbusClient!.setTimeout((this.modbusConfiguration.getModbusConnection() as IRTUConnection).timeout)
         const dataNums: number[] = data.map((d) => (d === 1 ? 1 : 0))
+        this.emitSnifferRequest(slaveid, 0x0f, dataaddress, dataNums.length)
         // Always use writeCoils; for single value pass array of one element
         this.modbusClient!.writeCoils(dataaddress, dataNums)
           .then(() => {
             this.modbusClientTimedOut = false
+            this.emitSnifferResponse(slaveid, 0x0f, dataNums)
             resolve()
           })
           .catch((e) => {
@@ -310,6 +366,7 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
       return this.modbusClient.connectTCP(host, { port: tcpport })
     }
   }
+
   private connectRTUClient(): Promise<void> {
     // Serialize so the modbusClient gets initialized/opened only once, even if called in parallel.
     return this.connectMutex.runExclusive(() => this.connectRTUClientLocked())

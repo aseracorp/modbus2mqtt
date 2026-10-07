@@ -1,0 +1,148 @@
+<div class="sniffer-panel">
+  <div class="sniffer-controls">
+    <mat-slide-toggle [formControl]="enabledControl" color="primary">
+      {{ t('sniffer.enabled') }}
+    </mat-slide-toggle>
+
+    <mat-form-field class="sniffer-field">
+      <mat-label>{{ t('sniffer.mode') }}</mat-label>
+      <mat-select [formControl]="modeControl">
+        <mat-option value="stack">{{ t('sniffer.modeStack') }}</mat-option>
+        <mat-option value="tap">{{ t('sniffer.modeTap') }}</mat-option>
+        <mat-option value="auto">{{ t('sniffer.modeAuto') }}</mat-option>
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field class="sniffer-field">
+      <mat-label>{{ t('sniffer.tapDevice') }}</mat-label>
+      <input matInput [formControl]="tapDeviceControl" placeholder="/dev/ttyUSB1" />
+    </mat-form-field>
+
+    <mat-form-field class="sniffer-field sniffer-baud">
+      <mat-label>{{ t('sniffer.baudRate') }}</mat-label>
+      <input matInput type="number" [formControl]="baudControl" />
+    </mat-form-field>
+
+    @if (!isRunning()) {
+      <button mat-icon-button color="primary" [matTooltip]="t('sniffer.start')" (click)="start()">
+        <mat-icon>play_arrow</mat-icon>
+      </button>
+    } @else {
+      <button mat-icon-button color="warn" [matTooltip]="t('sniffer.stop')" (click)="stop()">
+        <mat-icon>stop</mat-icon>
+      </button>
+    }
+    <button mat-icon-button color="primary" [matTooltip]="t('sniffer.save')" (click)="saveConfig()">
+      <mat-icon>save</mat-icon>
+    </button>
+  </div>
+
+  <div class="sniffer-status">
+    @if (state?.running) {
+      <span class="sniffer-running">
+        <mat-icon>sensors</mat-icon>
+        {{ t('sniffer.running') }} — {{ state?.telegramCount ?? 0 }} {{ t('sniffer.telegrams') }}
+      </span>
+    } @else {
+      <span class="sniffer-stopped">
+        <mat-icon>sensors_off</mat-icon>
+        {{ t('sniffer.stopped') }}
+      </span>
+    }
+    @if (state?.error) {
+      <span class="sniffer-error">{{ state?.error }}</span>
+    }
+  </div>
+
+  @if (isRunning()) {
+    <div class="sniffer-tables">
+      <h4>{{ t('sniffer.telegrams') }}</h4>
+      <table class="sniffer-table">
+        <thead>
+          <tr>
+            <th>{{ t('sniffer.time') }}</th>
+            <th>{{ t('sniffer.dir') }}</th>
+            <th>{{ t('sniffer.slave') }}</th>
+            <th>{{ t('sniffer.function') }}</th>
+            <th>{{ t('sniffer.address') }}</th>
+            <th>{{ t('sniffer.length') }}</th>
+            <th>{{ t('sniffer.data') }}</th>
+            <th>CRC</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (tg of telegrams; track tg.id) {
+            <tr [class.crc-bad]="!tg.crcOk">
+              <td>{{ time(tg.timestamp) }}</td>
+              <td>{{ SnifferComponent.formatDirection(tg.direction) }}</td>
+              <td>{{ tg.slaveId }}</td>
+              <td>{{ tg.functionName ?? ('0x' + tg.functionCode.toString(16)) }}</td>
+              <td>{{ tg.address ?? '' }}</td>
+              <td>{{ tg.length ?? '' }}</td>
+              <td class="sniffer-hex">{{ hexRow(tg.rawHex) }}</td>
+              <td>{{ tg.crcOk ? '✓' : '✗' }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="8">{{ t('sniffer.noTelegrams') }}</td></tr>
+          }
+        </tbody>
+      </table>
+
+      <h4>{{ t('sniffer.devices') }}</h4>
+      <table class="sniffer-table">
+        <thead>
+          <tr>
+            <th>{{ t('sniffer.slave') }}</th>
+            <th>{{ t('sniffer.firstSeen') }}</th>
+            <th>{{ t('sniffer.lastSeen') }}</th>
+            <th>{{ t('sniffer.requests') }}</th>
+            <th>{{ t('sniffer.responses') }}</th>
+            <th>{{ t('sniffer.errors') }}</th>
+            <th>{{ t('sniffer.lastFunction') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (dev of devices; track dev.slaveId) {
+            <tr>
+              <td>{{ dev.slaveId }}</td>
+              <td>{{ time(dev.firstSeen) }}</td>
+              <td>{{ time(dev.lastSeen) }}</td>
+              <td>{{ dev.requestCount }}</td>
+              <td>{{ dev.responseCount }}</td>
+              <td>{{ dev.errorCount }}</td>
+              <td>{{ dev.lastFunction ?? '' }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="7">{{ t('sniffer.noDevices') }}</td></tr>
+          }
+        </tbody>
+      </table>
+
+      <h4>{{ t('sniffer.registers') }}</h4>
+      <table class="sniffer-table">
+        <thead>
+          <tr>
+            <th>{{ t('sniffer.slave') }}</th>
+            <th>{{ t('sniffer.address') }}</th>
+            <th>{{ t('sniffer.value') }}</th>
+            <th>{{ t('sniffer.converter') }}</th>
+            <th>{{ t('sniffer.uom') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (reg of registers; track reg.id) {
+            <tr>
+              <td>{{ reg.slaveId }}</td>
+              <td>{{ reg.address }}</td>
+              <td>{{ reg.words.join(', ') }}</td>
+              <td>{{ reg.converter ?? '' }}</td>
+              <td>{{ reg.uom ?? '' }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="5">{{ t('sniffer.noRegisters') }}</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>

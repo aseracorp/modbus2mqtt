@@ -13,6 +13,7 @@ import { registerSlaveRoutes } from './routes/slaveRoutes.js'
 import { registerModbusRoutes } from './routes/modbusRoutes.js'
 import { registerE2eRoutes } from './routes/e2eRoutes.js'
 import { registerDiscoveredModbusRoutes } from './routes/discoveredModbusRoutes.js'
+import { registerSnifferRoutes } from './routes/snifferRoutes.js'
 
 const debug = Debug('httpserver')
 
@@ -50,5 +51,6 @@ export class HttpServer extends HttpServerBase {
     registerModbusRoutes(registrar)
     registerE2eRoutes(registrar)
     registerDiscoveredModbusRoutes(registrar)
+    registerSnifferRoutes(registrar)
   }
 }

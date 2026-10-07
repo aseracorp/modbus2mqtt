@@ -1,0 +1,80 @@
+.sniffer-panel {
+  margin-top: 12px;
+  border-top: 1px solid var(--border, #ddd);
+  padding-top: 8px;
+  font-size: 12px;
+}
+
+.sniffer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sniffer-field {
+  width: 140px;
+}
+
+.sniffer-baud {
+  width: 90px;
+}
+
+.sniffer-status {
+  margin: 6px 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.sniffer-running {
+  color: #2e7d32;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sniffer-stopped {
+  color: #888;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sniffer-error {
+  color: #c62828;
+}
+
+.sniffer-tables h4 {
+  margin: 10px 0 4px;
+  font-weight: 500;
+}
+
+.sniffer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.sniffer-table th,
+.sniffer-table td {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 2px 6px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sniffer-table th {
+  background: rgba(0, 0, 0, 0.04);
+  font-weight: 600;
+}
+
+.sniffer-hex {
+  word-break: break-all;
+}
+
+.crc-bad td {
+  background: rgba(198, 40, 40, 0.08);
+  color: #c62828;
+}
