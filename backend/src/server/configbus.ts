@@ -318,6 +318,37 @@ export class ConfigBus {
     }
   }
 
+  /**
+   * Scan /dev for tty devices that node-serialport may not report.
+   *
+   * On udev-less systems (e.g. OpenWrt, minimal containers) SerialPort.list()
+   * returns an empty list even when usable serial devices exist, because the
+   * /dev/serial/by-id symlinks (created by udev) are missing. This scans the
+   * well-known serial device node patterns directly and returns the readable
+   * /dev paths. Exported for unit testing.
+   */
+  static scanDevTtyDevices(devDir: string = '/dev'): string[] {
+    let entries: string[] = []
+    try {
+      entries = fs.readdirSync(devDir)
+    } catch {
+      return []
+    }
+    const pattern = /^(ttyACM\d+|ttyUSB\d+|ttyS\d+|ttyAMA\d+|ttyModbus\d*|ttyXRUSB\d+|ttyTHS\d+)$/
+    const devices: string[] = []
+    for (const entry of entries) {
+      if (!pattern.test(entry)) continue
+      const path = `${devDir}/${entry}`
+      try {
+        fs.accessSync(path, fs.constants.R_OK)
+        devices.push(path)
+      } catch (e) {
+        log.log(LogLevelEnum.error, 'Permission denied for read serial device %s %s', path, String(e))
+      }
+    }
+    return devices.sort()
+  }
+
   private static listDevicesUdev(next: (devices: string[]) => void, reject: (error: Error) => void): void {
     SerialPort.list()
       .then((portInfo) => {
@@ -325,7 +356,13 @@ export class ConfigBus {
         portInfo.forEach((port) => {
           devices.push(port.path)
         })
-        next(devices)
+        // node-serialport may not report devices on udev-less systems and never
+        // reports aliases like /dev/ttyModbus. Merge the direct /dev scan in so
+        // the serial device list is always usable.
+        for (const devPath of ConfigBus.scanDevTtyDevices()) {
+          if (!devices.includes(devPath)) devices.push(devPath)
+        }
+        next(devices.sort())
       })
 
       .catch((error: unknown) => {
