@@ -366,7 +366,16 @@ export class ConfigBus {
       })
 
       .catch((error: unknown) => {
-        reject(error instanceof Error ? error : new Error(String(error)))
+        // SerialPort.list() can reject outright on udev-less systems (missing
+        // /run/udev or sysfs) instead of resolving with an empty list. The
+        // device nodes may still exist and be readable — fall back to the
+        // direct /dev scan so the serial device list stays usable.
+        log.log(LogLevelEnum.warn, 'SerialPort.list() failed (%s), falling back to /dev scan', String(error))
+        const devices: string[] = []
+        for (const devPath of ConfigBus.scanDevTtyDevices()) {
+          if (!devices.includes(devPath)) devices.push(devPath)
+        }
+        next(devices.sort())
       })
   }
 
