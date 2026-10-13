@@ -20,7 +20,7 @@ interface HassioHardwareInfo {
   }
 }
 
-/** Thrown when a slave that others reference would be deleted. The HTTP layer maps it to 409. */
+/** Throw when a slave that others reference would be deleted. The HTTP layer maps it to 409. */
 export class SlaveReferencedError extends Error {
   constructor(
     readonly slaveid: number,
@@ -31,7 +31,7 @@ export class SlaveReferencedError extends Error {
 }
 
 export class ConfigBus {
-  private static busses: IBus[]
+  private static busses: IBus[] = []
   private static persistence: BusPersistence
   private static listeners: {
     event: ConfigListenerEvent
@@ -94,7 +94,7 @@ export class ConfigBus {
       })
       bus.slaves.forEach((slave) => {
         ConfigBus.addSpecification(slave)
-        ConfigBus.emitSlaveEvent(ConfigListenerEvent.addSlave, new Slave(bus.busId, slave, Config.getConfiguration().mqttbasetopic))
+        ConfigBus.emitSlaveEvent(ConfigListenerEvent.addSlave, new Slave(bus.slaves.length, slave, Config.getConfiguration().mqttbasetopic))
       })
     })
 
@@ -174,10 +174,6 @@ export class ConfigBus {
    * so the rest of the system sees a complete Islave (same idea as addSpecification()). The child's
    * own fields (OWN_SLAVE_FIELDS) survive; anything else it carries is dropped first, so a client
    * cannot smuggle in values that would silently differ from the root.
-   *
-   * A missing root is tolerated: the child keeps its own fields only, which leaves it without a
-   * specification, so it is neither polled nor discovered. That can only happen when the config was
-   * hand-edited - the API prevents it (see deleteSlave / slaveRoutes).
    */
   static resolveReference(bus: IBus, slave: Islave): void {
     const root = bus.slaves.find((s) => s.slaveid === slave.referenceSlaveId)
@@ -278,7 +274,7 @@ export class ConfigBus {
    * referential invariant belongs: a referenced slave is never deleted silently. Without
    * detachReferences the delete fails; with it, the referencing slaves keep their configuration by
    * becoming standalone slaves (their inherited values are written to their files) before the root
-   * goes away. Both paths are explicit - the backend never orphans a slave and never rewrites other
+   * goes away. Both paths are explicit - the backend never orphanes a slave and never rewrites other
    * slaves unasked.
    */
   static deleteSlave(busid: number, slaveid: number, detachReferences: boolean = false) {
@@ -293,7 +289,7 @@ export class ConfigBus {
     }
     const bus = ConfigBus.busses.find((bus) => bus.busId == busid)
     if (bus != undefined) {
-      debug('DELETE /slave slaveid' + busid + '/' + slaveid + ' number of slaves: ' + bus.slaves.length)
+      debug('DELETE /slave slaveid ' + busid + '/' + slaveid + ' number of slaves: ' + bus.slaves.length)
       let found = false
       for (let idx = 0; idx < bus.slaves.length; idx++) {
         const slave = bus.slaves[idx]
@@ -312,7 +308,7 @@ export class ConfigBus {
       if (!found) debug('slave not found for deletion ' + slaveid)
     } else {
       const msg = 'Unable to delete slave. Check server log for details'
-      log.log(LogLevelEnum.error, msg + ' busid ' + busid + ' not found')
+      log.log(LogLevelEnum.error, msg + ' bus ' + busid + ' not found')
 
       throw new Error(msg)
     }
@@ -323,7 +319,8 @@ export class ConfigBus {
    *
    * On udev-less systems (e.g. OpenWrt, minimal containers) SerialPort.list()
    * returns an empty list even when usable serial devices exist, because the
-   * /dev/serial/by-id symlinks (created by udev) are missing. This scans the
+   * /dev/serial/by-id symlinks (created by udev) are missing. This also never
+   * reports container device aliases like /dev/ttyModbus. This scans the
    * well-known serial device node patterns directly and returns the readable
    * /dev paths. Exported for unit testing.
    */
@@ -366,7 +363,16 @@ export class ConfigBus {
       })
 
       .catch((error: unknown) => {
-        reject(error instanceof Error ? error : new Error(String(error)))
+        // SerialPort.list() can reject outright on udev-less systems (missing
+        // /run/udev or sysfs) instead of resolving with an empty list. The
+        // device nodes may still exist and be readable — fall back to the
+        // direct /dev scan so the serial device list stays usable.
+        log.log(LogLevelEnum.warn, 'SerialPort.list() failed (%s), falling back to /dev scan', String(error))
+        const devices: string[] = []
+        for (const devPath of ConfigBus.scanDevTtyDevices()) {
+          if (!devices.includes(devPath)) devices.push(devPath)
+        }
+        next(devices.sort())
       })
   }
 
@@ -394,7 +400,7 @@ export class ConfigBus {
     )
   }
 
-  static listDevices(next: (devices: string[]) => void, reject: () => void): void {
+  static listDevices(next: (devices: string[]) => void, reject: (error: Error) => void): void {
     try {
       ConfigBus.listDevicesHassio(next, () => {
         this.listDevicesUdev(next, reject)
