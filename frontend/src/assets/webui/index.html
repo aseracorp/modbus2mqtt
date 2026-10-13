@@ -470,6 +470,76 @@
   </div>
 </div>
 
+<!-- RTU sniffer modal: passively observe Modbus RTU traffic on a bus
+     (stack hook = inside this instance's own ModbusAPI; tap = dedicated
+     second serial port listening on the same RS-485 line). -->
+<div class="modal-overlay" id="sniffer-overlay" hidden>
+  <div class="modal modal-xlg">
+    <h3 id="sniffer-title" data-i18n="sniffer_title">RTU sniffer</h3>
+    <div class="sniffer-toolbar">
+      <label class="sniffer-chk"><input type="checkbox" id="sn-enabled" data-i18n-label="sniffer_enabled"> <span data-i18n="sniffer_enabled">Sniffer enabled (auto-start with app)</span></label>
+      <label class="sniffer-mode"><span data-i18n="sniffer_mode">Mode</span>
+        <select id="sn-mode">
+          <option value="stack" data-i18n="sniffer_mode_stack">Stack hook (listen to this instance's traffic)</option>
+          <option value="tap" data-i18n="sniffer_mode_tap">Tap port (passive listen on separate serial port)</option>
+          <option value="auto" data-i18n="sniffer_mode_auto">Auto (stack if active, else tap)</option>
+        </select>
+      </label>
+      <label class="sniffer-mode sniffer-tapdev" id="sn-tapdev-wrap" hidden><span data-i18n="sniffer_tap_device">Tap device</span>
+        <input type="text" id="sn-tapdev" placeholder="/dev/ttyUSB1">
+      </label>
+      <label class="sniffer-mode sniffer-baud"><span data-i18n="sniffer_baud">Baud</span>
+        <input type="number" id="sn-baud" value="9600">
+      </label>
+      <span class="sniffer-spacer"></span>
+      <button class="btn btn-primary" id="sn-start" data-i18n="sniffer_start">Start</button>
+      <button class="btn" id="sn-stop" hidden data-i18n="sniffer_stop">Stop</button>
+      <button class="btn" id="sn-save" data-i18n="sniffer_save_config">Save config</button>
+      <button class="btn" id="sn-close" data-i18n="close">Close</button>
+    </div>
+    <div class="sniffer-status"><span id="sn-status-badge" class="sniffer-stopped-badge">Stopped</span> <span id="sn-status-extra"></span></div>
+    <div class="sniffer-tabs">
+      <div class="sniffer-tab-head">
+        <button type="button" class="sniffer-tab-btn active" data-sntab="telegrams" data-i18n="sniffer_telegrams">Telegrams</button>
+        <button type="button" class="sniffer-tab-btn" data-sntab="devices" data-i18n="sniffer_devices">Devices</button>
+        <button type="button" class="sniffer-tab-btn" data-sntab="registers" data-i18n="sniffer_registers">Registers</button>
+      </div>
+      <div class="sniffer-tab-panel" id="sntab-telegrams">
+        <table class="sniffer-table">
+          <thead><tr>
+            <th data-i18n="sniffer_time">Time</th><th data-i18n="sniffer_dir">Dir</th>
+            <th data-i18n="sniffer_slave">Slave</th><th data-i18n="sniffer_func">Function</th>
+            <th data-i18n="sniffer_addr">Addr</th><th data-i18n="sniffer_len">Len</th>
+            <th data-i18n="sniffer_data">Data</th><th>CRC</th>
+          </tr></thead>
+          <tbody id="sn-telegram-body"><tr><td colspan="8" class="sniffer-empty" data-i18n="sniffer_no_telegrams">No telegrams yet.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="sniffer-tab-panel" id="sntab-devices" hidden>
+        <table class="sniffer-table">
+          <thead><tr>
+            <th data-i18n="sniffer_slave">Slave</th><th data-i18n="sniffer_first_seen">First seen</th>
+            <th data-i18n="sniffer_last_seen">Last seen</th><th data-i18n="sniffer_reqs">Requests</th>
+            <th data-i18n="sniffer_resps">Responses</th><th data-i18n="sniffer_errors">Errors</th>
+            <th data-i18n="sniffer_last_func">Last function</th>
+          </tr></thead>
+          <tbody id="sn-device-body"><tr><td colspan="7" class="sniffer-empty" data-i18n="sniffer_no_devices">No devices seen yet.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="sniffer-tab-panel" id="sntab-registers" hidden>
+        <table class="sniffer-table">
+          <thead><tr>
+            <th data-i18n="sniffer_slave">Slave</th><th data-i18n="sniffer_addr">Addr</th>
+            <th data-i18n="sniffer_value">Value</th><th data-i18n="sniffer_converter">Converter</th>
+            <th data-i18n="sniffer_uom">Unit</th>
+          </tr></thead>
+          <tbody id="sn-register-body"><tr><td colspan="5" class="sniffer-empty" data-i18n="sniffer_no_registers">No registers decoded yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <script src="lang/en.js"></script>
 <script src="lang/de.js"></script>

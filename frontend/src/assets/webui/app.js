@@ -299,6 +299,9 @@ function renderBusses() {
           <span class="bus-sub">${(bus.slaves || []).length} ${t('device_count')}</span>
           <span class="bus-actions">
             <button class="icon-btn bus-add-slave" title="${t('add_slave')}" data-busid="${bus.busId}">＋</button>
+            ${(bus.connectionData && bus.connectionData.serialport)
+              ? '<button class="icon-btn bus-sniffer" title="' + t('sniffer_title') + '" data-busid="' + bus.busId + '">👁</button>'
+              : ''}
             <button class="icon-btn bus-edit" title="${t('edit_bus')}" data-busid="${bus.busId}">✎</button>
             <button class="icon-btn bus-del" title="${t('remove_device')}" data-busid="${bus.busId}">✕</button>
           </span>
@@ -324,6 +327,9 @@ function renderBusses() {
   });
   list.querySelectorAll('.bus-del').forEach((b) => {
     b.addEventListener('click', (e) => { e.stopPropagation(); confirmRemoveBus(b.getAttribute('data-busid')); });
+  });
+  list.querySelectorAll('.bus-sniffer').forEach((b) => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); openSniffer(b.getAttribute('data-busid')); });
   });
   list.querySelectorAll('.slave-edit').forEach((b) => {
     b.addEventListener('click', () => openEditSlave(b.getAttribute('data-busid'), b.getAttribute('data-slaveid')));
@@ -2484,6 +2490,201 @@ function initCustomSelect(selectId) {
   window.addEventListener('resize', () => { if (shown) position(); });
   window.addEventListener('scroll', () => { if (shown) position(); }, true);
 })();
+
+/* ---------------- RTU sniffer ---------------- */
+let snifferBusId = null;
+let snifferPollTimer = null;
+let snifferState = null;
+
+function snifferModeTapVisible() {
+  const mode = $('sn-mode')?.value || 'stack';
+  $('sn-tapdev-wrap').hidden = (mode !== 'tap' && mode !== 'auto');
+}
+
+async function openSniffer(busid) {
+  snifferBusId = Number(busid);
+  try {
+    const cfg = await api('/api/sniffer/config?busid=' + snifferBusId);
+    $('sn-mode').value = cfg.mode || 'stack';
+    $('sn-tapdev').value = cfg.tapDevice || '';
+    $('sn-baud').value = cfg.baudRate || 9600;
+    $('sn-enabled').checked = !!cfg.enabled;
+  } catch (e) { /* defaults are fine */ }
+  snifferModeTapVisible();
+  $('sniffer-overlay').hidden = false;
+  snifferRefresh();
+  startSnifferPolling();
+}
+
+function closeSniffer() {
+  stopSnifferPolling();
+  $('sniffer-overlay').hidden = true;
+  snifferBusId = null;
+}
+
+function startSnifferPolling() {
+  stopSnifferPolling();
+  snifferPollTimer = setInterval(snifferRefresh, 2000);
+}
+function stopSnifferPolling() {
+  if (snifferPollTimer) { clearInterval(snifferPollTimer); snifferPollTimer = null; }
+}
+
+function snifferTime(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function snifferHexRow(hex) {
+  if (!hex) return '';
+  return String(hex).match(/.{1,2}/g)?.join(' ') || String(hex);
+}
+function snifferDir(d) { return d === 'request' ? '→' : '←'; }
+
+async function snifferRefresh() {
+  if (snifferBusId == null) return;
+  const bid = snifferBusId;
+  try {
+    const state = await api('/api/sniffer/state?busid=' + bid);
+    if (snifferBusId !== bid) return; // closed/changed meanwhile
+    snifferState = state;
+    const running = state && state.running;
+    const badge = $('sn-status-badge');
+    if (running) {
+      badge.textContent = '◉ ' + t('sniffer_running');
+      badge.className = 'sniffer-running-badge';
+    } else {
+      badge.textContent = '○ ' + t('sniffer_stopped');
+      badge.className = 'sniffer-stopped-badge';
+    }
+    const extra = $('sn-status-extra');
+    extra.textContent = (running && state.telegramCount != null)
+      ? (state.telegramCount + ' ' + t('sniffer_telegrams').toLowerCase())
+      : (state && state.error ? state.error : '');
+    extra.style.color = (state && state.error) ? 'var(--danger, #b22222)' : '';
+    $('sn-start').hidden = running;
+    $('sn-stop').hidden = !running;
+    if (running) {
+      const [tgs, devs, regs] = await Promise.all([
+        api('/api/sniffer/telegrams?busid=' + bid + '&limit=100'),
+        api('/api/sniffer/devices?busid=' + bid),
+        api('/api/sniffer/registers?busid=' + bid)
+      ]);
+      if (snifferBusId !== bid) return;
+      renderSnifferTelegrams(tgs || []);
+      renderSnifferDevices(devs || []);
+      renderSnifferRegisters(regs || []);
+    } else {
+      renderSnifferTelegrams([]);
+      renderSnifferDevices([]);
+      renderSnifferRegisters([]);
+    }
+  } catch (e) {
+    // transient — keep polling
+  }
+}
+
+function renderSnifferTelegrams(tgs) {
+  const body = $('sn-telegram-body');
+  if (!body) return;
+  if (!tgs.length) {
+    body.innerHTML = '<tr><td colspan="8" class="sniffer-empty">' + t('sniffer_no_telegrams') + '</td></tr>';
+    return;
+  }
+  body.innerHTML = tgs.map((tg) => {
+    const crcOk = tg.crcOk === undefined ? '' : (tg.crcOk ? '✓' : '✗');
+    const cls = tg.crcOk === false ? ' class="sniffer-crc-bad"' : '';
+    return '<tr' + cls + '><td>' + snifferTime(tg.timestamp) + '</td>' +
+      '<td class="sniffer-mono">' + snifferDir(tg.direction) + '</td>' +
+      '<td>' + (tg.slaveId ?? '') + '</td>' +
+      '<td>' + escapeHtml(tg.functionName || ('0x' + Number(tg.functionCode).toString(16))) + '</td>' +
+      '<td>' + (tg.address ?? '') + '</td>' +
+      '<td>' + (tg.length ?? '') + '</td>' +
+      '<td class="sniffer-mono">' + snifferHexRow(tg.rawHex) + '</td>' +
+      '<td>' + crcOk + '</td></tr>';
+  }).join('');
+}
+function renderSnifferDevices(devs) {
+  const body = $('sn-device-body');
+  if (!body) return;
+  if (!devs.length) {
+    body.innerHTML = '<tr><td colspan="7" class="sniffer-empty">' + t('sniffer_no_devices') + '</td></tr>';
+    return;
+  }
+  body.innerHTML = devs.map((d) =>
+    '<tr><td>' + d.slaveId + '</td><td>' + snifferTime(d.firstSeen) + '</td>' +
+    '<td>' + snifferTime(d.lastSeen) + '</td><td>' + (d.requestCount ?? 0) + '</td>' +
+    '<td>' + (d.responseCount ?? 0) + '</td><td>' + (d.errorCount ?? 0) + '</td>' +
+    '<td>' + escapeHtml(d.lastFunction || '') + '</td></tr>'
+  ).join('');
+}
+function renderSnifferRegisters(regs) {
+  const body = $('sn-register-body');
+  if (!body) return;
+  if (!regs.length) {
+    body.innerHTML = '<tr><td colspan="5" class="sniffer-empty">' + t('sniffer_no_registers') + '</td></tr>';
+    return;
+  }
+  body.innerHTML = regs.map((r) =>
+    '<tr><td>' + r.slaveId + '</td><td>' + r.address + '</td>' +
+    '<td class="sniffer-mono">' + escapeHtml((r.words || []).join(', ')) + '</td>' +
+    '<td>' + escapeHtml(r.converter || '') + '</td>' +
+    '<td>' + escapeHtml(r.uom || '') + '</td></tr>'
+  ).join('');
+}
+
+async function snifferStart() {
+  if (snifferBusId == null) return;
+  try {
+    await snifferSaveConfig(true);
+    await api('/api/sniffer/start?busid=' + snifferBusId, { method: 'POST' });
+    toast(t('sniffer_started'), 'success');
+    snifferRefresh();
+  } catch (e) {
+    toast(t('err_sniffer_start') + e.message, 'error');
+  }
+}
+async function snifferStop() {
+  if (snifferBusId == null) return;
+  try {
+    await api('/api/sniffer/stop?busid=' + snifferBusId, { method: 'POST' });
+    toast(t('sniffer_stopped'), 'info');
+    snifferRefresh();
+  } catch (e) {
+    toast(t('err_sniffer_stop') + e.message, 'error');
+  }
+}
+async function snifferSaveConfig(autoStart) {
+  if (snifferBusId == null) return;
+  const body = {
+    busId: snifferBusId,
+    mode: $('sn-mode').value || 'stack',
+    enabled: $('sn-enabled').checked,
+    tapDevice: $('sn-tapdev').value.trim() || undefined,
+    baudRate: parseInt($('sn-baud').value, 10) || undefined
+  };
+  await api('/api/sniffer/config', { method: 'POST', body: JSON.stringify(body) });
+  if (!autoStart) toast(t('sniffer_saved'), 'success');
+}
+
+/* Wire up sniffer modal controls (idempotent — app.js runs once) */
+(function () {
+  $('sn-start')?.addEventListener('click', snifferStart);
+  $('sn-stop')?.addEventListener('click', snifferStop);
+  $('sn-save')?.addEventListener('click', () => snifferSaveConfig(false));
+  $('sn-close')?.addEventListener('click', closeSniffer);
+  $('sn-mode')?.addEventListener('change', snifferModeTapVisible);
+  document.querySelectorAll('.sniffer-tab-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.sniffer-tab-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      const tab = b.getAttribute('data-sntab');
+      document.querySelectorAll('.sniffer-tab-panel').forEach((p) => { p.hidden = (p.id !== 'sntab-' + tab); });
+    });
+  });
+})();
+
 
 /* ---------------- init ---------------- */
 (function () {

@@ -1089,3 +1089,33 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
   color: #7a4b00; background: #ffd166; border: 1px solid #e6b800;
   cursor: help; vertical-align: middle;
 }
+
+
+/* ---------------- RTU sniffer ---------------- */
+.sniffer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 10px 0 6px; }
+.sniffer-toolbar label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.sniffer-toolbar .sniffer-chk { cursor: pointer; }
+.sniffer-toolbar select, .sniffer-toolbar input[type="number"], .sniffer-toolbar input[type="text"] {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 13px;
+}
+.sniffer-toolbar .sniffer-mode { flex-wrap: wrap; }
+.sniffer-toolbar .sniffer-spacer { flex: 1; }
+.sniffer-status { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; font-size: 13px; min-height: 20px; }
+.sniffer-running-badge { color: var(--success, #2e8b57); font-weight: 600; }
+.sniffer-stopped-badge { color: var(--text-muted); }
+.sniffer-tabs { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.sniffer-tab-head { display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
+.sniffer-tab-btn {
+  background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary);
+  padding: 8px 12px; cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.sniffer-tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.sniffer-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sniffer-table th { text-align: left; padding: 6px 8px; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.sniffer-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.sniffer-table tbody tr:hover { background: var(--bg-hover); }
+.sniffer-table .sniffer-empty { text-align: center; color: var(--text-muted); padding: 16px; }
+.sniffer-mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.sniffer-crc-bad td { background: rgba(220, 53, 69, 0.08); }
+.sniffer-tab-panel { overflow: auto; max-height: 46vh; }
+.modal-xlg .sniffer-toolbar { max-width: none; }
