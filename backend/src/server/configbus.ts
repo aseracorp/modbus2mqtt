@@ -20,7 +20,7 @@ interface HassioHardwareInfo {
   }
 }
 
-/** Throw when a slave that others reference would be deleted. The HTTP layer maps it to 409. */
+/** Thrown when a slave that others reference would be deleted. The HTTP layer maps it to 409. */
 export class SlaveReferencedError extends Error {
   constructor(
     readonly slaveid: number,
@@ -31,7 +31,7 @@ export class SlaveReferencedError extends Error {
 }
 
 export class ConfigBus {
-  private static busses: IBus[] = []
+  private static busses: IBus[]
   private static persistence: BusPersistence
   private static listeners: {
     event: ConfigListenerEvent
@@ -94,7 +94,7 @@ export class ConfigBus {
       })
       bus.slaves.forEach((slave) => {
         ConfigBus.addSpecification(slave)
-        ConfigBus.emitSlaveEvent(ConfigListenerEvent.addSlave, new Slave(bus.slaves.length, slave, Config.getConfiguration().mqttbasetopic))
+        ConfigBus.emitSlaveEvent(ConfigListenerEvent.addSlave, new Slave(bus.busId, slave, Config.getConfiguration().mqttbasetopic))
       })
     })
 
@@ -274,7 +274,7 @@ export class ConfigBus {
    * referential invariant belongs: a referenced slave is never deleted silently. Without
    * detachReferences the delete fails; with it, the referencing slaves keep their configuration by
    * becoming standalone slaves (their inherited values are written to their files) before the root
-   * goes away. Both paths are explicit - the backend never orphanes a slave and never rewrites other
+   * goes away. Both paths are explicit - the backend never orphans a slave and never rewrites other
    * slaves unasked.
    */
   static deleteSlave(busid: number, slaveid: number, detachReferences: boolean = false) {
@@ -289,7 +289,7 @@ export class ConfigBus {
     }
     const bus = ConfigBus.busses.find((bus) => bus.busId == busid)
     if (bus != undefined) {
-      debug('DELETE /slave slaveid ' + busid + '/' + slaveid + ' number of slaves: ' + bus.slaves.length)
+      debug('DELETE /slave slaveid' + busid + '/' + slaveid + ' number of slaves: ' + bus.slaves.length)
       let found = false
       for (let idx = 0; idx < bus.slaves.length; idx++) {
         const slave = bus.slaves[idx]
