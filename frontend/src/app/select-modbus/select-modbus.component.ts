@@ -41,6 +41,7 @@ import { MatIconButton } from '@angular/material/button'
 import { MatTooltip } from '@angular/material/tooltip'
 import { MatCard, MatCardHeader, MatCardTitle, MatCardContent } from '@angular/material/card'
 import { SnifferComponent } from '../sniffer/sniffer.component'
+import { filterSerialDevices } from './serial-devices'
 
 @Component({
   selector: 'app-select-modbus',
@@ -288,22 +289,7 @@ export class SelectModbusComponent implements AfterViewInit, OnDestroy {
     return (o1 as string) === (o2 as string)
   }
   getSerialDevices(_bus: IBus | null): string[] {
-    // Remove serialport names, which are already configured
-    const devices = structuredClone(this.serialDevices)
-    let didx
-    for (didx = 0; didx < devices.length; ) {
-      const sd = devices[didx]
-      const idx = this.busses.data.findIndex(
-        (b) =>
-          b != null &&
-          (b.connectionData as IRTUConnection).serialport &&
-          (b.connectionData as IRTUConnection).serialport == sd &&
-          (_bus == null || sd != (_bus.connectionData as IRTUConnection).serialport)
-      )
-      if (idx != -1) devices.splice(didx, 1)
-      else didx++
-    }
-    return devices
+    return filterSerialDevices(this.serialDevices, this.busses.data as (IBus | null)[], _bus)
   }
 
   isRTU(idx: number): boolean {
