@@ -478,20 +478,8 @@
     <h3 id="sniffer-title" data-i18n="sniffer_title">RTU sniffer</h3>
     <div class="sniffer-toolbar">
       <label class="sniffer-chk"><input type="checkbox" id="sn-enabled" data-i18n-label="sniffer_enabled"> <span data-i18n="sniffer_enabled">Sniffer enabled (auto-start with app)</span></label>
-      <label class="sniffer-mode"><span data-i18n="sniffer_mode">Mode</span>
-        <select id="sn-mode">
-          <option value="stack" data-i18n="sniffer_mode_stack">Stack hook (listen to this instance's traffic)</option>
-          <option value="tap" data-i18n="sniffer_mode_tap">Tap port (passive listen on separate serial port)</option>
-          <option value="auto" data-i18n="sniffer_mode_auto">Auto (stack if active, else tap)</option>
-        </select>
-      </label>
-      <label class="sniffer-mode sniffer-tapdev" id="sn-tapdev-wrap" hidden><span data-i18n="sniffer_tap_device">Tap device</span>
-        <input type="text" id="sn-tapdev" placeholder="/dev/ttyUSB1">
-      </label>
-      <label class="sniffer-mode sniffer-baud"><span data-i18n="sniffer_baud">Baud</span>
-        <input type="number" id="sn-baud" value="9600">
-      </label>
       <span class="sniffer-spacer"></span>
+      <button class="btn btn-danger" id="sn-clear" data-i18n="sniffer_clear_db">Clear database</button>
       <button class="btn btn-primary" id="sn-start" data-i18n="sniffer_start">Start</button>
       <button class="btn" id="sn-stop" hidden data-i18n="sniffer_stop">Stop</button>
       <button class="btn" id="sn-save" data-i18n="sniffer_save_config">Save config</button>
@@ -507,10 +495,14 @@
       <div class="sniffer-tab-panel" id="sntab-telegrams">
         <table class="sniffer-table">
           <thead><tr>
-            <th data-i18n="sniffer_time">Time</th><th data-i18n="sniffer_dir">Dir</th>
-            <th data-i18n="sniffer_slave">Slave</th><th data-i18n="sniffer_func">Function</th>
-            <th data-i18n="sniffer_addr">Addr</th><th data-i18n="sniffer_len">Len</th>
-            <th data-i18n="sniffer_data">Data</th><th>CRC</th>
+            <th data-i18n="sniffer_time">Time <span class="sn-filter-ico" data-snf="timestamp" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_dir">Dir <span class="sn-filter-ico" data-snf="direction" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_slave">Slave <span class="sn-filter-ico" data-snf="slaveId" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_func">Function <span class="sn-filter-ico" data-snf="functionName" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_addr">Addr <span class="sn-filter-ico" data-snf="address" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_len">Len <span class="sn-filter-ico" data-snf="length" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_data">Data <span class="sn-filter-ico" data-snf="rawHex" title="Filter">🔽</span></th>
+            <th>CRC <span class="sn-filter-ico" data-snf="crcOk" title="Filter">🔽</span></th>
           </tr></thead>
           <tbody id="sn-telegram-body"><tr><td colspan="8" class="sniffer-empty" data-i18n="sniffer_no_telegrams">No telegrams yet.</td></tr></tbody>
         </table>
@@ -518,10 +510,13 @@
       <div class="sniffer-tab-panel" id="sntab-devices" hidden>
         <table class="sniffer-table">
           <thead><tr>
-            <th data-i18n="sniffer_slave">Slave</th><th data-i18n="sniffer_first_seen">First seen</th>
-            <th data-i18n="sniffer_last_seen">Last seen</th><th data-i18n="sniffer_reqs">Requests</th>
-            <th data-i18n="sniffer_resps">Responses</th><th data-i18n="sniffer_errors">Errors</th>
-            <th data-i18n="sniffer_last_func">Last function</th>
+            <th data-i18n="sniffer_slave">Slave <span class="sn-filter-ico" data-snf="slaveId" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_first_seen">First seen <span class="sn-filter-ico" data-snf="firstSeen" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_last_seen">Last seen <span class="sn-filter-ico" data-snf="lastSeen" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_reqs">Requests <span class="sn-filter-ico" data-snf="requestCount" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_resps">Responses <span class="sn-filter-ico" data-snf="responseCount" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_errors">Errors <span class="sn-filter-ico" data-snf="errorCount" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_last_func">Last function <span class="sn-filter-ico" data-snf="lastFunction" title="Filter">🔽</span></th>
           </tr></thead>
           <tbody id="sn-device-body"><tr><td colspan="7" class="sniffer-empty" data-i18n="sniffer_no_devices">No devices seen yet.</td></tr></tbody>
         </table>
@@ -529,13 +524,38 @@
       <div class="sniffer-tab-panel" id="sntab-registers" hidden>
         <table class="sniffer-table">
           <thead><tr>
-            <th data-i18n="sniffer_slave">Slave</th><th data-i18n="sniffer_addr">Addr</th>
-            <th data-i18n="sniffer_value">Value</th><th data-i18n="sniffer_converter">Converter</th>
-            <th data-i18n="sniffer_uom">Unit</th>
+            <th data-i18n="sniffer_slave">Slave <span class="sn-filter-ico" data-snf="slaveId" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_addr">Addr <span class="sn-filter-ico" data-snf="address" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_raw_value">Raw <span class="sn-filter-ico" data-snf="rawValue" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_interp_value">Value <span class="sn-filter-ico" data-snf="value" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_converter">Converter <span class="sn-filter-ico" data-snf="converter" title="Filter">🔽</span></th>
+            <th data-i18n="sniffer_uom">Unit <span class="sn-filter-ico" data-snf="uom" title="Filter">🔽</span></th>
+            <th></th>
           </tr></thead>
-          <tbody id="sn-register-body"><tr><td colspan="5" class="sniffer-empty" data-i18n="sniffer_no_registers">No registers decoded yet.</td></tr></tbody>
+          <tbody id="sn-register-body"><tr><td colspan="7" class="sniffer-empty" data-i18n="sniffer_no_registers">No registers decoded yet.</td></tr></tbody>
         </table>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Manual register annotation (pencil): define converter + unit when no template matches -->
+<div class="modal-overlay" id="sn-annotate-overlay" hidden>
+  <div class="modal modal-wide">
+    <h3 data-i18n="sniffer_annotate_title">Manually define conversion &amp; unit</h3>
+    <div class="add-form">
+      <div class="field">
+        <label data-i18n="sniffer_annotate_converter">Converter / description</label>
+        <input type="text" id="sn-annotate-converter" placeholder="e.g. number, multiplier 0.1">
+      </div>
+      <div class="field">
+        <label data-i18n="sniffer_annotate_uom">Unit</label>
+        <input type="text" id="sn-annotate-uom" placeholder="e.g. °C, V, kW">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" id="sn-annotate-save" data-i18n="sniffer_annotate_save">Save</button>
+      <button class="btn" id="sn-annotate-cancel" data-i18n="sniffer_annotate_cancel">Cancel</button>
     </div>
   </div>
 </div>

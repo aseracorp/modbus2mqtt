@@ -8,6 +8,7 @@ import {
   SnifferBusConfig,
   SnifferDeviceRow,
   SnifferRegisterRow,
+  SnifferRegisterAnnotation,
   SnifferTelegramRow,
   TelegramDirection,
 } from './types.js'
@@ -36,6 +37,14 @@ export interface SnifferStore {
   getDevices(busId: number): SnifferDeviceRow[]
   upsertRegister(busId: number, telegram: ParsedTelegram, address: number, quantity: number, words: number[]): void
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[]
+  /** Persists a manual converter/uom annotation for a register row. */
+  annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined
+  /**
+   * Closes the underlying database and renames the file with the given
+   * timestamp suffix, then re-creates an empty database at the original path.
+   * Returns the new file path of the renamed database.
+   */
+  resetDatabase(timestampSuffix: string): string | undefined
   deleteBus(busId: number): void
 }
 
@@ -114,13 +123,39 @@ export class InMemorySnifferStore implements SnifferStore {
       slaveId: telegram.slaveId,
       address,
       quantity,
+      functionCode: telegram.functionCode,
       words,
+      rawValue: words.length ? words.join(', ') : undefined,
       value: existing?.value,
       converter: existing?.converter,
       uom: existing?.uom,
+      annotated: existing?.annotated,
       lastSeen: telegram.timestamp,
       specKey: existing?.specKey,
     })
+  }
+  annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined {
+    const key = annotation.busId + ':' + annotation.slaveId + ':' + annotation.address
+    const existing = this.registers.get(key)
+    if (!existing) return undefined
+    const row: SnifferRegisterRow = {
+      ...existing,
+      converter: annotation.converter?.trim() || undefined,
+      uom: annotation.uom?.trim() || undefined,
+      annotated: true,
+    }
+    this.registers.set(key, row)
+    return row
+  }
+  resetDatabase(timestampSuffix: string): string | undefined {
+    // In-memory store: nothing to rename on disk, but keep a trace of the
+    // reset event in the suffix (mirrors the SQLite behaviour contract).
+    void timestampSuffix
+    this.configs.clear()
+    this.telegrams = []
+    this.devices.clear()
+    this.registers.clear()
+    return undefined
   }
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[] {
     return Array.from(this.registers.values())
@@ -207,15 +242,32 @@ export class SqliteSnifferStore implements SnifferStore {
         slave_id INTEGER NOT NULL,
         address INTEGER NOT NULL,
         quantity INTEGER NOT NULL,
+        function_code INTEGER,
         words TEXT NOT NULL,
+        raw_value TEXT,
         value TEXT,
         converter TEXT,
         uom TEXT,
+        annotated INTEGER NOT NULL DEFAULT 0,
         last_seen REAL NOT NULL,
         spec_key TEXT,
         UNIQUE (bus_id, slave_id, address)
       );
     `)
+    // ALTER TABLE migration for databases created before the raw_value/annotated
+    // columns existed. `CREATE TABLE IF NOT EXISTS` does not add columns, so old
+    // DB files would otherwise keep working without them.
+    const registerColumns = (this.db.prepare(`PRAGMA table_info(sniffer_register)`).all() as { name: string }[]).map((c) => c.name)
+    if (!registerColumns.includes('raw_value')) {
+      this.db.exec(`ALTER TABLE sniffer_register ADD COLUMN raw_value TEXT;`)
+      this.db.exec(`UPDATE sniffer_register SET raw_value = words WHERE raw_value IS NULL AND words IS NOT NULL;`)
+    }
+    if (!registerColumns.includes('annotated')) {
+      this.db.exec(`ALTER TABLE sniffer_register ADD COLUMN annotated INTEGER NOT NULL DEFAULT 0;`)
+    }
+    if (!registerColumns.includes('function_code')) {
+      this.db.exec(`ALTER TABLE sniffer_register ADD COLUMN function_code INTEGER;`)
+    }
   }
 
   upsertConfig(config: SnifferBusConfig): void {
@@ -328,18 +380,21 @@ export class SqliteSnifferStore implements SnifferStore {
   upsertRegister(busId: number, telegram: ParsedTelegram, address: number, quantity: number, words: number[]): void {
     if (!this.db) return
     const prev = this.db
-      .prepare('SELECT words, value, converter, uom, spec_key as specKey FROM sniffer_register WHERE bus_id=? AND slave_id=? AND address=?')
-      .get(busId, telegram.slaveId, address) as { words: string; value?: string; converter?: string; uom?: string; specKey?: string } | undefined
+      .prepare('SELECT words, value, converter, uom, spec_key as specKey, annotated, function_code as functionCode FROM sniffer_register WHERE bus_id=? AND slave_id=? AND address=?')
+      .get(busId, telegram.slaveId, address) as { words: string; value?: string; converter?: string; uom?: string; specKey?: string; annotated?: number; functionCode?: number } | undefined
     this.db
       .prepare(
-        `INSERT INTO sniffer_register (bus_id, slave_id, address, quantity, words, value, converter, uom, last_seen, spec_key)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO sniffer_register (bus_id, slave_id, address, quantity, function_code, words, raw_value, value, converter, uom, last_seen, spec_key, annotated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(bus_id, slave_id, address) DO UPDATE SET
            quantity = excluded.quantity,
+           function_code = excluded.function_code,
            words = excluded.words,
+           raw_value = excluded.raw_value,
            value = COALESCE(excluded.value, sniffer_register.value),
-           converter = COALESCE(excluded.converter, sniffer_register.converter),
-           uom = COALESCE(excluded.uom, sniffer_register.uom),
+           converter = COALESCE(NULLIF(excluded.converter, ''), sniffer_register.converter),
+           uom = COALESCE(NULLIF(excluded.uom, ''), sniffer_register.uom),
+           annotated = COALESCE(excluded.annotated, sniffer_register.annotated),
            last_seen = excluded.last_seen`
       )
       .run(
@@ -347,21 +402,64 @@ export class SqliteSnifferStore implements SnifferStore {
         telegram.slaveId,
         address,
         quantity,
+        telegram.functionCode ?? prev?.functionCode ?? null,
         JSON.stringify(words),
+        words.length ? words.join(', ') : null,
         prev?.value ?? null,
         prev?.converter ?? null,
         prev?.uom ?? null,
         telegram.timestamp,
-        prev?.specKey ?? null
+        prev?.specKey ?? null,
+        prev?.annotated ? 1 : 0
       )
+  }
+
+  annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined {
+    if (!this.db) return undefined
+    const converter = annotation.converter?.trim() || null
+    const uom = annotation.uom?.trim() || null
+    this.db
+      .prepare(
+        `UPDATE sniffer_register SET converter = ?, uom = ?, annotated = 1
+         WHERE bus_id = ? AND slave_id = ? AND address = ?`
+      )
+      .run(converter, uom, annotation.busId, annotation.slaveId, annotation.address)
+    const row = this.db
+      .prepare(
+        `SELECT id, bus_id as busId, slave_id as slaveId, address, quantity, function_code as functionCode, words, raw_value as rawValue, value, converter, uom, annotated, last_seen as lastSeen, spec_key as specKey
+         FROM sniffer_register WHERE bus_id = ? AND slave_id = ? AND address = ?`
+      )
+      .get(annotation.busId, annotation.slaveId, annotation.address) as SnifferRegisterRow | undefined
+    return row ? normalizeNulls({ ...row, annotated: row.annotated ? true : false, words: JSON.parse(row.words as unknown as string) as number[] }) : undefined
+  }
+
+  resetDatabase(timestampSuffix: string): string | undefined {
+    if (!this.db) return undefined
+    // WAL checkpoint + close so the rename is safe on all platforms.
+    try {
+      this.db.pragma('wal_checkpoint(TRUNCATE)')
+    } catch { /* best effort */ }
+    const dbPath = this.dbPath
+    this.db.close()
+    this.db = undefined
+    const renamedPath = dbPath + '.' + timestampSuffix
+    fs.renameSync(dbPath, renamedPath)
+    // Drop stale WAL/SHM next to the renamed file (they belong to the old db).
+    for (const suffix of ['-wal', '-shm']) {
+      const p = dbPath + suffix
+      try { if (fs.existsSync(p)) fs.renameSync(p, p + '.' + timestampSuffix) } catch { /* best effort */ }
+    }
+    // Re-create the database at the original path.
+    this.init()
+    return renamedPath
   }
 
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[] {
     if (!this.db) return []
     const params: unknown[] = [busId]
     let sql =
-      `SELECT id, bus_id as busId, slave_id as slaveId, address, quantity, words, value, converter, uom,
-              last_seen as lastSeen, spec_key as specKey
+      `SELECT id, bus_id as busId, slave_id as slaveId, address, quantity, function_code as functionCode, words, raw_value as rawValue, value, converter, uom,
+              COALESCE(annotated, 0) as annotated, last_seen as lastSeen, spec_key as specKey
        FROM sniffer_register WHERE bus_id = ?`
     if (slaveId !== undefined) {
       sql += ' AND slave_id = ?'
@@ -369,7 +467,7 @@ export class SqliteSnifferStore implements SnifferStore {
     }
     sql += ' ORDER BY slave_id, address'
     const rows = this.db.prepare(sql).all(...params) as SnifferRegisterRow[]
-    return rows.map((r) => ({ ...r, words: JSON.parse(r.words as unknown as string) as number[] }))
+    return rows.map((r) => normalizeNulls({ ...r, annotated: r.annotated ? true : false, words: JSON.parse(r.words as unknown as string) as number[] }))
   }
 
   deleteBus(busId: number): void {
@@ -379,4 +477,12 @@ export class SqliteSnifferStore implements SnifferStore {
     this.db.prepare('DELETE FROM sniffer_device WHERE bus_id=?').run(busId)
     this.db.prepare('DELETE FROM sniffer_register WHERE bus_id=?').run(busId)
   }
+}
+
+/** SQLite returns NULL for unset TEXT columns; the API uses undefined. */
+function normalizeNulls<T extends object>(row: T): T {
+  for (const [k, v] of Object.entries(row)) {
+    if (v === null) (row as Record<string, unknown>)[k] = undefined
+  }
+  return row
 }

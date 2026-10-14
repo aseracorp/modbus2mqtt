@@ -3,7 +3,6 @@ import { FormBuilder, FormControl, FormsModule, ReactiveFormsModule } from '@ang
 import { ApiService } from '../services/api-service'
 import { TranslationService } from '../services/translation.service'
 import { MatFormField, MatLabel, MatOption, MatSelect } from '@angular/material/select'
-import { MatInput } from '@angular/material/input'
 import { MatIconButton } from '@angular/material/button'
 import { MatIcon } from '@angular/material/icon'
 import { MatTooltip } from '@angular/material/tooltip'
@@ -11,8 +10,9 @@ import { MatSlideToggle } from '@angular/material/slide-toggle'
 import { Observable, Subscription, interval } from 'rxjs'
 import {
   SnifferBusConfig,
-  SnifferDeviceRow,
   SnifferRegisterRow,
+  SnifferDeviceRow,
+  SnifferRegisterAnnotation,
   SnifferState,
   SnifferTelegramRow,
 } from '@shared/server'
@@ -33,7 +33,6 @@ import {
     MatLabel,
     MatSelect,
     MatOption,
-    MatInput,
     MatIconButton,
     MatIcon,
     MatTooltip,
@@ -53,8 +52,6 @@ export class SnifferComponent implements OnDestroy {
   devices: SnifferDeviceRow[] = []
   registers: SnifferRegisterRow[] = []
   modeControl: FormControl<string | null>
-  tapDeviceControl: FormControl<string | null>
-  baudControl: FormControl<number | null>
   enabledControl: FormControl<boolean | null>
   private refreshSub: Subscription | undefined
 
@@ -67,8 +64,6 @@ export class SnifferComponent implements OnDestroy {
     private translation: TranslationService
   ) {
     this.modeControl = this.fb.control('stack')
-    this.tapDeviceControl = this.fb.control('')
-    this.baudControl = this.fb.control(9600)
     this.enabledControl = this.fb.control(false)
   }
 
@@ -89,8 +84,6 @@ export class SnifferComponent implements OnDestroy {
       if (config && config.busId) {
         this.config = config
         this.modeControl.setValue(config.mode)
-        this.tapDeviceControl.setValue(config.tapDevice ?? '')
-        this.baudControl.setValue(config.baudRate ?? 9600)
         this.enabledControl.setValue(config.enabled)
       }
     })
@@ -144,8 +137,8 @@ export class SnifferComponent implements OnDestroy {
     this.config.busName = this.busName
     const mode = this.modeControl.value ?? 'stack'
     this.config.mode = mode === 'tap' || mode === 'auto' ? mode : 'stack'
-    this.config.tapDevice = this.tapDeviceControl.value ?? undefined
-    this.config.baudRate = this.baudControl.value ?? undefined
+    // Tap device and baud rate are intentionally not configurable here: the
+    // sniffer always uses the same connection the modbus bus listens on.
     this.config.enabled = this.enabledControl.value ?? false
     this.api.postSnifferConfig(this.config).subscribe(() => {
       if (this.config.enabled && !this.state?.running) void this.start()
@@ -162,6 +155,28 @@ export class SnifferComponent implements OnDestroy {
 
   isRunning(): boolean {
     return this.state != undefined && this.state.running
+  }
+
+  clearDatabase(): void {
+    if (!confirm(this.t('sniffer.clearDbConfirm'))) return
+    this.api.snifferReset(this.busId).subscribe({
+      next: () => {
+        this.load()
+      },
+      error: (e) => console.error('sniffer clear failed', e),
+    })
+  }
+
+  annotate(reg: SnifferRegisterRow): void {
+    const converter = prompt(this.t('sniffer.annotateConverter'), reg.converter ?? '') ?? ''
+    if (converter === '') return
+    const uom = prompt(this.t('sniffer.annotateUom'), reg.uom ?? '') ?? ''
+    this.api
+      .snifferRegisterAnnotation(this.busId, reg.slaveId, reg.address, { converter, uom })
+      .subscribe({
+        next: () => this.refresh(),
+        error: (e) => console.error('sniffer annotate failed', e),
+      })
   }
 
   time(ts: number): string {

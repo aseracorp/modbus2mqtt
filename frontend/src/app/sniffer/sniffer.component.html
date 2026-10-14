@@ -13,16 +13,6 @@
       </mat-select>
     </mat-form-field>
 
-    <mat-form-field class="sniffer-field">
-      <mat-label>{{ t('sniffer.tapDevice') }}</mat-label>
-      <input matInput [formControl]="tapDeviceControl" placeholder="/dev/ttyUSB1" />
-    </mat-form-field>
-
-    <mat-form-field class="sniffer-field sniffer-baud">
-      <mat-label>{{ t('sniffer.baudRate') }}</mat-label>
-      <input matInput type="number" [formControl]="baudControl" />
-    </mat-form-field>
-
     @if (!isRunning()) {
       <button mat-icon-button color="primary" [matTooltip]="t('sniffer.start')" (click)="start()">
         <mat-icon>play_arrow</mat-icon>
@@ -34,6 +24,9 @@
     }
     <button mat-icon-button color="primary" [matTooltip]="t('sniffer.save')" (click)="saveConfig()">
       <mat-icon>save</mat-icon>
+    </button>
+    <button mat-icon-button color="warn" [matTooltip]="t('sniffer.clearDb')" (click)="clearDatabase()">
+      <mat-icon>delete_sweep</mat-icon>
     </button>
   </div>
 
@@ -124,9 +117,11 @@
           <tr>
             <th>{{ t('sniffer.slave') }}</th>
             <th>{{ t('sniffer.address') }}</th>
+            <th>{{ t('sniffer.rawValue') }}</th>
             <th>{{ t('sniffer.value') }}</th>
             <th>{{ t('sniffer.converter') }}</th>
             <th>{{ t('sniffer.uom') }}</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -134,12 +129,18 @@
             <tr>
               <td>{{ reg.slaveId }}</td>
               <td>{{ reg.address }}</td>
-              <td>{{ reg.words.join(', ') }}</td>
+              <td class="sniffer-hex">{{ reg.rawValue ?? reg.words.join(', ') }}</td>
+              <td>{{ reg.value ?? '' }}{{ reg.annotated ? ' ✎' : '' }}</td>
               <td>{{ reg.converter ?? '' }}</td>
               <td>{{ reg.uom ?? '' }}</td>
+              <td>
+                <button mat-icon-button [matTooltip]="t('sniffer.annotate')" (click)="annotate(reg)">
+                  <mat-icon>edit</mat-icon>
+                </button>
+              </td>
             </tr>
           } @empty {
-            <tr><td colspan="5">{{ t('sniffer.noRegisters') }}</td></tr>
+            <tr><td colspan="7">{{ t('sniffer.noRegisters') }}</td></tr>
           }
         </tbody>
       </table>

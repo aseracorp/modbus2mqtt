@@ -73,10 +73,37 @@ export interface SnifferRegisterRow {
   slaveId: number
   address: number
   quantity: number
+  /** Modbus function code the registers were read/written with (0x03/0x04/...). */
+  functionCode?: number
   words: number[]
+  /** Raw register word(s) as captured (joined for display). */
+  rawValue?: string
+  /** Interpreted value (via the entity template, or the manual annotation). */
   value?: string
   converter?: string
   uom?: string
+  /** True when the row is annotated manually (template takes precedence otherwise). */
+  annotated?: boolean
+  /** The specification entity whose converter decoded the value. */
+  entityName?: string
   lastSeen: number
   specKey?: string
+}
+
+export interface SnifferRegisterAnnotation {
+  busId: number
+  slaveId: number
+  address: number
+  /** Optional human-readable converter/description for the manual annotation. */
+  converter?: string
+  /** Unit of measurement for the manual annotation. */
+  uom?: string
+}
+
+export type SnifferResetResult = {
+  busId: number
+  /** Absolute path of the renamed (old) database file. */
+  renamedTo: string
+  /** Whether a new empty database was created in its place. */
+  recreated: boolean
 }

@@ -7,12 +7,16 @@ export type {
   SnifferTelegramRow,
   SnifferDeviceRow,
   SnifferRegisterRow,
+  SnifferRegisterAnnotation,
+  SnifferResetResult,
 } from '../../shared/server/index.js'
 import type {
   SnifferState,
   SnifferTelegramRow,
   SnifferDeviceRow,
   SnifferRegisterRow,
+  SnifferRegisterAnnotation,
+  SnifferResetResult,
   TelegramDirection as SharedDirection,
 } from '../../shared/server/index.js'
 
@@ -70,4 +74,6 @@ export interface SnifferApi {
   start(busId: number): Promise<void>
   stop(busId: number): Promise<void>
   createMapping(mapping: SnifferMappingCreate): Promise<SnifferRegisterRow>
+  annotateRegister(annotation: SnifferRegisterAnnotation): Promise<SnifferRegisterRow>
+  resetDatabase(busId?: number): Promise<SnifferResetResult>
 }

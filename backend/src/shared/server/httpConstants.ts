@@ -45,4 +45,6 @@ export enum apiUri {
   snifferTelegrams = '/api/sniffer/telegrams',
   snifferDevices = '/api/sniffer/devices',
   snifferRegisters = '/api/sniffer/registers',
+  snifferRegisterAnnotation = '/api/sniffer/registers/annotation',
+  snifferReset = '/api/sniffer/reset',
 }
