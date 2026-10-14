@@ -230,7 +230,7 @@ it('a read request followed by its response still pairs values to addresses', as
 })
 
 // --- Fix: auto mode must not open a tap on the SAME device as the active bus ---
-it('auto mode with tapDevice == busSerialport does NOT start a tap (avoids port conflict + double capture)', async () => {
+it('auto mode with tapDevice == busSerialport starts the bus-port tap (passive, sees foreign master)', async () => {
   const store = new InMemorySnifferStore()
   const config: SnifferBusConfig = {
     busId: 11,
@@ -242,27 +242,69 @@ it('auto mode with tapDevice == busSerialport does NOT start a tap (avoids port 
     baudRate: 38400,
   }
   store.upsertConfig(config)
-  let tapStarted = false
+
+  // The SerialTap factory must NOT be used in the same-device case (it would
+  // open a second port and fight the bus). A mock bus provides the passive tap.
+  let serialTapUsed = false
   const factory: TapTransportFactory = () => ({
-    describe: () => 'mock tap',
+    describe: () => 'mock serial tap',
     start: async () => {
-      tapStarted = true
+      serialTapUsed = true
     },
     stop: async () => undefined,
-    isRunning: () => tapStarted,
+    isRunning: () => serialTapUsed,
   })
-  const svc = new SnifferService(config, store, factory)
+  let busTapStarted = false
+  const received: { d: 'request' | 'response'; b: number[] }[] = []
+  const mockBus = {
+    getName: () => '/dev/ttyModbus',
+    attachSerialTap: (listener: (d: 'request' | 'response', b: number[]) => void) => {
+      busTapStarted = true
+      received.push({ d: 'request', b: frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02]) })
+      received.push({ d: 'response', b: frame(1, 0x03, [0x04, 0x12, 0x34, 0x56, 0x78]) })
+      return () => {
+        busTapStarted = false
+      }
+    },
+  } as never
+  const busPortFactory = (_busId: number) => ({
+    describe: () => 'bus port (/dev/ttyModbus)',
+    start: async (sink: { onBytes: (d: 'request' | 'response', b: number[]) => void }) => {
+      // simulate what BusPortTapTransport does with the mock bus: feed each
+      // raw frame with a silence gap so the parser treats them as separate
+      // frames (like real serial reads separated by the inter-frame silence).
+      const detach = (mockBus as { attachSerialTap: (l: (d: 'request' | 'response', b: number[]) => void) => () => void }).attachSerialTap
+      detach((d, b) => sink.onBytes(d, b))
+    },
+    stop: async () => undefined,
+    isRunning: () => busTapStarted,
+  })
+
+  // The real bus port emits bytes over time; simulate that ordering here:
+  // feed request, wait the frame timeout, feed response, wait again, flush.
+  const feedSink = async (sink: { onBytes: (d: 'request' | 'response', b: number[]) => void }) => {
+    for (const r of received) {
+      sink.onBytes(r.d, r.b)
+      await new Promise((res) => setTimeout(res, 60))
+    }
+    sink.onBytes('request', [])
+  }
+
+  const svc = new SnifferService(config, store, factory, busPortFactory as never)
   await svc.start()
 
-  // The tap must NOT have been started.
-  expect(tapStarted).toBe(false)
+  // The bus-port tap (not a second serial port) must be the active transport.
+  expect(serialTapUsed).toBe(false)
   expect(svc.isRunning()).toBe(true)
 
-  // The stack hook still captures traffic (single source).
-  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02]))
-  svc.feed('response', frame(1, 0x03, [0x04, 0x12, 0x34, 0x56, 0x78]))
+  // Deliver the observed frames through the bus-port sink with silence gaps.
+  const sink = (svc as unknown as { tapSink: { onBytes: (d: 'request' | 'response', b: number[]) => void } }).tapSink
+  await feedSink(sink)
+
+  // Frames observed on the bus port are captured (foreign master traffic).
   const telegrams = store.getTelegrams(11)
   expect(telegrams.length).toBeGreaterThanOrEqual(2)
+  expect(telegrams.some((t) => t.direction === TelegramDirection.response)).toBe(true)
   await svc.stop()
 })
 

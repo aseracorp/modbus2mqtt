@@ -3,7 +3,8 @@ import { Logger, LogLevelEnum } from '../../specification/index.js'
 import { RtuFrameParser } from './parser.js'
 import { decodePdu, registerRanges, valueAddresses } from './decode.js'
 import { SnifferStore } from './store.js'
-import { SnifferTransport, SnifferByteSink } from './transport.js'
+import { BusPortTapTransport, SnifferByteSink, SnifferTransport } from './transport.js'
+import { Bus } from '../bus.js'
 import { SerialTapTransport } from './serialTap.js'
 import {
   ParsedTelegram,
@@ -39,8 +40,15 @@ export const DEFAULT_MAX_TELEGRAMS = 1000
  */
 /** Creates a tap transport for a config. Injectable for tests. */
 export type TapTransportFactory = (device: string, baudRate: number) => SnifferTransport
+/** Creates a tap that borrows the bus's already-open serial port (same device case). */
+export type BusPortTapFactory = (busId: number) => SnifferTransport
 
 const defaultTapFactory: TapTransportFactory = (device, baudRate) => new SerialTapTransport(device, baudRate)
+const defaultBusPortTapFactory: BusPortTapFactory = (busId) => {
+  const bus = Bus.getBus(busId)
+  if (!bus) throw new Error('bus ' + busId + ' not found for bus-port tap')
+  return new BusPortTapTransport(bus)
+}
 
 export class SnifferService implements SnifferTransport {
   private parser: RtuFrameParser | undefined
@@ -55,7 +63,8 @@ export class SnifferService implements SnifferTransport {
   constructor(
     private config: SnifferBusConfig,
     private store: SnifferStore,
-    private tapFactory: TapTransportFactory = defaultTapFactory
+    private tapFactory: TapTransportFactory = defaultTapFactory,
+    private busPortTapFactory: BusPortTapFactory = defaultBusPortTapFactory
   ) {
     this.stackSink = {
       onBytes: (direction, bytes) => {
@@ -155,15 +164,16 @@ export class SnifferService implements SnifferTransport {
     this.startedAt = Date.now()
 
     const mode = this.config.mode ?? 'auto'
-    // Never open a tap on the same serial device the active bus uses: the tap
-    // would fight the ModbusAPI connection for the port (lock/read conflicts)
-    // and only duplicate the stack hook's view of the traffic. In auto mode a
-    // tap is only used when it listens on a DIFFERENT device (Y-splitter /
-    // dedicated RS485 adapter). Explicit 'tap' mode still requires a device.
+    // When the tap device IS the bus's own serial port we must NOT open a
+    // second connection to it (that would fight the ModbusAPI for the port).
+    // Instead we borrow the bus's already-open port via a passive listener and
+    // forward every raw byte - this captures ALL traffic on the line, including
+    // frames from a foreign master, with zero conflict. A tap on a DIFFERENT
+    // device (Y-splitter / dedicated RS485 adapter) uses the classic SerialTap.
     const sameAsBus = this.config.tapDevice && this.config.busSerialport && this.config.tapDevice === this.config.busSerialport
     const useTap =
       (mode === 'tap' && this.config.tapDevice && this.config.tapDevice.length > 0) ||
-      (mode === 'auto' && !sameAsBus && this.config.tapDevice && this.config.tapDevice.length > 0)
+      (mode === 'auto' && this.config.tapDevice && this.config.tapDevice.length > 0)
 
     // Always able to capture the active master traffic via the stack hook: this
     // guarantees telegrams whenever the bus does anything, even if the tap
@@ -180,18 +190,32 @@ export class SnifferService implements SnifferTransport {
     await stack.start(this.stackSink)
 
     if (useTap) {
-      const tap = this.tapFactory(this.config.tapDevice!, this.config.baudRate ?? 9600)
-      try {
-        await tap.start(this.tapSink)
-        this.transports.push(tap)
-        log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        this.error = msg
-        // Fall back to the stack hook only — we are still running and will
-        // capture the master traffic via the hook.
-        log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} tap failed, falling back to stack hook: ${msg}`)
-        debug(`sniffer bus ${this.config.busId} tap failed: ${msg}`)
+      if (sameAsBus) {
+        // Borrow the bus's open serial port (passive listener) so we still see
+        // the foreign master's frames without opening a conflicting second port.
+        try {
+          const tap = this.busPortTapFactory(this.config.busId)
+          await tap.start(this.tapSink)
+          this.transports.push(tap)
+          log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          this.error = msg
+          log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} bus-port tap failed, falling back to stack hook: ${msg}`)
+          debug(`sniffer bus ${this.config.busId} bus-port tap failed: ${msg}`)
+        }
+      } else {
+        const tap = this.tapFactory(this.config.tapDevice!, this.config.baudRate ?? 9600)
+        try {
+          await tap.start(this.tapSink)
+          this.transports.push(tap)
+          log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          this.error = msg
+          log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} tap failed, falling back to stack hook: ${msg}`)
+          debug(`sniffer bus ${this.config.busId} tap failed: ${msg}`)
+        }
       }
     }
 
