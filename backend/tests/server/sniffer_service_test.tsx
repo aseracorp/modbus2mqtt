@@ -3,6 +3,7 @@ import { SnifferService } from '../../src/server/sniffer/snifferService.js'
 import { InMemorySnifferStore, SqliteSnifferStore } from '../../src/server/sniffer/store.js'
 import { RtuFrameParser } from '../../src/server/sniffer/parser.js'
 import { SnifferBusConfig, TelegramDirection } from '../../src/server/sniffer/types.js'
+import { TapTransportFactory } from '../../src/server/sniffer/snifferService.js'
 
 function frame(slave: number, fc: number, payload: number[] = []): number[] {
   const body = [slave, fc, ...payload]
@@ -125,4 +126,53 @@ it('SqliteSnifferStore persists config, telegrams, devices and registers', () =>
   expect(store.getRegisters(3)).toHaveLength(1)
   expect(store.getRegisters(3)[0].address).toBe(0x10)
   store.close()
+})
+
+// --- Tap fallback + stack sink (fix: reliable capture with visible errors) ---
+it('auto mode falls back to the stack hook when the tap device is unusable', async () => {
+  const store = new InMemorySnifferStore()
+  const config: SnifferBusConfig = {
+    busId: 9,
+    busName: '/dev/ttyUSB0',
+    mode: 'auto',
+    enabled: true,
+    tapDevice: '/dev/nonexistent-tap', // cannot open -> should fall back
+    baudRate: 9600,
+  }
+  store.upsertConfig(config)
+  // Mock tap: its start() rejects immediately (device unusable).
+  const failingTapFactory: TapTransportFactory = () => ({
+    describe: () => 'mock tap (fails)',
+    start: async () => {
+      throw new Error('mock tap cannot open /dev/nonexistent-tap')
+    },
+    stop: async () => undefined,
+    isRunning: () => false,
+  })
+  const svc = new SnifferService(config, store, failingTapFactory)
+  await svc.start()
+
+  // Despite the bad tap device the sniffer is running and the stack hook is armed.
+  expect(svc.isRunning()).toBe(true)
+  const state = svc.getState()
+  expect(state.running).toBe(true)
+  expect(state.error).toContain('mock tap cannot open')
+  // The stack hook still captures traffic.
+  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02]))
+  svc.feed('response', frame(1, 0x03, [0x04, 0x12, 0x34, 0x56, 0x78]))
+  expect(store.getTelegrams(9).length).toBeGreaterThanOrEqual(2)
+  await svc.stop()
+})
+
+it('stack sink delivered through getStackSink() feeds the parser', async () => {
+  const store = new InMemorySnifferStore()
+  const config: SnifferBusConfig = { busId: 10, mode: 'stack', enabled: true }
+  store.upsertConfig(config)
+  const svc = new SnifferService(config, store)
+  await svc.start()
+  const sink = svc.getStackSink()
+  sink.onBytes('request', frame(1, 0x04, [0x00, 0x10, 0x00, 0x01]))
+  sink.onBytes('response', frame(1, 0x04, [0x02, 0xab, 0xcd]))
+  expect(store.getTelegrams(10)).toHaveLength(2)
+  await svc.stop()
 })

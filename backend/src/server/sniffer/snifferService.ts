@@ -1,8 +1,9 @@
 import Debug from 'debug'
+import { Logger, LogLevelEnum } from '../../specification/index.js'
 import { RtuFrameParser } from './parser.js'
 import { decodePdu, valueAddresses } from './decode.js'
 import { SnifferStore } from './store.js'
-import { SnifferTransport } from './transport.js'
+import { SnifferTransport, SnifferByteSink } from './transport.js'
 import { SerialTapTransport } from './serialTap.js'
 import {
   ParsedTelegram,
@@ -15,6 +16,7 @@ import {
 } from './types.js'
 
 const debug = Debug('modbus2mqtt:sniffer:service')
+const log = new Logger('sniffer:service')
 
 export const DEFAULT_MAX_TELEGRAMS = 1000
 
@@ -26,11 +28,24 @@ export const DEFAULT_MAX_TELEGRAMS = 1000
  * The service is transport-agnostic: the transport delivers raw bytes and the
  * service turns them into telegrams. This keeps the parser pure and lets the
  * tests feed synthetic byte streams directly.
+ *
+ * To make the sniffer reliable in the field the service can drive BOTH
+ * transports at once:
+ *  - `stack`  hook into the ModbusAPI read/write calls of the active master.
+ *  - `tap`    passively listen on tapDevice (dedicated tap / Y-splitter).
+ *  - `auto`   (default) starts the tap when configured AND always wires the
+ *             stack hook, so traffic is seen even if the tap device is missing
+ *             or silent. Errors from either transport are surfaced via state.
  */
+/** Creates a tap transport for a config. Injectable for tests. */
+export type TapTransportFactory = (device: string, baudRate: number) => SnifferTransport
+
+const defaultTapFactory: TapTransportFactory = (device, baudRate) => new SerialTapTransport(device, baudRate)
+
 export class SnifferService implements SnifferTransport {
   private parser: RtuFrameParser | undefined
-  private transport: SnifferTransport | undefined
-  private sinkImpl: import('./transport.js').SnifferByteSink
+  private transports: SnifferTransport[] = []
+  private stackSink: SnifferByteSink
   private running = false
   private telegramCount = 0
   private startedAt: number | undefined
@@ -38,19 +53,27 @@ export class SnifferService implements SnifferTransport {
 
   constructor(
     private config: SnifferBusConfig,
-    private store: SnifferStore
+    private store: SnifferStore,
+    private tapFactory: TapTransportFactory = defaultTapFactory
   ) {
-    this.sinkImpl = {
+    this.stackSink = {
       onBytes: (direction, bytes) => {
-        void direction
         if (!this.parser) return
+        // The stack hook delivers complete frames as distinct units - parse
+        // them immediately (byte-level silence detection is only needed for
+        // the tap).
         this.parser.feed(bytes, Date.now())
+        this.parser.flush()
+      },
+      onTapError: (message) => {
+        this.error = message
+        log.log(LogLevelEnum.error, 'tap runtime error: ' + message)
       },
     }
   }
 
   describe(): string {
-    return this.transport ? this.transport.describe() : `${this.config.mode}@bus${this.config.busId}`
+    return this.transports.map((t) => t.describe()).join(' + ') || `${this.config.mode}@bus${this.config.busId}`
   }
 
   /** True while actively capturing. */
@@ -59,16 +82,18 @@ export class SnifferService implements SnifferTransport {
   }
 
   /**
-   * Entry point for the ModbusAPI stack hook: the API calls this with the
-   * observed request/response bytes. Also used by tests to inject a stream.
+   * Entry point for the external stack hook wiring (registry/Bus). The
+   * ModbusAPI calls this with observed request/response bytes. It is ALSO
+   * invoked by the internal stack transport, so both wiring paths share the
+   * same sink.
    */
   feed(direction: 'request' | 'response', bytes: number[]): void {
-    void direction
-    if (!this.parser) return
-    // The stack hook delivers complete frames as distinct units - parse them
-    // immediately (the byte-level silence detection is only needed for the tap).
-    this.parser.feed(bytes, Date.now())
-    this.parser.flush()
+    this.stackSink.onBytes(direction, bytes)
+  }
+
+  /** Returns the sink that the Bus/ModbusAPI should call with stack bytes. */
+  getStackSink(): SnifferByteSink {
+    return this.stackSink
   }
 
   /** Reads the config (may have been updated). */
@@ -97,53 +122,58 @@ export class SnifferService implements SnifferTransport {
     this.error = undefined
     // Re-create the parser so a restart starts with a clean buffer.
     this.parser = new RtuFrameParser((telegram) => this.handleTelegram(telegram), this.config.frameTimeoutMs ?? 20)
-    const transport = this.buildTransport()
-    this.transport = transport
+    this.transports = []
     this.running = true
     this.startedAt = Date.now()
-    try {
-      await transport.start(this.sinkImpl)
-      debug(`sniffer bus ${this.config.busId} started (${transport.describe()})`)
-    } catch (e) {
-      this.running = false
-      this.transport = undefined
-      this.error = e instanceof Error ? e.message : String(e)
-      debug(`sniffer bus ${this.config.busId} failed to start: ${this.error}`)
-      throw e
+
+    const mode = this.config.mode ?? 'auto'
+    const useTap = mode === 'tap' || (mode === 'auto' && this.config.tapDevice && this.config.tapDevice.length > 0)
+
+    // Always able to capture the active master traffic via the stack hook: this
+    // guarantees telegrams whenever the bus does anything, even if the tap
+    // device is missing or silent.
+    const stack: SnifferTransport = {
+      describe: () => `stack hook (bus ${this.config.busId})`,
+      start: async () => {
+        debug(`sniffer bus ${this.config.busId} stack hook armed`)
+      },
+      stop: async () => undefined,
+      isRunning: () => this.running,
     }
+    this.transports.push(stack)
+    await stack.start(this.stackSink)
+
+    if (useTap) {
+      const tap = this.tapFactory(this.config.tapDevice!, this.config.baudRate ?? 9600)
+      try {
+        await tap.start(this.stackSink)
+        this.transports.push(tap)
+        log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        this.error = msg
+        // Fall back to the stack hook only — we are still running and will
+        // capture the master traffic via the hook.
+        log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} tap failed, falling back to stack hook: ${msg}`)
+        debug(`sniffer bus ${this.config.busId} tap failed: ${msg}`)
+      }
+    }
+
+    this.running = true
+    debug(`sniffer bus ${this.config.busId} started (${this.describe()})`)
+    log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} started (${this.describe()})`)
   }
 
   async stop(): Promise<void> {
     if (!this.running) return
     this.running = false
-    if (this.transport) {
-      try {
-        await this.transport.stop()
-      } catch (e) {
-        debug('sniffer stop error: ' + (e instanceof Error ? e.message : String(e)))
-      }
-      this.transport = undefined
-    }
+    await Promise.all(
+      this.transports.map((t) => t.stop().catch((e) => debug('sniffer stop error: ' + (e instanceof Error ? e.message : String(e)))))
+    )
+    this.transports = []
     if (this.parser) {
       this.parser.flush()
       this.parser = undefined
-    }
-  }
-
-  private buildTransport(): SnifferTransport {
-    // auto: tapDevice when set, otherwise the stack hook (default).
-    const useTap =
-      this.config.mode === 'tap' || (this.config.mode === 'auto' && this.config.tapDevice && this.config.tapDevice.length > 0)
-    if (useTap) {
-      return new SerialTapTransport(this.config.tapDevice!, this.config.baudRate ?? 9600)
-    }
-    // Stack hook: implemented as a lightweight transport marker. The actual
-    // bytes are delivered by the ModbusAPI via feed() (see Bus wiring in M5).
-    return {
-      describe: () => `stack hook (bus ${this.config.busId})`,
-      start: async () => {},
-      stop: async () => {},
-      isRunning: () => this.running,
     }
   }
 

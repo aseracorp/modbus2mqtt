@@ -2,6 +2,8 @@
 export interface SnifferByteSink {
   /** Deliver captured bytes. `direction` tells request vs response (best effort). */
   onBytes(direction: 'request' | 'response', bytes: number[]): void
+  /** Runtime transport error (e.g. tap device dropped). Optional. */
+  onTapError?(message: string): void
 }
 
 /**
