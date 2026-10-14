@@ -14,6 +14,13 @@ const debug = Debug('modbus2mqtt:sniffer:parser')
  *    a silence of at least 3.5 char times (approximated by frameTimeoutMs).
  *  - Broadcast (slave id 0) requests have no response; the parser still emits
  *    the request frame.
+ *  - A frame is ALSO emitted as soon as it is structurally complete in the
+ *    buffer (leading addr/fc with a CRC that matches over the frame prefix).
+ *    This handles the RS485 half-duplex TX echo: the transceiver loops the
+ *    master's own transmission back into RX, so request+echo (or
+ *    request+response) can arrive in ONE data chunk without an inter-frame
+ *    silence. Buffering them together would merge two valid frames into one
+ *    byte string that fails the CRC check and both frames get lost.
  *  - Response frames are matched to the most recent pending request to derive
  *    the slave id when the response starts with a different byte (rare, but the
  *    direction is the primary discriminator anyway).
@@ -46,6 +53,9 @@ function requestShapeFor(fc: number, payload: number[]): boolean {
   }
 }
 
+/** Function codes whose RESPONSE never repeats the request shape (addr+qty). */
+const READ_FCS = new Set([0x01, 0x02, 0x03, 0x04])
+
 export class RtuFrameParser {
   private buffer: number[] = []
   private lastByteTime: number = 0
@@ -70,32 +80,96 @@ export class RtuFrameParser {
       const b = byte & 0xff
       this.buffer.push(b)
       this.lastByteTime = now
-      // A request frame is at most 256 bytes (address+fc+255 payload+crc).
-      if (this.buffer.length >= 256) this.emitFrame()
     }
+    // Structural frame completion: as soon as the buffer holds one or more
+    // complete frames from the start, emit them immediately. This is what
+    // separates a request from its TX echo delivered in the same chunk.
+    this.emitCompleteFrames()
+    // Cap the buffer so a flood of broken bytes cannot grow it forever.
+    if (this.buffer.length >= 512) this.buffer = []
+  }
+
+  /** Emits every complete frame at the head of the buffer. */
+  private emitCompleteFrames(): void {
+    // Loop: after emitting one frame, the remainder of the buffer may itself
+    // hold another complete frame (request + echo / request + response).
+    while (true) {
+      const len = this.frameLengthAt(this.buffer)
+      if (len === 0) break
+      const frameBytes = this.buffer.splice(0, len)
+      this.lastByteTime = 0 // structural completion replaces silence detection
+      this.emitFrameBytes(frameBytes)
+      if (this.buffer.length === 0) break
+    }
+  }
+
+  /**
+   * Returns the length of the complete Modbus RTU frame at the head of `buf`,
+   * or 0 when the head is not (yet) a complete frame. Only a leading address
+   * byte plus a function code whose payload length is deterministic (request
+   * shape, or a known read/write/exception response) can be validated.
+   */
+  private frameLengthAt(buf: number[]): number {
+    if (buf.length < 4) return 0
+    const fc = buf[1]
+    const payloadLen = this.expectedPayloadLength(fc, buf)
+    if (payloadLen < 0) return 0
+    const total = 2 + payloadLen + 2 // addr + fc + payload + crc
+    if (buf.length < total) return 0
+    // Only accept when the CRC over the frame prefix matches: a wrong guess
+    // would split a frame at the wrong boundary and destroy both halves.
+    const crcOk = this.crc16(buf.slice(0, total - 2)) === ((buf[total - 1] << 8) | buf[total - 2])
+    return crcOk ? total : 0
+  }
+
+  /**
+   * Payload length for a frame starting at buf[0..] given its fc, or -1 when
+   * the frame length is not (yet) determinable. Only the bytes of the frame
+   * under test are inspected - trailing bytes (a second frame in the same
+   * chunk) are ignored. The CRC check in frameLengthAt validates the guess.
+   */
+  private expectedPayloadLength(fc: number, buf: number[]): number {
+    // Exception responses: [exceptionCode]. Deterministic length 1.
+    if ((fc & 0x80) !== 0) return 1
+    // Read requests (1-4): addr(2)+qty(2) = 4 payload bytes, total 8.
+    if (READ_FCS.has(fc)) {
+      return buf.length >= 6 ? 4 : -1
+    }
+    // Single writes (5,6): addr(2)+value(2).
+    if (fc === 0x05 || fc === 0x06) return buf.length >= 6 ? 4 : -1
+    // Multi writes (15,16): addr(2)+qty(2)+byteCount(1)+data.
+    if (fc === 0x0f || fc === 0x10) {
+      if (buf.length < 7) return -1
+      return 5 + buf[6]
+    }
+    // Other function codes (e.g. 0x08 diagnostics, 0x2b MEI) have
+    // non-deterministic lengths: fall back to silence-based framing.
+    return -1
   }
 
   /** Flushes the buffer when the silence since the last byte exceeded the timeout. */
   tick(now: number): void {
-    if (this.buffer.length > 0 && now - this.lastByteTime > this.frameTimeoutMs) this.emitFrame()
+    if (this.buffer.length > 0 && now - this.lastByteTime > this.frameTimeoutMs) {
+      const bytes = this.buffer
+      this.buffer = []
+      this.emitFrameBytes(bytes)
+    }
   }
 
   /** Flushes a partially filled buffer as a frame (call on stream end / stop). */
   flush(now?: number): void {
     if (now !== undefined) this.tick(now)
     if (this.buffer.length === 0) return
-    this.emitFrame()
-  }
-
-  private emitFrame(): void {
-    if (this.buffer.length < 4) {
-      // Too short to be a valid frame (addr+fc+crc) — drop the garbage.
-      this.buffer = []
-      return
-    }
     const bytes = this.buffer
     this.buffer = []
+    this.emitFrameBytes(bytes)
+  }
 
+  private emitFrameBytes(bytes: number[]): void {
+    if (bytes.length < 4) {
+      // Too short to be a valid frame (addr+fc+crc) — drop the garbage.
+      return
+    }
     const slaveId = bytes[0]
     const functionCode = bytes[1]
     // All captured frames carry a CRC: the serial tap sees the full wire
@@ -111,7 +185,6 @@ export class RtuFrameParser {
     // reaches the parser is CRC-checkable.
     if (!crcOk) {
       debug('dropping frame with invalid CRC: ' + bytes.map((b) => b.toString(16).padStart(2, '0')).join(''))
-      this.buffer = []
       return
     }
     const telegram: ParsedTelegram = {
@@ -141,18 +214,22 @@ export class RtuFrameParser {
   private classifyDirection(slaveId: number, functionCode: number, payload: number[]): TelegramDirection {
     // Exception responses carry the exception flag in the function code.
     if ((functionCode & 0x80) !== 0) return TelegramDirection.response
-    const isReqShape = payload.length > 0 && requestShapeFor(functionCode, payload)
-    if (isReqShape) {
-      // A known request-shaped frame is a request UNLESS it exactly matches
-      // the pending request to the same slave (response frames mirror the
-      // request's function code and address echo).
+    if (payload.length > 0 && requestShapeFor(functionCode, payload)) {
+      // A known request-shaped frame is a request UNLESS it is a genuine
+      // response. Read responses (fc 01-04) NEVER repeat the request shape
+      // (byteCount+words, not addr+qty) - so a byte-identical frame to the
+      // pending request can only be a master TIMEOUT RETRY, never a response.
+      if (READ_FCS.has(functionCode)) return TelegramDirection.request
+      // Single/multi-write responses (05,06,0f,10) DO echo the request
+      // (addr + value/qty) and are indistinguishable by shape alone. We
+      // conservatively treat byte-identical frames (incl. CRC) as a retry.
       if (
         this.pendingRequest &&
         this.pendingRequest.slaveId === slaveId &&
         this.pendingRequest.functionCode === functionCode &&
-        this.sameRequestShape(this.pendingRequest, payload)
+        this.payloadEqualsPending(payload)
       ) {
-        return TelegramDirection.response
+        return TelegramDirection.request
       }
       return TelegramDirection.request
     }
@@ -166,13 +243,13 @@ export class RtuFrameParser {
     return TelegramDirection.response
   }
 
-  /** True when the frame mirrors the pending request (echo of addr/qty/value). */
-  private sameRequestShape(pending: ParsedTelegram, payload: number[]): boolean {
-    if (pending.decoded?.address === undefined) return payload.length >= 4
-    const p = pending.payload
-    if (p.length < 4 || payload.length < 4) return false
-    // Address must match (echo). For writes the value/quantity usually matches too.
-    return p[0] === payload[0] && p[1] === payload[1]
+  /** True when the current payload is byte-identical to the pending request's payload. */
+  private payloadEqualsPending(payload: number[]): boolean {
+    if (!this.pendingRequest) return false
+    const p = this.pendingRequest.payload
+    if (p.length !== payload.length) return false
+    for (let i = 0; i < p.length; i++) if (p[i] !== payload[i]) return false
+    return true
   }
 
   /** Modbus CRC-16 (poly 0xA001, init 0xFFFF), LSB-first. */
