@@ -186,12 +186,26 @@ export class SqliteSnifferStore implements SnifferStore {
 
   init(): void {
     if (this.db) return
+    this.openQuietly()
+  }
+
+  /** Opens the database even if it is currently open (used after a rename). */
+  private openQuietly(): void {
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true })
     const Database = esmRequire(SQLITE_CORE) as typeof import('better-sqlite3')
     this.db = new Database(this.dbPath)
     this.db.pragma('journal_mode = WAL')
     this.migrate()
     debug('sqlite store ready at ' + this.dbPath)
+  }
+
+  /** Re-inserts sniffer configurations into a freshly created database. */
+  private restoreConfigs(configs: { busId: number; config: string }[]): void {
+    if (!this.db) return
+    const restore = this.db.prepare(
+      'INSERT INTO sniffer_config (bus_id, config) VALUES (?, ?) ON CONFLICT(bus_id) DO UPDATE SET config = excluded.config'
+    )
+    for (const c of configs) restore.run(c.busId, c.config)
   }
 
   close(): void {
@@ -439,6 +453,11 @@ export class SqliteSnifferStore implements SnifferStore {
     try {
       this.db.pragma('wal_checkpoint(TRUNCATE)')
     } catch { /* best effort */ }
+    // Export the sniffer configurations: they live in the same database file
+    // and must survive the reset (only the captured traffic is archived).
+    const configs = this.db
+      .prepare('SELECT bus_id as busId, config FROM sniffer_config')
+      .all() as { busId: number; config: string }[]
     const dbPath = this.dbPath
     this.db.close()
     this.db = undefined
@@ -449,8 +468,9 @@ export class SqliteSnifferStore implements SnifferStore {
       const p = dbPath + suffix
       try { if (fs.existsSync(p)) fs.renameSync(p, p + '.' + timestampSuffix) } catch { /* best effort */ }
     }
-    // Re-create the database at the original path.
-    this.init()
+    // Re-create the database at the original path and restore the configs.
+    this.openQuietly()
+    this.restoreConfigs(configs)
     return renamedPath
   }
 

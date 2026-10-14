@@ -410,13 +410,15 @@ it('SqliteSnifferStore.resetDatabase renames the file and starts a fresh db', ()
   expect(require('fs').existsSync(renamed!)).toBe(true)
   expect(require('fs').existsSync(dbPath)).toBe(true)
 
-  // The renamed file still contains the old config; the fresh one is empty.
+  // The renamed (archived) file still contains the old captured data, and the
+  // fresh database keeps the sniffer configuration (resetting only clears the
+  // captured traffic, the setup must not be lost).
   const oldStore = new SqliteSnifferStore(renamed!)
   oldStore.init()
   expect(oldStore.getConfig(5)).toBeDefined()
   oldStore.close()
 
-  expect(store.getConfig(5)).toBeUndefined()
+  expect(store.getConfig(5)).toBeDefined()
   store.close()
 
   // cleanup
