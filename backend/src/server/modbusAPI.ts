@@ -46,6 +46,17 @@ export interface IconsumerModbusAPI {
   readModbusRegister: (slaveId: number, addresses: Set<ImodbusAddress>, options: IexecuteOptions) => Promise<ImodbusValues>
   addSlaveError: (slaveid: number, task: ModbusTasks, state: ModbusErrorStates, message: string, detail?: string) => void
   countRequest: (slaveid: number, task: ModbusTasks) => void
+  /** Suppresses sniffer emission while set (used around slave-scan probes). */
+  setSuppressSniffer: (suppress: boolean) => void
+  /**
+   * Attaches a passive tap to the already-open serial port of the active bus.
+   * The listener receives every raw byte that appears on the wire (RX) plus the
+   * bytes the bus itself wrote (TX), wrapped with a direction hint. This lets
+   * the sniffer observe ALL bus traffic - including frames from a foreign
+   * master - without opening a second port (which would fight the bus for the
+   * serial device). Returns a function that detaches the tap again.
+   */
+  attachSerialTap: (listener: (direction: 'request' | 'response', bytes: number[]) => void) => () => void
 }
 export interface IModbusConfiguration {
   getId: () => number
@@ -60,6 +71,13 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
   private modbusClientTimedOut: boolean = false
   private _modbusRTUWorker: ModbusRTUWorker
   private snifferSink: SnifferByteSink | undefined
+  /**
+   * When set, request/response frames are not emitted to the sniffer sink.
+   * Used to keep internal traffic (e.g. slave-scan probes) out of the
+   * captured telegram stream: those are not real bus communication between
+   * a master and a device.
+   */
+  private suppressSniffer = false
   constructor(
     private modbusConfiguration: IModbusConfiguration,
     private modbusRTUQueue = new ModbusRTUQueue(),
@@ -73,6 +91,59 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
     this.snifferSink = sink
   }
 
+  /** Suppresses sniffer emission while set (used around slave-scan probes). */
+  setSuppressSniffer(suppress: boolean): void {
+    this.suppressSniffer = suppress
+  }
+
+  /**
+   * Passive wire tap on the already-open bus serial port. See the interface
+   * doc for details. RX bytes arrive on the SerialPort 'data' event; TX bytes
+   * are observed by wrapping the port's 'write'. Both direction hints are
+   * best-effort: the sniffer parser decides the final direction by frame shape.
+   */
+  attachSerialTap(
+    listener: (direction: 'request' | 'response', bytes: number[]) => void
+  ): () => void {
+    // The modbus-serial client stores the open SerialPort as _port. When the
+    // bus is a TCP connection there is no serial port and nothing to tap.
+    const port = (this.modbusClient as unknown as {
+      _port?: {
+        on: (e: string, cb: (d: unknown) => void) => unknown
+        removeListener: (e: string, cb: (d: unknown) => void) => unknown
+      } | undefined
+    } | undefined)?._port
+    if (!port || typeof port.on !== 'function' || typeof port.removeListener !== 'function') return () => undefined
+    // Listening to 'data' does not consume/compete with the bus: Node streams
+    // fan out to every listener, so the modbus-serial parser keeps its bytes.
+    const onData = (chunk: unknown) => {
+      const bytes = this.toByteArray(chunk)
+      if (bytes.length) listener('response', bytes)
+    }
+    // Observe TX by wrapping 'write' (SerialPort writes raw bytes unchanged).
+    const portWithWrite = port as unknown as { write: (data: unknown, ...args: unknown[]) => unknown; on: (e: string, cb: (d: unknown) => void) => unknown }
+    const originalWrite = portWithWrite.write.bind(portWithWrite)
+    portWithWrite.write = (data: unknown, ...args: unknown[]) => {
+      const bytes = this.toByteArray(data)
+      if (bytes.length) listener('request', bytes)
+      // eslint-disable-next-line prefer-spread
+      return originalWrite(data, ...args)
+    }
+    port.on('data', onData)
+    return () => {
+      port.removeListener('data', onData)
+      if (portWithWrite.write !== originalWrite) portWithWrite.write = originalWrite
+    }
+  }
+
+  /** Coerces a Buffer/Uint8Array/number[] chunk into number[] for the sniffer. */
+  private toByteArray(chunk: unknown): number[] {
+    if (chunk instanceof Uint8Array) return Array.from(chunk)
+    if (Array.isArray(chunk)) return chunk.map((b) => Number(b) & 0xff)
+    if (typeof chunk === 'number') return [chunk & 0xff]
+    return []
+  }
+
   /**
    * Emits a request frame to the sniffer sink as a complete RTU ADU with CRC,
    * so the captured rawHex is a valid wire frame (crcOk=true) and the parser
@@ -80,7 +151,7 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
    * pairing works.
    */
   private emitSnifferRequest(slaveId: number, functionCode: number, address: number, length: number): void {
-    if (!this.snifferSink) return
+    if (!this.snifferSink || this.suppressSniffer) return
     const body = [slaveId & 0xff, functionCode, (address >> 8) & 0xff, address & 0xff, (length >> 8) & 0xff, length & 0xff]
     const crc = ModbusAPI.crc16(body)
     this.snifferSink.onBytes('request', [...body, crc & 0xff, (crc >> 8) & 0xff])
@@ -88,7 +159,7 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
 
   /** Emits a response frame in read-response shape (byteCount + register words) with CRC. */
   private emitSnifferResponse(slaveId: number, functionCode: number, data: number[]): void {
-    if (!this.snifferSink) return
+    if (!this.snifferSink || this.suppressSniffer) return
     const body: number[] = [slaveId & 0xff, functionCode, (data.length * 2) & 0xff]
     data.forEach((w) => body.push((w >> 8) & 0xff, w & 0xff))
     const crc = ModbusAPI.crc16(body)

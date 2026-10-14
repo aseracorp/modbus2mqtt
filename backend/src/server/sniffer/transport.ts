@@ -7,6 +7,50 @@ export interface SnifferByteSink {
 }
 
 /**
+ * A tap on the already-open serial port of the active bus. Unlike
+ * {@link SerialTapTransport} it does NOT open its own serial device - it
+ * borrows the bus's open port via {@link Bus.attachSerialTap} and forwards
+ * every raw byte (RX via the port's 'data' event, TX by wrapping 'write').
+ * Because a Node stream fans out to all listeners, the ModbusAPI keeps its
+ * bytes intact while the sniffer observes them - 100% passive, no port
+ * conflict. This is how a sniffer on the SAME device as the bus can still see
+ * frames sent by a foreign master.
+ */
+export class BusPortTapTransport implements SnifferTransport {
+  private detach: (() => void) | undefined
+  private started = false
+  constructor(private bus: import('../bus.js').Bus) {}
+
+  describe(): string {
+    // NOTE: not prefixed with 'stack hook' on purpose - the service uses this
+    // to treat the bus-port tap as an ACTIVE tap, which suppresses the
+    // stack-hook feed (no duplicated telegrams).
+    return 'bus port (' + this.bus.getName() + ')'
+  }
+
+  async start(sink: SnifferByteSink): Promise<void> {
+    if (this.started) return
+    this.detach = this.bus.attachSerialTap((direction, bytes) => {
+      // frame bytes may arrive in multiple chunks - the sink routes them into
+      // the parser which reassembles frames by silence.
+      sink.onBytes(direction, bytes)
+    })
+    this.started = true
+  }
+
+  async stop(): Promise<void> {
+    if (!this.started) return
+    this.detach?.()
+    this.detach = undefined
+    this.started = false
+  }
+
+  isRunning(): boolean {
+    return this.started
+  }
+}
+
+/**
  * Transport abstraction for the RTU sniffer. Implementations differ in how they
  * obtain the byte stream (passive serial tap vs hook into the active stack) but
  * all feed an identical {@link SnifferByteSink}.

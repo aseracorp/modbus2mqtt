@@ -212,6 +212,17 @@ export class Bus implements IModbusConfiguration {
   getModbusAPI(): IconsumerModbusAPI {
     return this.modbusAPI
   }
+
+  /**
+   * Passive wire tap on the already-open serial port of this bus. See
+   * {@link IconsumerModbusAPI.attachSerialTap} for semantics. The sniffer uses
+   * this to observe ALL traffic on the physical line - including frames sent by
+   * a foreign master - without opening a second serial port (which would fight
+   * the bus for the device).
+   */
+  attachSerialTap(listener: (direction: 'request' | 'response', bytes: number[]) => void): () => void {
+    return this.modbusAPI.attachSerialTap(listener)
+  }
   getSlaveTimeoutBySlaveId(slaveid: number): number {
     const slave = this.getSlaveBySlaveId(slaveid)
     if (slave) if (slave.modbusTimout != undefined) return slave.modbusTimout
