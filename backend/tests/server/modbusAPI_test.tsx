@@ -280,3 +280,167 @@ describe('serial framing', () => {
     ).toContain('9600 8E1')
   })
 })
+
+describe('serial tap (passive rx on real serial port)', () => {
+  // Mirrors the modbus-serial RTUBufferedPort: the ModbusAPI's _port is a
+  // wrapper that holds the REAL SerialPort as `_client`. All wire bytes hit
+  // `_client`, but the wrapper only re-emits 'data' for frames it is actively
+  // awaiting - foreign master frames stay in its buffer and are invisible on
+  // `_port`. The tap must therefore listen on `_client`.
+  function makeBufferedMockClient() {
+    const events = new Map<string, Array<(d: unknown) => void>>()
+    const client = {
+      isOpen: true,
+      on: (e: string, cb: (d: unknown) => void) => {
+        if (!events.has(e)) events.set(e, [])
+        events.get(e)!.push(cb)
+        return client
+      },
+      removeListener: (e: string, cb: (d: unknown) => void) => {
+        const l = events.get(e) || []
+        const i = l.indexOf(cb)
+        if (i >= 0) l.splice(i, 1)
+        return client
+      },
+      emit: (e: string, d: unknown) => {
+        for (const cb of events.get(e) || []) cb(d)
+      },
+      writes: [] as unknown[],
+      write: (data: unknown) => {
+        client.writes.push(data)
+        return true
+      },
+    }
+    // The wrapper (_port): has on/removeListener but does NOT emit 'data'
+    // for foreign traffic - only the _client does.
+    const wrapper = {
+      on: () => wrapper,
+      removeListener: () => wrapper,
+    }
+    return { client, wrapper }
+  }
+
+  it('attaches the tap to the real serial port (_client) and sees foreign master rx', () => {
+    const { client, wrapper } = makeBufferedMockClient()
+    const modbusAPI = new ModbusAPI({
+      getId: () => 0,
+      getName: () => 'tapping',
+      getSlaveTimeoutBySlaveId: () => 100,
+      getMaxRegistersPerRequestBySlaveId: () => 125,
+      getModbusConnection: () => ({ serialport: '/dev/ttyUSB0', baudrate: 9600, timeout: 100 }) as IRTUConnection,
+    })
+    ;(modbusAPI as unknown as { modbusClient: unknown }).modbusClient = {
+      isOpen: true,
+      _port: wrapper as unknown,
+    } as unknown
+    // _client must be reachable through the wrapper for the tap to bind to it
+    ;(wrapper as unknown as { _client: unknown })._client = client
+
+    const seen: string[] = []
+    const detach = modbusAPI.attachSerialTap((direction, bytes) => {
+      seen.push(`${direction}:${bytes.join(',')}`)
+    })
+
+    // Foreign master frame arriving on the real port - NOT consumed by modbus-serial
+    const foreign = [0x05, 0x03, 0x00, 0x00, 0x00, 0x01, 0x85, 0x8e]
+    client.emit('data', Buffer.from(foreign))
+    // Own TX (request) observed via the real write
+    ;(client as unknown as { write: (d: unknown) => boolean }).write(Buffer.from([0x05, 0x03, 0x00, 0x00, 0x00, 0x02, 0xc5, 0x8f]))
+
+    expect(seen).toContain('response:5,3,0,0,0,1,133,142')
+    expect(seen).toContain('request:5,3,0,0,0,2,197,143')
+
+    detach()
+    client.emit('data', Buffer.from([0x06, 0x03, 0x00, 0x00, 0x00, 0x01, 0x85, 0x7e]))
+    expect(seen).toHaveLength(2) // detached: no more events
+  })
+
+  it('re-arms the tap when a fresh _client appears (reconnect)', async () => {
+    const makeClient = () => {
+      const listeners = new Map<string, Array<(d: unknown) => void>>()
+      return {
+        on: (e: string, cb: (d: unknown) => void) => {
+          if (!listeners.has(e)) listeners.set(e, [])
+          listeners.get(e)!.push(cb)
+          return client
+        },
+        removeListener: (e: string, cb: (d: unknown) => void) => {
+          const l = listeners.get(e) || []
+          const i = l.indexOf(cb)
+          if (i >= 0) l.splice(i, 1)
+          return client
+        },
+        emit: (e: string, d: unknown) => {
+          for (const cb of listeners.get(e) || []) cb(d)
+        },
+        write: (d: unknown) => true,
+      }
+    }
+    let client = makeClient() as ReturnType<typeof makeClient> & { write: (d: unknown) => boolean }
+    // eslint-disable-next-line no-var
+    const wrapper = { on: () => wrapper, removeListener: () => wrapper }
+    ;(wrapper as unknown as { _client: unknown })._client = client
+
+    const modbusAPI = new ModbusAPI({
+      getId: () => 0,
+      getName: () => 'tapping',
+      getSlaveTimeoutBySlaveId: () => 100,
+      getMaxRegistersPerRequestBySlaveId: () => 125,
+      getModbusConnection: () => ({ serialport: '/dev/ttyUSB0', baudrate: 9600, timeout: 100 }) as IRTUConnection,
+    })
+    ;(modbusAPI as unknown as { modbusClient: unknown }).modbusClient = { isOpen: true, _port: wrapper } as unknown
+
+    const seen: string[] = []
+    const detach = modbusAPI.attachSerialTap((direction, bytes) => seen.push(`${direction}:${bytes.join(',')}`))
+
+    // Simulate a reconnect: ModbusAPI swaps in a fresh _client object
+    const fresh = makeClient() as typeof client
+    ;(wrapper as unknown as { _client: unknown })._client = fresh
+    ;(modbusAPI as unknown as { modbusClient: { _port: { _client: unknown } } }).modbusClient._port._client = fresh
+
+    // Wait for the poll (250ms) to re-arm onto the fresh client
+    await new Promise((r) => setTimeout(r, 400))
+    fresh.emit('data', Buffer.from([0x05, 0x03, 0x00, 0x00, 0x00, 0x01, 0x85, 0x8e]))
+    expect(seen).toContain('response:5,3,0,0,0,1,133,142')
+    detach()
+  })
+
+  it('falls back to _port when there is no _client (plain RTU port)', () => {
+    const listeners = new Map<string, Array<(d: unknown) => void>>()
+    const port = {
+      on: (e: string, cb: (d: unknown) => void) => {
+        if (!listeners.has(e)) listeners.set(e, [])
+        listeners.get(e)!.push(cb)
+        return port
+      },
+      removeListener: (e: string, cb: (d: unknown) => void) => {
+        const l = listeners.get(e) || []
+        const i = l.indexOf(cb)
+        if (i >= 0) l.splice(i, 1)
+        return port
+      },
+      emit: (e: string, d: unknown) => {
+        for (const cb of listeners.get(e) || []) cb(d)
+      },
+      writes: [] as unknown[],
+      write: (d: unknown) => {
+        port.writes.push(d)
+        return true
+      },
+    }
+    const modbusAPI = new ModbusAPI({
+      getId: () => 0,
+      getName: () => 'tapping',
+      getSlaveTimeoutBySlaveId: () => 100,
+      getMaxRegistersPerRequestBySlaveId: () => 125,
+      getModbusConnection: () => ({ serialport: '/dev/ttyUSB0', baudrate: 9600, timeout: 100 }) as IRTUConnection,
+    })
+    ;(modbusAPI as unknown as { modbusClient: unknown }).modbusClient = { isOpen: true, _port: port } as unknown
+
+    const seen: string[] = []
+    const detach = modbusAPI.attachSerialTap((direction, bytes) => seen.push(`${direction}:${bytes.join(',')}`))
+    ;(port as unknown as { emit: (e: string, d: unknown) => void }).emit('data', Buffer.from([0x05, 0x04, 0x00, 0x00, 0x00, 0x01, 0xb1, 0x8e]))
+    expect(seen).toContain('response:5,4,0,0,0,1,177,142')
+    detach()
+  })
+})

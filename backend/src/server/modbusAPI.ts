@@ -13,6 +13,7 @@ import {
 import { ImodbusValues, Logger, LogLevelEnum } from '../specification/index.js'
 import { ModbusRegisterType } from '../shared/specification/index.js'
 import { Mutex } from 'async-mutex'
+import { EventEmitter } from 'events'
 import ModbusRTU from 'modbus-serial'
 import type { ModbusRTULike } from 'modbus-serial'
 import { ReadCoilResult, ReadRegisterResult } from './modbusTypes.js'
@@ -105,34 +106,84 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
   attachSerialTap(
     listener: (direction: 'request' | 'response', bytes: number[]) => void
   ): () => void {
-    // The modbus-serial client stores the open SerialPort as _port. When the
-    // bus is a TCP connection there is no serial port and nothing to tap.
-    const port = (this.modbusClient as unknown as {
+    // The modbus-serial client stores its port as _port. For
+    // connectRTUBuffered (used on RTU) _port is an RTUBufferedPort wrapper
+    // that holds the REAL SerialPort as `_client`. ALL bytes that arrive on
+    // the wire hit `_client`'s 'data' event - including frames from a foreign
+    // master that modbus-serial does not consume. Listening on `_client` is
+    // the guaranteed passive RX hook; `_port` itself only emits 'data' for
+    // frames modbus-serial actively awaits and would miss foreign master
+    // traffic. TCP connections have no serial port - nothing to tap.
+    const anyClient = this.modbusClient as unknown as {
       _port?: {
-        on: (e: string, cb: (d: unknown) => void) => unknown
-        removeListener: (e: string, cb: (d: unknown) => void) => unknown
+        _client?: EventEmitter
+        on?: (e: string, cb: (d: unknown) => void) => unknown
+        removeListener?: (e: string, cb: (d: unknown) => void) => unknown
       } | undefined
-    } | undefined)?._port
-    if (!port || typeof port.on !== 'function' || typeof port.removeListener !== 'function') return () => undefined
+    } | undefined
+    const wrapper = anyClient?._port
+    // Prefer the real SerialPort (_client); fall back to _port for plain
+    // (non-buffered) RTU connections. If neither is a usable emitter, no tap.
+    const port = (wrapper && 'on' in wrapper && (wrapper as { _client?: EventEmitter })._client) || wrapper
+    if (!port || typeof (port as EventEmitter).on !== 'function' || typeof (port as EventEmitter).removeListener !== 'function')
+      return () => undefined
+    const tapPort = port as EventEmitter & { write?: (data: unknown, ...args: unknown[]) => unknown }
+    // The serial port may only be created later (e.g. reconnects replace the
+    // _client object). Re-arm the listener whenever a new _client appears so a
+    // foreign master's frames are never missed after a reconnect.
+    let current = port
+    const rearm = () => {
+      if (current === port) {
+        // nothing to re-arm yet; the initial bind below handles it
+        return
+      }
+      if (typeof (current as EventEmitter).on === 'function') {
+        ;(current as EventEmitter).on('data', onData)
+      }
+      if (typeof (current as { write?: unknown }).write === 'function') {
+        const w = (current as EventEmitter & { write?: (data: unknown, ...args: unknown[]) => unknown }).write!
+        const orig = w.bind(current)
+        ;(current as unknown as { write: typeof w }).write = (data: unknown, ...args: unknown[]) => {
+          const bytes = this.toByteArray(data)
+          if (bytes.length) listener('request', bytes)
+          // eslint-disable-next-line prefer-spread
+          return orig(data, ...args)
+        }
+      }
+    }
+    // Poll briefly: after a reconnect the ModbusAPI may swap in a fresh
+    // _client object shortly after the tap was attached.
+    const poll = setInterval(() => {
+      const anyC = this.modbusClient as unknown as { _port?: { _client?: EventEmitter } } | undefined
+      const w = anyC?._port
+      const fresh = w && 'on' in w && (w as { _client?: EventEmitter })._client ? (w as { _client?: EventEmitter })._client : undefined
+      if (fresh && fresh !== current) {
+        current = fresh
+        rearm()
+      }
+    }, 250)
+    poll.unref?.()
     // Listening to 'data' does not consume/compete with the bus: Node streams
     // fan out to every listener, so the modbus-serial parser keeps its bytes.
     const onData = (chunk: unknown) => {
       const bytes = this.toByteArray(chunk)
       if (bytes.length) listener('response', bytes)
     }
-    // Observe TX by wrapping 'write' (SerialPort writes raw bytes unchanged).
-    const portWithWrite = port as unknown as { write: (data: unknown, ...args: unknown[]) => unknown; on: (e: string, cb: (d: unknown) => void) => unknown }
-    const originalWrite = portWithWrite.write.bind(portWithWrite)
-    portWithWrite.write = (data: unknown, ...args: unknown[]) => {
-      const bytes = this.toByteArray(data)
-      if (bytes.length) listener('request', bytes)
-      // eslint-disable-next-line prefer-spread
-      return originalWrite(data, ...args)
+    // Observe TX by wrapping the real write (SerialPort writes raw bytes).
+    const originalWrite = tapPort.write ? tapPort.write.bind(tapPort) : undefined
+    if (tapPort.write && originalWrite) {
+      tapPort.write = (data: unknown, ...args: unknown[]) => {
+        const bytes = this.toByteArray(data)
+        if (bytes.length) listener('request', bytes)
+        // eslint-disable-next-line prefer-spread
+        return originalWrite(data, ...args)
+      }
     }
-    port.on('data', onData)
+    tapPort.on('data', onData)
     return () => {
-      port.removeListener('data', onData)
-      if (portWithWrite.write !== originalWrite) portWithWrite.write = originalWrite
+      clearInterval(poll)
+      tapPort.removeListener('data', onData)
+      if (originalWrite && tapPort.write !== originalWrite) tapPort.write = originalWrite
     }
   }
 
