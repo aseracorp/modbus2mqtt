@@ -1,7 +1,7 @@
 import Debug from 'debug'
 import { Logger, LogLevelEnum } from '../../specification/index.js'
 import { RtuFrameParser } from './parser.js'
-import { decodePdu, valueAddresses } from './decode.js'
+import { decodePdu, registerRanges, valueAddresses } from './decode.js'
 import { SnifferStore } from './store.js'
 import { SnifferTransport, SnifferByteSink } from './transport.js'
 import { SerialTapTransport } from './serialTap.js'
@@ -168,7 +168,9 @@ export class SnifferService implements SnifferTransport {
     if (!this.running) return
     this.running = false
     await Promise.all(
-      this.transports.map((t) => t.stop().catch((e) => debug('sniffer stop error: ' + (e instanceof Error ? e.message : String(e)))))
+      this.transports.map((t) =>
+        t.stop().catch((e) => debug('sniffer stop error: ' + (e instanceof Error ? e.message : String(e))))
+      )
     )
     this.transports = []
     if (this.parser) {
@@ -191,15 +193,30 @@ export class SnifferService implements SnifferTransport {
     // Read responses carry values at a known start address. The address is not
     // in the response itself - we must pair it with the preceding request.
     // The parser tracks the pending request, so we can look it up here.
-    if (telegram.direction !== 'response' || !telegram.decoded?.values) return
     const req = this.parser?.getLastRequest()
-    if (!req || req.slaveId !== telegram.slaveId) return
-    const base = req.decoded?.address
-    if (base === undefined) return
-    const entries = valueAddresses(telegram, base, telegram.decoded.values)
-    entries.forEach((e) => {
-      this.store.upsertRegister(this.config.busId, req, e.address, 1, [e.value])
-    })
+    if (telegram.direction === 'response' && telegram.decoded?.values && req && req.slaveId === telegram.slaveId) {
+      const base = req.decoded?.address
+      if (base !== undefined) {
+        const entries = valueAddresses(telegram, base, telegram.decoded.values)
+        entries.forEach((e) => {
+          this.store.upsertRegister(this.config.busId, req, e.address, 1, [e.value])
+        })
+        return
+      }
+    }
+    // A read request alone (e.g. scan probe with no responding slave, or a
+    // master that polls while we only hear the request side) still reveals the
+    // register range the master is interested in. Create the inventory entry
+    // so the register table populates immediately; the value stays empty until
+    // a matching response arrives.
+    if (telegram.direction === 'request' && telegram.decoded?.address !== undefined && telegram.decoded?.length !== undefined) {
+      const ranges = registerRanges(telegram)
+      ranges?.forEach((r) => {
+        for (let a = 0; a < r.quantity; a++) {
+          this.store.upsertRegister(this.config.busId, telegram, r.address + a, 1, [])
+        }
+      })
+    }
   }
 
   private trimTelegrams(): void {
