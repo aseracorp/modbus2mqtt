@@ -2510,8 +2510,11 @@ async function openSniffer(busid) {
   snifferBusId = Number(busid);
   try {
     const cfg = await api('/api/sniffer/config?busid=' + snifferBusId);
-    $('sn-mode').value = cfg.mode || 'stack';
-    $('sn-enabled').checked = !!cfg.enabled;
+    // The mode select was removed from the toolbar (tap device/baud are not
+    // configurable anymore); guard the access so the popup still opens/Starts
+    // when the element is absent.
+    if ($('sn-mode')) $('sn-mode').value = cfg.mode || 'stack';
+    if ($('sn-enabled')) $('sn-enabled').checked = !!cfg.enabled;
   } catch (e) { /* defaults are fine */ }
   snifferModeTapVisible();
   $('sniffer-overlay').hidden = false;
@@ -2787,8 +2790,8 @@ async function snifferSaveConfig(autoStart) {
   // on the same connection the modbus bus uses, so they stay out of the payload.
   const body = {
     busId: snifferBusId,
-    mode: $('sn-mode').value || 'stack',
-    enabled: $('sn-enabled').checked
+    mode: $('sn-mode')?.value || 'stack',
+    enabled: !!$('sn-enabled')?.checked
   };
   await api('/api/sniffer/config', { method: 'POST', body: JSON.stringify(body) });
   if (!autoStart) toast(t('sniffer_saved'), 'success');
