@@ -228,3 +228,106 @@ it('a read request followed by its response still pairs values to addresses', as
 
   await svc.stop()
 })
+
+// --- Fix: auto mode must not open a tap on the SAME device as the active bus ---
+it('auto mode with tapDevice == busSerialport does NOT start a tap (avoids port conflict + double capture)', async () => {
+  const store = new InMemorySnifferStore()
+  const config: SnifferBusConfig = {
+    busId: 11,
+    busName: '/dev/ttyModbus',
+    mode: 'auto',
+    enabled: true,
+    tapDevice: '/dev/ttyModbus', // same as the active bus
+    busSerialport: '/dev/ttyModbus',
+    baudRate: 38400,
+  }
+  store.upsertConfig(config)
+  let tapStarted = false
+  const factory: TapTransportFactory = () => ({
+    describe: () => 'mock tap',
+    start: async () => {
+      tapStarted = true
+    },
+    stop: async () => undefined,
+    isRunning: () => tapStarted,
+  })
+  const svc = new SnifferService(config, store, factory)
+  await svc.start()
+
+  // The tap must NOT have been started.
+  expect(tapStarted).toBe(false)
+  expect(svc.isRunning()).toBe(true)
+
+  // The stack hook still captures traffic (single source).
+  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02]))
+  svc.feed('response', frame(1, 0x03, [0x04, 0x12, 0x34, 0x56, 0x78]))
+  const telegrams = store.getTelegrams(11)
+  expect(telegrams.length).toBeGreaterThanOrEqual(2)
+  await svc.stop()
+})
+
+it('auto mode with a DIFFERENT tap device starts the tap and suppresses stack-hook duplicates', async () => {
+  const store = new InMemorySnifferStore()
+  const config: SnifferBusConfig = {
+    busId: 12,
+    busName: '/dev/ttyModbus',
+    mode: 'auto',
+    enabled: true,
+    tapDevice: '/dev/ttyUSB1', // Y-splitter adapter
+    busSerialport: '/dev/ttyModbus',
+    baudRate: 9600,
+  }
+  store.upsertConfig(config)
+  let tapStarted = false
+  let tapSink: { onBytes: (d: 'request' | 'response', b: number[]) => void } | undefined
+  const factory: TapTransportFactory = () => ({
+    describe: () => '/dev/ttyUSB1 (mock tap)',
+    start: async (sink) => {
+      tapStarted = true
+      tapSink = sink
+    },
+    stop: async () => undefined,
+    isRunning: () => tapStarted,
+  })
+  const svc = new SnifferService(config, store, factory)
+  await svc.start()
+
+  expect(tapStarted).toBe(true)
+
+  // Stack hook bytes (synthetic, would duplicate) are dropped while tap runs.
+  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02]))
+  svc.feed('response', frame(1, 0x03, [0x04, 0x12, 0x34, 0x56, 0x78]))
+  expect(store.getTelegrams(12)).toHaveLength(0)
+
+  // Real tap frames are captured. The tap feeds raw bytes; frames are
+  // separated by the silence gap a real slave leaves before answering.
+  tapSink!.onBytes('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02]))
+  await new Promise((r) => setTimeout(r, 120))
+  tapSink!.onBytes('response', frame(1, 0x03, [0x04, 0x12, 0x34, 0x56, 0x78]))
+  await new Promise((r) => setTimeout(r, 60))
+  // The tap sink never flushes per chunk: frames are emitted when the next
+  // byte group arrives after the silence gap (or on stop). Trigger the
+  // parser's silence tick like the next serial chunk would.
+  tapSink!.onBytes('request', [])
+  await new Promise((r) => setTimeout(r, 30))
+  expect(store.getTelegrams(12).length).toBeGreaterThanOrEqual(2)
+  const registers = store.getRegisters(12)
+  expect(registers.length).toBeGreaterThanOrEqual(1)
+  await svc.stop()
+})
+
+it('drops frames with an invalid CRC (line noise / partial frames)', () => {
+  const received: unknown[] = []
+  const parser = new RtuFrameParser((t) => received.push(t), 20)
+  const now = 1000
+  // A frame whose CRC does not validate (e.g. line noise or a partial read).
+  parser.feed([0x01, 0x03, 0x00, 0x6b, 0x00, 0x02, 0xaa, 0xbb], now)
+  parser.flush(now + 500)
+  expect(received).toHaveLength(0)
+
+  // A real 8-byte frame WITH CRC is still parsed.
+  const good = frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02])
+  parser.feed(good, now)
+  parser.flush(now + 500)
+  expect(received).toHaveLength(1)
+})

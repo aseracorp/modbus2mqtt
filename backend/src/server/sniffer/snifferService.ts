@@ -46,6 +46,7 @@ export class SnifferService implements SnifferTransport {
   private parser: RtuFrameParser | undefined
   private transports: SnifferTransport[] = []
   private stackSink: SnifferByteSink
+  private tapSink: SnifferByteSink
   private running = false
   private telegramCount = 0
   private startedAt: number | undefined
@@ -59,6 +60,14 @@ export class SnifferService implements SnifferTransport {
     this.stackSink = {
       onBytes: (direction, bytes) => {
         if (!this.parser) return
+        // If a serial tap is actively capturing the real wire frames, the
+        // stack hook only duplicates them (as synthetic frames reconstructed
+        // from the ModbusAPI calls). Feeding both into one parser would
+        // double every telegram. Only feed the hook when no tap is running.
+        if (this.hasActiveTap()) {
+          debug('stack hook bytes dropped: tap is active')
+          return
+        }
         // The stack hook delivers complete frames as distinct units - parse
         // them immediately (byte-level silence detection is only needed for
         // the tap).
@@ -70,10 +79,29 @@ export class SnifferService implements SnifferTransport {
         log.log(LogLevelEnum.error, 'tap runtime error: ' + message)
       },
     }
+    // The serial tap forwards raw byte chunks, so it must NOT flush per
+    // chunk: frames may span multiple serial reads and the parser's
+    // silence-based tick separates them. Complete-frame units (stack hook)
+    // use stackSink above, which flushes after every unit.
+    this.tapSink = {
+      onBytes: (_direction, bytes) => {
+        if (!this.parser) return
+        this.parser.feed(bytes, Date.now())
+      },
+      onTapError: (message) => {
+        this.error = message
+        log.log(LogLevelEnum.error, 'tap runtime error: ' + message)
+      },
+    }
   }
 
   describe(): string {
     return this.transports.map((t) => t.describe()).join(' + ') || `${this.config.mode}@bus${this.config.busId}`
+  }
+
+  /** True while a serial tap (not the stack hook) is actively capturing. */
+  private hasActiveTap(): boolean {
+    return this.transports.some((t) => t.isRunning() && !t.describe().startsWith('stack hook'))
   }
 
   /** True while actively capturing. */
@@ -127,7 +155,15 @@ export class SnifferService implements SnifferTransport {
     this.startedAt = Date.now()
 
     const mode = this.config.mode ?? 'auto'
-    const useTap = mode === 'tap' || (mode === 'auto' && this.config.tapDevice && this.config.tapDevice.length > 0)
+    // Never open a tap on the same serial device the active bus uses: the tap
+    // would fight the ModbusAPI connection for the port (lock/read conflicts)
+    // and only duplicate the stack hook's view of the traffic. In auto mode a
+    // tap is only used when it listens on a DIFFERENT device (Y-splitter /
+    // dedicated RS485 adapter). Explicit 'tap' mode still requires a device.
+    const sameAsBus = this.config.tapDevice && this.config.busSerialport && this.config.tapDevice === this.config.busSerialport
+    const useTap =
+      (mode === 'tap' && this.config.tapDevice && this.config.tapDevice.length > 0) ||
+      (mode === 'auto' && !sameAsBus && this.config.tapDevice && this.config.tapDevice.length > 0)
 
     // Always able to capture the active master traffic via the stack hook: this
     // guarantees telegrams whenever the bus does anything, even if the tap
@@ -146,7 +182,7 @@ export class SnifferService implements SnifferTransport {
     if (useTap) {
       const tap = this.tapFactory(this.config.tapDevice!, this.config.baudRate ?? 9600)
       try {
-        await tap.start(this.stackSink)
+        await tap.start(this.tapSink)
         this.transports.push(tap)
         log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
       } catch (e) {
