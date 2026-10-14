@@ -23,7 +23,6 @@ import { IModbusAPI } from './modbusWorker.js'
 import { submitGetHoldingRegisterRequest } from './submitRequestMock.js'
 import { ModbusRTUWorker } from './modbusRTUworker.js'
 import { IQueueOptions, ModbusRTUQueue } from './modbusRTUqueue.js'
-import { StackHookTransport } from './sniffer/hookTransport.js'
 import type { SnifferByteSink } from './sniffer/transport.js'
 import Debug from 'debug'
 
@@ -75,28 +74,38 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
   }
 
   /**
-   * Emits a request frame to the sniffer sink. The frame is a minimal ADU
-   * (address, function, addrHi/Lo, qtyHi/Lo) without CRC; the RtuFrameParser
-   * reconstructs the framing from the silence gaps. Slave id is included so
-   * response pairing works.
+   * Emits a request frame to the sniffer sink as a complete RTU ADU with CRC,
+   * so the captured rawHex is a valid wire frame (crcOk=true) and the parser
+   * can slice payload vs CRC exactly. Slave id is included so response
+   * pairing works.
    */
   private emitSnifferRequest(slaveId: number, functionCode: number, address: number, length: number): void {
     if (!this.snifferSink) return
-    this.snifferSink.onBytes('request', [
-      slaveId & 0xff,
-      functionCode,
-      (address >> 8) & 0xff,
-      address & 0xff,
-      (length >> 8) & 0xff,
-      length & 0xff,
-    ])
+    const body = [slaveId & 0xff, functionCode, (address >> 8) & 0xff, address & 0xff, (length >> 8) & 0xff, length & 0xff]
+    const crc = ModbusAPI.crc16(body)
+    this.snifferSink.onBytes('request', [...body, crc & 0xff, (crc >> 8) & 0xff])
   }
 
+  /** Emits a response frame in read-response shape (byteCount + register words) with CRC. */
   private emitSnifferResponse(slaveId: number, functionCode: number, data: number[]): void {
     if (!this.snifferSink) return
-    const bytes: number[] = [slaveId & 0xff, functionCode, (data.length * 2) & 0xff]
-    data.forEach((w) => bytes.push((w >> 8) & 0xff, w & 0xff))
-    this.snifferSink.onBytes('response', bytes)
+    const body: number[] = [slaveId & 0xff, functionCode, (data.length * 2) & 0xff]
+    data.forEach((w) => body.push((w >> 8) & 0xff, w & 0xff))
+    const crc = ModbusAPI.crc16(body)
+    this.snifferSink.onBytes('response', [...body, crc & 0xff, (crc >> 8) & 0xff])
+  }
+
+  /** Modbus CRC-16 (poly 0xA001, init 0xFFFF), LSB-first. Shared with the sniffer parser. */
+  static crc16(data: number[]): number {
+    let crc = 0xffff
+    for (const byte of data) {
+      crc ^= byte
+      for (let i = 0; i < 8; i++) {
+        if (crc & 1) crc = (crc >> 1) ^ 0xa001
+        else crc >>= 1
+      }
+    }
+    return crc & 0xffff
   }
   getCacheId(): string {
     return this.modbusConfiguration.getName()

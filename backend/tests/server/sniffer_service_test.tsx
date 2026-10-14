@@ -176,3 +176,55 @@ it('stack sink delivered through getStackSink() feeds the parser', async () => {
   expect(store.getTelegrams(10)).toHaveLength(2)
   await svc.stop()
 })
+
+it('classifies back-to-back scan requests as requests, not responses (regression)', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+
+  // A bus scan probes slave ids 1..N back-to-back; none answers (timeouts).
+  // Each probe is a request. Before the shape-aware classifier these were
+  // mislabelled "response" because the previous probe sat in pendingRequest.
+  for (let slave = 1; slave <= 5; slave++) {
+    svc.feed('request', frame(slave, 0x03, [0x00, 0x00, 0x00, 0x01]))
+  }
+
+  const telegrams = store.getTelegrams(1)
+  expect(telegrams).toHaveLength(5)
+  for (const t of telegrams) {
+    expect(t.direction).toBe(TelegramDirection.request)
+    expect(t.address).toBe(0)
+    expect(t.length).toBe(1)
+  }
+
+  // Inventory: every probe revealed holding register 0 of its slave.
+  const registers = store.getRegisters(1)
+  expect(registers).toHaveLength(5)
+  const slaves = new Set(registers.map((r) => r.slaveId))
+  expect(slaves).toEqual(new Set([1, 2, 3, 4, 5]))
+
+  const devices = store.getDevices(1)
+  expect(devices).toHaveLength(5)
+  for (const d of devices) expect(d.requestCount).toBe(1)
+
+  await svc.stop()
+})
+
+it('a read request followed by its response still pairs values to addresses', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+
+  svc.feed('request', frame(7, 0x03, [0x00, 0x10, 0x00, 0x02]))
+  svc.feed('response', frame(7, 0x03, [0x04, 0xaa, 0xbb, 0xcc, 0xdd]))
+
+  const telegrams = store.getTelegrams(1)
+  expect(telegrams[0].direction).toBe(TelegramDirection.response)
+  expect(telegrams[0].values).toEqual([0xaabb, 0xccdd])
+  const registers = store.getRegisters(1, 7)
+  expect(registers).toHaveLength(2)
+  expect(registers[0].address).toBe(0x10)
+  expect(registers[0].words).toEqual([0xaabb])
+  expect(registers[1].address).toBe(0x11)
+  expect(registers[1].words).toEqual([0xccdd])
+
+  await svc.stop()
+})

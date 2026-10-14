@@ -17,6 +17,32 @@ import { decodePdu } from './decode.js'
  *  - A CRC error marks the frame as crcOk=false so the UI can show it; the
  *    payload is still exposed for debugging.
  */
+/**
+ * True when the payload of `fc` matches the fixed request shape.
+ * Read requests (1-4): addr(2)+qty(2). Single writes (5,6): addr(2)+value(2).
+ * Multi writes (15,16): addr(2)+qty(2)+byteCount(1)+data.
+ */
+function requestShapeFor(fc: number, payload: number[]): boolean {
+  switch (fc) {
+    case 0x01:
+    case 0x02:
+    case 0x03:
+    case 0x04:
+      return payload.length === 4
+    case 0x05:
+    case 0x06:
+      return payload.length === 4
+    case 0x0f:
+    case 0x10: {
+      if (payload.length < 5) return false
+      const byteCount = payload[4]
+      return payload.length === 5 + byteCount
+    }
+    default:
+      return false
+  }
+}
+
 export class RtuFrameParser {
   private buffer: number[] = []
   private lastByteTime: number = 0
@@ -69,12 +95,13 @@ export class RtuFrameParser {
 
     const slaveId = bytes[0]
     const functionCode = bytes[1]
-    const hasCrc = bytes.length >= 4
-    const crcOk = hasCrc && this.crc16(bytes.slice(0, bytes.length - 2)) === ((bytes[bytes.length - 1] << 8) | bytes[bytes.length - 2])
-
+    // All captured frames carry a CRC: the serial tap sees the full wire
+    // frame, and the stack hook (ModbusAPI) appends the CRC when it emits.
+    // So the payload is everything between addr+fc and the trailing CRC pair.
     const payload = bytes.slice(2, bytes.length - 2)
+    const crcOk = this.crc16(bytes.slice(0, bytes.length - 2)) === ((bytes[bytes.length - 1] << 8) | bytes[bytes.length - 2])
     const telegram: ParsedTelegram = {
-      direction: this.classifyDirection(slaveId, functionCode),
+      direction: this.classifyDirection(slaveId, functionCode, payload),
       timestamp: Date.now() / 1000,
       slaveId,
       functionCode,
@@ -97,31 +124,41 @@ export class RtuFrameParser {
    * (exceptions) or mirror the request's fc. Since every transaction's
    * response follows its request, we classify by tracking the last request.
    */
-  private classifyDirection(slaveId: number, functionCode: number): TelegramDirection {
-    // 1) Exception responses carry the exception flag in the function code.
+  private classifyDirection(slaveId: number, functionCode: number, payload: number[]): TelegramDirection {
+    // Exception responses carry the exception flag in the function code.
     if ((functionCode & 0x80) !== 0) return TelegramDirection.response
-    // 2) A frame whose fc matches the pending request (masked) and whose slave
-    //    id equals the request's target is the response to that request.
-    if (
-      this.pendingRequest &&
-      this.pendingRequest.slaveId === slaveId &&
-      this.pendingRequest.functionCode === (functionCode & 0x7f)
-    ) {
-      return TelegramDirection.response
+    const isReqShape = payload.length > 0 && requestShapeFor(functionCode, payload)
+    if (isReqShape) {
+      // A known request-shaped frame is a request UNLESS it exactly matches
+      // the pending request to the same slave (response frames mirror the
+      // request's function code and address echo).
+      if (
+        this.pendingRequest &&
+        this.pendingRequest.slaveId === slaveId &&
+        this.pendingRequest.functionCode === functionCode &&
+        this.sameRequestShape(this.pendingRequest, payload)
+      ) {
+        return TelegramDirection.response
+      }
+      return TelegramDirection.request
     }
-    // 3) Broadcast requests are never answered.
+    // Broadcast requests are never answered.
     if (slaveId === 0) return TelegramDirection.request
-    // 4) With no pending request, a frame in a known request shape is a request
-    //    (the master speaks first on a bus). Known request function codes:
-    //    read coils/discrete/holding/input (1-4), write single coil/register
-    //    (5,6), write multiple coils/registers (15,16).
-    if (!this.pendingRequest) {
-      return [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x0f, 0x10].includes(functionCode)
-        ? TelegramDirection.request
-        : TelegramDirection.response
-    }
-    // 5) Fallback: unmatched frames after a request are most likely responses.
+    // With no pending request, a known request function code (but weird
+    // payload) is still more likely a request than a response.
+    if (!this.pendingRequest && [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x0f, 0x10].includes(functionCode))
+      return TelegramDirection.request
+    // Fallback: unmatched frames after a request are most likely responses.
     return TelegramDirection.response
+  }
+
+  /** True when the frame mirrors the pending request (echo of addr/qty/value). */
+  private sameRequestShape(pending: ParsedTelegram, payload: number[]): boolean {
+    if (pending.decoded?.address === undefined) return payload.length >= 4
+    const p = pending.payload
+    if (p.length < 4 || payload.length < 4) return false
+    // Address must match (echo). For writes the value/quantity usually matches too.
+    return p[0] === payload[0] && p[1] === payload[1]
   }
 
   /** Modbus CRC-16 (poly 0xA001, init 0xFFFF), LSB-first. */
