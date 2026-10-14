@@ -16,6 +16,7 @@ import { fileURLToPath } from 'url'
 import { SpecificationStatus } from '../shared/specification/index.js'
 import * as fs from 'fs'
 import { ConfigBus } from './configbus.js'
+import { ModbusSnifferRegistry } from './sniffer/registry.js'
 import { CmdlineMigrate } from './CmdlineMigrate.js'
 function packageRoot(): string {
   return dirname(dirname(dirname(fileURLToPath(import.meta.url))))
@@ -139,6 +140,12 @@ export class Modbus2Mqtt {
           Bus.readBussesFromConfig().then(() => {
             // Start Modbus TCP auto-discovery only after the bus registry is loaded.
             ModbusAutoDiscover.getInstance().start()
+            // Auto-start sniffer services marked enabled:true in their config and
+            // wire the stack hook for every sniffer bus. This ensures the RTU
+            // sniffer captures traffic right after boot without manual interaction.
+            ModbusSnifferRegistry.getInstance()
+              .autoStartEnabled()
+              .catch((e) => log.log(LogLevelEnum.error, 'sniffer auto-start failed: ' + (e instanceof Error ? e.message : String(e))))
             this.pollTasks()
             debugAction('readBussesFromConfig done')
             debug('Inititialize busses done')

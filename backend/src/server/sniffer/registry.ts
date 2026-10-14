@@ -5,7 +5,6 @@ import { SqliteSnifferStore, SnifferStore } from './store.js'
 import { SnifferService } from './snifferService.js'
 import { SnifferBusConfig, SnifferState } from './types.js'
 import { Bus } from '../bus.js'
-import type { SnifferByteSink } from './transport.js'
 
 const debug = Debug('modbus2mqtt:sniffer:registry')
 
@@ -98,6 +97,43 @@ export class ModbusSnifferRegistry {
     await Promise.all(Array.from(this.services.keys()).map((busId) => this.stop(busId)))
   }
 
+  /**
+   * Boot-time wiring: attaches every existing bus's ModbusAPI sink to its
+   * sniffer service (stack hook) so traffic is captured the moment the sniffer
+   * starts, without requiring a manual start after boot. Called once after
+   * Bus.readBussesFromConfig().
+   */
+  wireAllStackHooks(): void {
+    for (const busId of Array.from(this.services.keys())) {
+      this.wireStackHook(busId, this.services.get(busId)!)
+    }
+  }
+
+  /**
+   * Boot-time auto start: starts sniffer services for buses whose stored config
+   * has enabled:true. Idempotent — safe to call on every boot.
+   */
+  async autoStartEnabled(): Promise<void> {
+    const configs = this.store.getConfigs()
+    for (const config of configs) {
+      if (config.enabled) {
+        try {
+          await this.start(config.busId)
+        } catch (e) {
+          debug('autoStartEnabled: bus ' + config.busId + ' failed to start: ' + (e instanceof Error ? e.message : String(e)))
+        }
+      }
+    }
+    // Also wire hooks for services that are not enabled yet (so a start via
+    // the webui works instantly).
+    this.wireAllStackHooks()
+  }
+
+  /** Convenience: is any sniffer currently running on the given bus? */
+  isRunning(busId: number): boolean {
+    return this.services.get(busId)?.isRunning() ?? false
+  }
+
   getState(busId: number): SnifferState | undefined {
     const svc = this.services.get(busId)
     if (!svc) return undefined
@@ -125,10 +161,9 @@ export class ModbusSnifferRegistry {
       debug('wireStackHook: bus ' + busId + ' not found')
       return
     }
-    const sink: SnifferByteSink = {
-      onBytes: (direction, bytes) => svc.feed(direction, bytes),
-    }
-    bus.setSnifferSink(sink)
+    // Use the service's own stack sink so the parser is fed exactly once and
+    // runtime tap errors surface through the same object.
+    bus.setSnifferSink(svc.getStackSink())
   }
 
   private unwireStackHook(busId: number): void {

@@ -1,9 +1,11 @@
 import Debug from 'debug'
 import { SerialPort } from 'serialport'
+import { Logger, LogLevelEnum } from '../../specification/index.js'
 import { SnifferTransport } from './transport.js'
 import { SnifferByteSink } from './transport.js'
 
 const debug = Debug('modbus2mqtt:sniffer:tap')
+const log = new Logger('sniffer:tap')
 
 /**
  * Passive serial tap transport. Opens a SECOND serial port (e.g. a dedicated
@@ -15,6 +17,7 @@ export class SerialTapTransport implements SnifferTransport {
   private port: SerialPort | undefined
   private sink: SnifferByteSink | undefined
   private running = false
+  private lastError: string | undefined
 
   constructor(
     private device: string,
@@ -28,13 +31,19 @@ export class SerialTapTransport implements SnifferTransport {
     return `${this.device} (tap @ ${this.baudRate} ${this.dataBits}${this.parity[0].toUpperCase()}${this.stopBits})`
   }
 
+  getError(): string | undefined {
+    return this.lastError
+  }
+
   async start(sink: SnifferByteSink): Promise<void> {
     if (this.running) return
     if (!this.device) throw new Error('SerialTapTransport: no tap device configured')
     this.sink = sink
+    this.lastError = undefined
     return new Promise<void>((resolve, reject) => {
+      let port: SerialPort
       try {
-        this.port = new SerialPort({
+        port = new SerialPort({
           path: this.device,
           baudRate: this.baudRate,
           dataBits: this.dataBits,
@@ -44,24 +53,51 @@ export class SerialTapTransport implements SnifferTransport {
           // same physical device open (Y-splitter / second adapter on the bus).
           lock: false,
         })
-        this.port.on('data', (data: Buffer) => {
-          if (!this.sink) return
-          const bytes = Array.from(data)
-          // Split at the transport boundary is handled by the parser's silence
-          // detection; just forward the raw bytes. The parser reclassifies
-          // responses via the pending-request match.
-          this.sink.onBytes('request', bytes)
-        })
-        this.port.on('error', (e: Error) => {
-          debug('tap error: ' + e.message)
-        })
-        this.running = true
-        debug('SerialTapTransport started on ' + this.device)
-        resolve()
       } catch (e) {
+        // Synchronous construction failure (bad path, invalid options...).
         this.running = false
-        reject(e)
+        this.lastError = e instanceof Error ? e.message : String(e)
+        log.log(LogLevelEnum.error, 'tap open failed (sync): ' + this.lastError)
+        reject(new Error(this.lastError))
+        return
       }
+      // serialport opens asynchronously. Detect both the success and the
+      // failure path so a missing/unsafe device surfaces immediately instead
+      // of silently idling with running=true and zero telegrams.
+      port.on('open', () => {
+        this.running = true
+        this.port = port
+        debug('SerialTapTransport started on ' + this.device)
+        log.log(LogLevelEnum.info, 'tap opened ' + this.device)
+        resolve()
+      })
+      port.on('error', (e: Error) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        this.lastError = msg
+        log.log(LogLevelEnum.error, 'tap error on ' + this.device + ': ' + msg)
+        // If the port never opened we must reject so the caller can fall back
+        // to the stack hook instead of silently staying "running".
+        if (!this.running) {
+          this.running = false
+          try {
+            port.close()
+          } catch {
+            /* ignore */
+          }
+          reject(new Error('tap failed to open ' + this.device + ': ' + msg))
+        } else if (this.sink) {
+          // Runtime error after a successful open: keep running but surface it.
+          this.sink.onTapError?.(msg)
+        }
+      })
+      port.on('data', (data: Buffer) => {
+        if (!this.sink) return
+        const bytes = Array.from(data)
+        // Split at the transport boundary is handled by the parser's silence
+        // detection; just forward the raw bytes. The parser reclassifies
+        // responses via the pending-request match.
+        this.sink.onBytes('request', bytes)
+      })
     })
   }
 

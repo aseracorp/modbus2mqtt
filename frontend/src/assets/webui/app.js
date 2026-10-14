@@ -2497,7 +2497,7 @@ let snifferPollTimer = null;
 let snifferState = null;
 
 function snifferModeTapVisible() {
-  const mode = $('sn-mode')?.value || 'stack';
+  const mode = $('sn-mode')?.value || 'auto';
   $('sn-tapdev-wrap').hidden = (mode !== 'tap' && mode !== 'auto');
 }
 
@@ -2505,7 +2505,7 @@ async function openSniffer(busid) {
   snifferBusId = Number(busid);
   try {
     const cfg = await api('/api/sniffer/config?busid=' + snifferBusId);
-    $('sn-mode').value = cfg.mode || 'stack';
+    $('sn-mode').value = cfg.mode || 'auto';
     $('sn-tapdev').value = cfg.tapDevice || '';
     $('sn-baud').value = cfg.baudRate || 9600;
     $('sn-enabled').checked = !!cfg.enabled;
@@ -2559,10 +2559,18 @@ async function snifferRefresh() {
       badge.className = 'sniffer-stopped-badge';
     }
     const extra = $('sn-status-extra');
-    extra.textContent = (running && state.telegramCount != null)
-      ? (state.telegramCount + ' ' + t('sniffer_telegrams').toLowerCase())
-      : (state && state.error ? state.error : '');
-    extra.style.color = (state && state.error) ? 'var(--danger, #b22222)' : '';
+    // Surface transport errors prominently (even while running), otherwise
+    // show the capture progress.
+    if (state && state.error) {
+      extra.textContent = state.error;
+      extra.style.color = 'var(--danger, #b22222)';
+    } else if (running && state.telegramCount != null) {
+      extra.textContent = state.telegramCount + ' ' + t('sniffer_telegrams').toLowerCase();
+      extra.style.color = '';
+    } else {
+      extra.textContent = '';
+      extra.style.color = '';
+    }
     $('sn-start').hidden = running;
     $('sn-stop').hidden = !running;
     if (running) {
