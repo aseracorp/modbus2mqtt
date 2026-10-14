@@ -15,6 +15,9 @@ import {
   SnifferTelegramRow,
   SnifferMappingCreate,
 } from './types.js'
+import { ConfigBus } from '../configbus.js'
+import { ConverterMap } from '../../specification/index.js'
+import { ModbusRegisterType, Ientity } from '../../shared/specification/index.js'
 
 const debug = Debug('modbus2mqtt:sniffer:service')
 const log = new Logger('sniffer:service')
@@ -295,7 +298,107 @@ export class SnifferService implements SnifferTransport {
     return this.store.getDevices(busId)
   }
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[] {
-    return this.store.getRegisters(busId, slaveId)
+    const rows = this.store.getRegisters(busId, slaveId)
+    return this.mergeRegisterWords(rows).map((r) => this.enrichRegister(r))
+  }
+
+  /**
+   * Groups consecutive rows of the same slave that belong to one entity (e.g. a
+   * 32 bit float read as two holding registers) so the converter receives the
+   * full word array. Rows are merged by (slaveId, matching entity range from a
+   * template spec); without a spec each row stays as it is.
+   */
+  private mergeRegisterWords(rows: SnifferRegisterRow[]): SnifferRegisterRow[] {
+    const out: SnifferRegisterRow[] = []
+    let i = 0
+    while (i < rows.length) {
+      const row = rows[i]
+      let end = i + 1
+      let mergedWords = [...row.words]
+      // Same slave + consecutive addresses: merge into a multi-word entity.
+      while (end < rows.length && rows[end].slaveId === row.slaveId && rows[end].address === rows[end - 1].address + 1) {
+        mergedWords = mergedWords.concat(rows[end].words)
+        end++
+      }
+      if (end > i + 1) {
+        out.push({
+          ...row,
+          quantity: end - i,
+          words: mergedWords,
+          rawValue: mergedWords.join(', '),
+        })
+      } else {
+        out.push(row)
+      }
+      i = end
+    }
+    return out
+  }
+
+  /** Re-interprets a single register row after an annotation changed it. */
+  refreshRegisterValue(row: SnifferRegisterRow): SnifferRegisterRow {
+    return this.enrichRegister(row)
+  }
+
+  /**
+   * Resolves the specification entity that owns a register and decodes the raw
+   * word(s) into the interpreted value + unit. The entity is picked by:
+   *  - the slave's specification (resolving reference slaves to their root),
+   *  - the matching register type for the function code (0x03 holding, 0x04
+   *    analog input, 0x01 coils, 0x02 discrete inputs),
+   *  - the register address range (entity.modbusAddress ..+ length).
+   * Returns undefined when no template entity matches (the UI then shows the
+   * raw words and offers the pencil to annotate manually).
+   */
+  private enrichRegister(row: SnifferRegisterRow): SnifferRegisterRow {
+    // A manual annotation wins over the template interpretation? No: the
+    // template is the source of truth when it exists - the UI only offers the
+    // pencil when there is no template. An annotation is therefore only used
+    // when no template could be resolved (or the row is explicitly annotated
+    // and has no specKey).
+    if (row.annotated && !row.specKey) return row
+
+    const slave = ConfigBus.getSlave(row.busId, row.slaveId)
+    if (!slave) return row
+
+    // Resolve reference slaves: the actual spec lives on the root slave.
+    let specSlave = slave
+    if (slave.referenceSlaveId !== undefined) {
+      const root = ConfigBus.getSlave(row.busId, slave.referenceSlaveId)
+      if (root) specSlave = root
+    }
+    if (!specSlave.specification) return row
+
+    const spec = specSlave.specification
+    const registerType = functionCodeToRegisterType(row.functionCode)
+    const candidates = spec.entities.filter((e) => {
+      if (e.modbusAddress === undefined) return false
+      if (registerType !== undefined && e.registerType !== registerType) return false
+      const len = entityLength(e)
+      return row.address >= e.modbusAddress && row.address < e.modbusAddress + len
+    })
+    if (candidates.length === 0) return row
+    // Prefer the entity that starts exactly at the register address.
+    const entity = candidates.find((e) => e.modbusAddress === row.address) ?? candidates[0]
+    if (!entity || entity.id === undefined) return row
+
+    const converter = ConverterMap.getConverter(entity)
+    if (!converter) return row
+    try {
+      const decoded = converter.modbus2mqtt(spec, entity.id, row.words)
+      const uom = entityUom(entity)
+      return {
+        ...row,
+        value: String(decoded),
+        converter: entity.converter ?? row.converter,
+        uom: uom ?? row.uom,
+        specKey: spec.filename ?? row.specKey,
+        entityName: entity.name ?? entity.mqttname ?? entity.converter ?? 'unknown',
+      }
+    } catch (e) {
+      debug('enrichRegister: decode failed for bus ' + row.busId + ' slave ' + row.slaveId + ' addr ' + row.address + ': ' + (e instanceof Error ? e.message : String(e)))
+      return row
+    }
   }
   createMapping(mapping: SnifferMappingCreate): Promise<SnifferRegisterRow> {
     void mapping
@@ -337,4 +440,32 @@ export class ModbusSnifferRegistry {
   getServices(): SnifferService[] {
     return Array.from(this.services.values())
   }
+}
+
+/** Maps a Modbus function code to the ModbusRegisterType it reads/writes. */
+function functionCodeToRegisterType(fc: number | undefined): ModbusRegisterType | undefined {
+  switch (fc) {
+    case 0x01: return ModbusRegisterType.Coils
+    case 0x02: return ModbusRegisterType.DiscreteInputs
+    case 0x03: return ModbusRegisterType.HoldingRegister
+    case 0x04: return ModbusRegisterType.AnalogInputs
+    case 0x05: return ModbusRegisterType.Coils
+    case 0x06: return ModbusRegisterType.HoldingRegister
+    case 0x0f: return ModbusRegisterType.Coils
+    case 0x10: return ModbusRegisterType.HoldingRegister
+    default: return undefined
+  }
+}
+
+/** Number of registers an entity occupies on the bus. */
+function entityLength(entity: Ientity): number {
+  const converter = ConverterMap.getConverter(entity)
+  if (converter) return Math.max(1, converter.getModbusLength(entity))
+  return 1
+}
+
+/** Unit of measurement from the entity's converter parameters (Inumber.uom). */
+function entityUom(entity: Ientity): string | undefined {
+  const p = entity.converterParameters as { uom?: string } | undefined
+  return p?.uom
 }

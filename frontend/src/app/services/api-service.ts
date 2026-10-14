@@ -511,4 +511,23 @@ export class ApiService {
     const slave = slaveId !== undefined ? `&slaveid=${slaveId}` : ''
     return this.httpClient.get<SnifferRegisterRow[]>(this.getFullUri(apiUri.snifferRegisters) + `?busid=${busId}${slave}`)
   }
+  snifferRegisterAnnotation(
+    busId: number,
+    slaveId: number,
+    address: number,
+    annotation: { converter?: string; uom?: string }
+  ): Observable<SnifferRegisterRow> {
+    return this.httpClient.post<SnifferRegisterRow>(this.getFullUri(apiUri.snifferRegisterAnnotation), {
+      busId,
+      slaveId,
+      address,
+      ...annotation,
+    })
+  }
+  snifferReset(busId: number): Observable<{ busId: number; renamedTo: string; recreated: boolean }> {
+    return this.httpClient.post<{ busId: number; renamedTo: string; recreated: boolean }>(
+      this.getFullUri(apiUri.snifferReset) + `?busid=${busId}`,
+      {}
+    )
+  }
 }

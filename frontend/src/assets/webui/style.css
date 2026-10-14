@@ -1119,3 +1119,14 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .sniffer-crc-bad td { background: rgba(220, 53, 69, 0.08); }
 .sniffer-tab-panel { overflow: auto; max-height: 46vh; }
 .modal-xlg .sniffer-toolbar { max-width: none; }
+
+/* sniffer column filter icons */
+.sn-filter-ico { cursor: pointer; margin-left: 4px; font-size: 11px; color: var(--text-muted); user-select: none; }
+.sn-filter-ico:hover { color: var(--primary); }
+.sn-filter-ico.active { color: var(--primary); font-weight: 700; }
+.sn-muted { color: var(--text-muted); font-style: italic; }
+.sn-annotated-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 8px; font-size: 10px; background: rgba(84,214,44,0.15); color: var(--success, #2e8b57); }
+.sn-pencil { background: none; border: none; cursor: pointer; font-size: 15px; padding: 2px 4px; border-radius: 6px; color: var(--text-secondary); }
+.sn-pencil:hover { background: var(--bg-hover); color: var(--text); }
+.sniff-interp { font-weight: 600; }
+.sniffer-toolbar .btn-danger { margin-left: auto; }

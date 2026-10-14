@@ -3,7 +3,7 @@ import { join } from 'path'
 import { ConfigPersistence } from '../persistence/configPersistence.js'
 import { SqliteSnifferStore, SnifferStore } from './store.js'
 import { SnifferService } from './snifferService.js'
-import { SnifferBusConfig, SnifferState } from './types.js'
+import { SnifferBusConfig, SnifferRegisterAnnotation, SnifferRegisterRow, SnifferResetResult, SnifferState } from './types.js'
 import { Bus } from '../bus.js'
 
 const debug = Debug('modbus2mqtt:sniffer:registry')
@@ -162,7 +162,45 @@ export class ModbusSnifferRegistry {
     return this.store.getDevices(busId)
   }
   getRegisters(busId: number, slaveId?: number) {
+    // Prefer a service instance (it enriches rows with the template
+    // interpretation value/uom/converter). Create one on demand from the
+    // stored config so registers are interpreted even when the sniffer is not
+    // currently running; enrichRegister tolerates missing specs gracefully.
+    const svc = this.services.get(busId)
+    if (svc) return svc.getRegisters(busId, slaveId)
+    const config = this.store.getConfig(busId)
+    if (config) {
+      const created = this.serviceForBus(busId, config)
+      return created.getRegisters(busId, slaveId)
+    }
     return this.store.getRegisters(busId, slaveId)
+  }
+
+  /** Persists a manual converter/uom annotation for one register row. */
+  annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined {
+    const row = this.store.annotateRegister(annotation)
+    if (row) this.services.get(annotation.busId)?.refreshRegisterValue(row)
+    return row
+  }
+
+  /**
+   * Clears the sniffer database by renaming the sqlite file with a timestamp
+   * suffix and creating a fresh one in its place. Stops all running sniffers
+   * first so no service keeps writing into the renamed file.
+   */
+  async resetDatabase(busId?: number): Promise<SnifferResetResult> {
+    // Stop whatever is running (per bus, or all) so no writer keeps the file open.
+    if (busId !== undefined) {
+      await this.stop(busId)
+      this.services.delete(busId)
+    } else {
+      await this.stopAll()
+      this.services.clear()
+    }
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    const renamed = this.store.resetDatabase(ts)
+    debug('resetDatabase: renamed db to ' + renamed)
+    return { busId: busId ?? 0, renamedTo: renamed ?? '', recreated: renamed !== undefined }
   }
 
   /**

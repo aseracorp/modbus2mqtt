@@ -74,6 +74,39 @@ export function registerSnifferRoutes(r: Registrar): void {
     const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
     return ok(registry.getRegisters(busId, slaveId))
   })
+
+  // POST /api/sniffer/registers/annotation {busId, slaveId, address, converter?, uom?}
+  // Persists a manual converter/uom annotation for a register row (used when no
+  // template entity decodes the register). Template-interpreted rows are not
+  // affected - a template always wins.
+  r.post(apiUri.snifferRegisterAnnotation, (ctx) => {
+    const body = (ctx.body ?? {}) as {
+      busId?: number
+      slaveId?: number
+      address?: number
+      converter?: string
+      uom?: string
+    }
+    if (body.busId === undefined || body.slaveId === undefined || body.address === undefined)
+      throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'busId, slaveId and address are required')
+    const row = registry.annotateRegister({
+      busId: body.busId,
+      slaveId: body.slaveId,
+      address: body.address,
+      converter: body.converter,
+      uom: body.uom,
+    })
+    if (!row) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'register row not found')
+    return created(row)
+  })
+
+  // POST /api/sniffer/reset?busid=1 (busid optional: reset all buses)
+  // Renames the sniffer database file (timestamp suffix) and starts a fresh one,
+  // so the captured history is archived instead of deleted.
+  r.post(apiUri.snifferReset, async (ctx) => {
+    const busId = ctx.query['busid'] !== undefined && ctx.query['busid'] !== '' ? parseInt(ctx.query['busid']) : undefined
+    return ok(await registry.resetDatabase(busId))
+  })
 }
 
 function requireBusId(ctx: Ctx): number {

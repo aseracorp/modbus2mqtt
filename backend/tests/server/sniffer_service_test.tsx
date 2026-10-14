@@ -373,3 +373,131 @@ it('drops frames with an invalid CRC (line noise / partial frames)', () => {
   parser.flush(now + 500)
   expect(received).toHaveLength(1)
 })
+
+// --- New features: register annotation + database reset (rename) ---
+it('annotateRegister persists converter/uom and marks the row annotated', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x01]))
+  svc.feed('response', frame(1, 0x03, [0x02, 0x12, 0x34]))
+
+  const regs = store.getRegisters(1)
+  expect(regs).toHaveLength(1)
+  const row = regs[0]
+  expect(row.words).toEqual([0x1234])
+  expect(row.rawValue).toBe('4660')
+
+  const annotated = store.annotateRegister({ busId: 1, slaveId: 1, address: row.address, converter: 'number * 0.1', uom: '°C' })
+  expect(annotated).toBeDefined()
+  expect(annotated!.annotated).toBe(true)
+  expect(annotated!.converter).toBe('number * 0.1')
+  expect(annotated!.uom).toBe('°C')
+  await svc.stop()
+})
+
+it('SqliteSnifferStore.resetDatabase renames the file and starts a fresh db', () => {
+  const dir = require('os').tmpdir()
+  const dbPath = require('path').join(dir, 'sniffer-reset-test-' + Date.now() + '.db')
+  const store = new SqliteSnifferStore(dbPath)
+  store.init()
+  store.upsertConfig({ busId: 5, mode: 'stack', enabled: true })
+  const cfg = store.getConfig(5)
+  expect(cfg).toBeDefined()
+
+  const renamed = store.resetDatabase('2026-10-14T12-00-00-000Z')
+  expect(renamed).toBe(dbPath + '.2026-10-14T12-00-00-000Z')
+  // The old file exists under the new name, and the original path is fresh.
+  expect(require('fs').existsSync(renamed!)).toBe(true)
+  expect(require('fs').existsSync(dbPath)).toBe(true)
+
+  // The renamed file still contains the old config; the fresh one is empty.
+  const oldStore = new SqliteSnifferStore(renamed!)
+  oldStore.init()
+  expect(oldStore.getConfig(5)).toBeDefined()
+  oldStore.close()
+
+  expect(store.getConfig(5)).toBeUndefined()
+  store.close()
+
+  // cleanup
+  require('fs').rmSync(dbPath, { force: true })
+  require('fs').rmSync(renamed!, { force: true })
+  for (const s of ['-wal', '-shm']) {
+    require('fs').rmSync(dbPath + s, { force: true })
+    require('fs').rmSync(renamed! + s, { force: true })
+  }
+})
+
+it('register rows expose rawValue and keep template values after refresh', () => {
+  const store = new SqliteSnifferStore(':memory:')
+  store.init()
+  const p = new RtuFrameParser((t) => {
+    if (t.direction === 'request') {
+      store.upsertDevice(3, t)
+      store.upsertRegister(3, t, t.decoded?.address ?? 0, t.decoded?.length ?? 1, [0x1234])
+    }
+  }, 20)
+  const f = frame(7, 0x04, [0x00, 0x10, 0x00, 0x01])
+  let now = 2000
+  f.forEach((b) => { p.feed([b], now); now += 3 })
+  p.feed([], now + 50)
+
+  const regs = store.getRegisters(3)
+  expect(regs).toHaveLength(1)
+  expect(regs[0].rawValue).toBe('4660')
+  expect(regs[0].functionCode).toBe(0x04)
+  // No template configured -> no value/converter/uom, still raw.
+  expect(regs[0].value).toBeUndefined()
+  store.close()
+})
+
+// --- Template interpretation: enrichRegister with a real spec entity ---
+it('getRegisters interprets values via the slave template (number converter + uom)', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  svc.feed('request', frame(7, 0x04, [0x02, 0x02, 0x00, 0x01])) // read analog input 0x0202, qty 1
+  svc.feed('response', frame(7, 0x04, [0x02, 0x01, 0xe7])) // 487 -> 48.7
+
+  // Instead of relying on the live Bus registry, insert the spec entity
+  // directly through a mocked ConfigBus.getSlave. The service calls
+  // ConfigBus.getSlave(row.busId, row.slaveId) - we stub it for this test.
+  const spec = {
+    filename: 'test-spec',
+    entities: [
+      {
+        id: 42,
+        name: 'Temperature',
+        converter: 'number',
+        registerType: 4, // AnalogInputs
+        modbusAddress: 0x0202,
+        converterParameters: { multiplier: 0.1, uom: '°C' },
+      },
+    ],
+    i18n: [],
+    files: [],
+    status: 0,
+    identified: 0,
+  }
+  const configBusModule = await import('../../src/server/configbus.js')
+  const original = configBusModule.ConfigBus.getSlave
+  configBusModule.ConfigBus.getSlave = () => ({
+    slaveid: 7,
+    name: 'Test',
+    specification: spec,
+  })
+
+  try {
+    const regs = svc.getRegisters(1, 7)
+    expect(regs).toHaveLength(1)
+    expect(regs[0].address).toBe(0x0202)
+    // 487 * 0.1 = 48.7
+    expect(regs[0].value).toBe('48.7')
+    expect(regs[0].uom).toBe('°C')
+    expect(regs[0].converter).toBe('number')
+    expect(regs[0].entityName).toBe('Temperature')
+    expect(regs[0].specKey).toBe('test-spec')
+  } finally {
+    configBusModule.ConfigBus.getSlave = original
+  }
+  await svc.stop()
+})

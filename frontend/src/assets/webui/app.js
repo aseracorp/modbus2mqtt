@@ -2495,23 +2495,27 @@ function initCustomSelect(selectId) {
 let snifferBusId = null;
 let snifferPollTimer = null;
 let snifferState = null;
+let snifferFilters = {};   // { table: { field: filterText } }
+let snifferAnnotateTarget = null; // { busId, slaveId, address, converter?, uom? }
 
 function snifferModeTapVisible() {
-  const mode = $('sn-mode')?.value || 'auto';
-  $('sn-tapdev-wrap').hidden = (mode !== 'tap' && mode !== 'auto');
+  // Tap device & baud are not configurable anymore: the sniffer always uses the
+  // same serial connection the modbus bus listens on. The mode select stays for
+  // stack/tap/auto semantics but no extra fields are shown.
+  const mode = $('sn-mode')?.value || 'stack';
+  document.querySelectorAll('.sniffer-tapdev, .sniffer-baud').forEach((el) => { el.hidden = true; });
 }
 
 async function openSniffer(busid) {
   snifferBusId = Number(busid);
   try {
     const cfg = await api('/api/sniffer/config?busid=' + snifferBusId);
-    $('sn-mode').value = cfg.mode || 'auto';
-    $('sn-tapdev').value = cfg.tapDevice || '';
-    $('sn-baud').value = cfg.baudRate || 9600;
+    $('sn-mode').value = cfg.mode || 'stack';
     $('sn-enabled').checked = !!cfg.enabled;
   } catch (e) { /* defaults are fine */ }
   snifferModeTapVisible();
   $('sniffer-overlay').hidden = false;
+  resetSnifferFilters();
   snifferRefresh();
   startSnifferPolling();
 }
@@ -2541,6 +2545,104 @@ function snifferHexRow(hex) {
   return String(hex).match(/.{1,2}/g)?.join(' ') || String(hex);
 }
 function snifferDir(d) { return d === 'request' ? '→' : '←'; }
+
+/* ---------------- sniffer column filters ---------------- */
+function resetSnifferFilters() {
+  snifferFilters = {};
+  document.querySelectorAll('.sn-filter-ico').forEach((ico) => {
+    ico.classList.remove('active');
+    ico.textContent = '🔽';
+  });
+}
+function tableNameFor(icon) {
+  // The icon sits in a thead of one of the three tables.
+  const panel = icon.closest('.sniffer-tab-panel');
+  if (!panel) return null;
+  return panel.id === 'sntab-telegrams' ? 'telegrams' : panel.id === 'sntab-devices' ? 'devices' : 'registers';
+}
+function activateSnifferFilter(icon, table) {
+  const field = icon.getAttribute('data-snf');
+  const val = prompt(t('sniffer_filter') + ' — ' + field, (snifferFilters[table] && snifferFilters[table][field]) || '');
+  if (val === null) return; // cancelled
+  snifferFilters[table] = snifferFilters[table] || {};
+  if (val.trim() === '') {
+    delete snifferFilters[table][field];
+    icon.classList.remove('active');
+    icon.textContent = '🔽';
+  } else {
+    snifferFilters[table][field] = val.trim();
+    icon.classList.add('active');
+    icon.textContent = '🔽 ✕';
+  }
+  snifferRefresh();
+}
+function applySnifferFilters(rows, table) {
+  const filters = snifferFilters[table];
+  if (!filters || !Object.keys(filters).length) return rows;
+  return rows.filter((row) => {
+    return Object.entries(filters).every(([field, needle]) => {
+      const raw = row[field];
+      const val = raw === undefined || raw === null ? '' : String(raw);
+      return val.toLowerCase().includes(String(needle).toLowerCase());
+    });
+  });
+}
+
+/* ---------------- sniffer clear database ---------------- */
+async function snifferClearDatabase() {
+  if (snifferBusId == null) return;
+  if (!confirm(t('sniffer_clear_db_confirm'))) return;
+  try {
+    await api('/api/sniffer/reset?busid=' + snifferBusId, { method: 'POST' });
+    toast(t('sniffer_clear_db_done'), 'success');
+    snifferRefresh();
+  } catch (e) {
+    toast(t('err_sniffer_clear_db') + (e && e.message ? e.message : e), 'error');
+  }
+}
+
+/* ---------------- sniffer register annotation (pencil) ---------------- */
+function openSnifferAnnotate(target) {
+  snifferAnnotateTarget = target;
+  $('sn-annotate-converter').value = target.converter || '';
+  $('sn-annotate-uom').value = target.uom || '';
+  $('sn-annotate-overlay').hidden = false;
+}
+function closeSnifferAnnotate() {
+  snifferAnnotateTarget = null;
+  $('sn-annotate-overlay').hidden = true;
+}
+async function saveSnifferAnnotate() {
+  if (!snifferAnnotateTarget) return;
+  const tgt = snifferAnnotateTarget;
+  const converter = $('sn-annotate-converter').value.trim();
+  const uom = $('sn-annotate-uom').value.trim();
+  try {
+    await api('/api/sniffer/registers/annotation', {
+      method: 'POST',
+      body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, address: tgt.address, converter, uom })
+    });
+    closeSnifferAnnotate();
+    toast(t('sniffer_saved'), 'success');
+    snifferRefresh();
+  } catch (e) {
+    toast(t('err_sniffer_annotate') + (e && e.message ? e.message : e), 'error');
+  }
+}
+
+function bindSnifferPencils() {
+  document.querySelectorAll('.sn-pencil').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = {
+        busId: Number(btn.getAttribute('data-busid')),
+        slaveId: Number(btn.getAttribute('data-slaveid')),
+        address: Number(btn.getAttribute('data-address')),
+        converter: btn.getAttribute('data-converter') || ''
+      };
+      openSnifferAnnotate(target);
+    });
+  });
+}
 
 async function snifferRefresh() {
   if (snifferBusId == null) return;
@@ -2583,6 +2685,7 @@ async function snifferRefresh() {
       renderSnifferTelegrams(tgs || []);
       renderSnifferDevices(devs || []);
       renderSnifferRegisters(regs || []);
+      bindSnifferPencils();
     } else {
       renderSnifferTelegrams([]);
       renderSnifferDevices([]);
@@ -2596,11 +2699,12 @@ async function snifferRefresh() {
 function renderSnifferTelegrams(tgs) {
   const body = $('sn-telegram-body');
   if (!body) return;
-  if (!tgs.length) {
+  const filtered = applySnifferFilters(tgs, 'telegrams');
+  if (!filtered.length) {
     body.innerHTML = '<tr><td colspan="8" class="sniffer-empty">' + t('sniffer_no_telegrams') + '</td></tr>';
     return;
   }
-  body.innerHTML = tgs.map((tg) => {
+  body.innerHTML = filtered.map((tg) => {
     const crcOk = tg.crcOk === undefined ? '' : (tg.crcOk ? '✓' : '✗');
     const cls = tg.crcOk === false ? ' class="sniffer-crc-bad"' : '';
     return '<tr' + cls + '><td>' + snifferTime(tg.timestamp) + '</td>' +
@@ -2616,11 +2720,12 @@ function renderSnifferTelegrams(tgs) {
 function renderSnifferDevices(devs) {
   const body = $('sn-device-body');
   if (!body) return;
-  if (!devs.length) {
+  const filtered = applySnifferFilters(devs, 'devices');
+  if (!filtered.length) {
     body.innerHTML = '<tr><td colspan="7" class="sniffer-empty">' + t('sniffer_no_devices') + '</td></tr>';
     return;
   }
-  body.innerHTML = devs.map((d) =>
+  body.innerHTML = filtered.map((d) =>
     '<tr><td>' + d.slaveId + '</td><td>' + snifferTime(d.firstSeen) + '</td>' +
     '<td>' + snifferTime(d.lastSeen) + '</td><td>' + (d.requestCount ?? 0) + '</td>' +
     '<td>' + (d.responseCount ?? 0) + '</td><td>' + (d.errorCount ?? 0) + '</td>' +
@@ -2630,16 +2735,29 @@ function renderSnifferDevices(devs) {
 function renderSnifferRegisters(regs) {
   const body = $('sn-register-body');
   if (!body) return;
-  if (!regs.length) {
-    body.innerHTML = '<tr><td colspan="5" class="sniffer-empty">' + t('sniffer_no_registers') + '</td></tr>';
+  const filtered = applySnifferFilters(regs, 'registers');
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="7" class="sniffer-empty">' + t('sniffer_no_registers') + '</td></tr>';
     return;
   }
-  body.innerHTML = regs.map((r) =>
-    '<tr><td>' + r.slaveId + '</td><td>' + r.address + '</td>' +
-    '<td class="sniffer-mono">' + escapeHtml((r.words || []).join(', ')) + '</td>' +
-    '<td>' + escapeHtml(r.converter || '') + '</td>' +
-    '<td>' + escapeHtml(r.uom || '') + '</td></tr>'
-  ).join('');
+  body.innerHTML = filtered.map((r) => {
+    const raw = escapeHtml(r.rawValue ?? (r.words || []).join(', '));
+    const interp = r.value != null && r.value !== '' ? escapeHtml(String(r.value)) : '<span class="sn-muted">—</span>';
+    const conv = r.converter ? escapeHtml(String(r.converter)) : '<span class="sn-muted">' + t('sniffer_no_template') + '</span>';
+    const uom = r.uom ? escapeHtml(String(r.uom)) : '';
+    const annotated = r.annotated ? ' <span class="sn-annotated-badge">' + t('sniffer_annotated') + '</span>' : '';
+    const pencilTitle = t('sniffer_annotate');
+    return '<tr>' +
+      '<td>' + r.slaveId + '</td>' +
+      '<td>' + r.address + '</td>' +
+      '<td class="sniffer-mono">' + raw + '</td>' +
+      '<td class="sniff-interp">' + interp + annotated + '</td>' +
+      '<td>' + conv + '</td>' +
+      '<td>' + uom + '</td>' +
+      '<td><button class="icon-btn sn-pencil" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
+        '" data-address="' + r.address + '" title="' + pencilTitle + '">✏️</button></td>' +
+      '</tr>';
+  }).join('');
 }
 
 async function snifferStart() {
@@ -2665,12 +2783,12 @@ async function snifferStop() {
 }
 async function snifferSaveConfig(autoStart) {
   if (snifferBusId == null) return;
+  // Tap device and baud rate are not configurable: the sniffer always listens
+  // on the same connection the modbus bus uses, so they stay out of the payload.
   const body = {
     busId: snifferBusId,
     mode: $('sn-mode').value || 'stack',
-    enabled: $('sn-enabled').checked,
-    tapDevice: $('sn-tapdev').value.trim() || undefined,
-    baudRate: parseInt($('sn-baud').value, 10) || undefined
+    enabled: $('sn-enabled').checked
   };
   await api('/api/sniffer/config', { method: 'POST', body: JSON.stringify(body) });
   if (!autoStart) toast(t('sniffer_saved'), 'success');
@@ -2683,12 +2801,22 @@ async function snifferSaveConfig(autoStart) {
   $('sn-save')?.addEventListener('click', () => snifferSaveConfig(false));
   $('sn-close')?.addEventListener('click', closeSniffer);
   $('sn-mode')?.addEventListener('change', snifferModeTapVisible);
+  $('sn-clear')?.addEventListener('click', snifferClearDatabase);
+  $('sn-annotate-save')?.addEventListener('click', saveSnifferAnnotate);
+  $('sn-annotate-cancel')?.addEventListener('click', closeSnifferAnnotate);
   document.querySelectorAll('.sniffer-tab-btn').forEach((b) => {
     b.addEventListener('click', () => {
       document.querySelectorAll('.sniffer-tab-btn').forEach((x) => x.classList.remove('active'));
       b.classList.add('active');
       const tab = b.getAttribute('data-sntab');
       document.querySelectorAll('.sniffer-tab-panel').forEach((p) => { p.hidden = (p.id !== 'sntab-' + tab); });
+    });
+  });
+  // Column filter icons (event delegation — the thead is static).
+  document.querySelectorAll('.sn-filter-ico').forEach((ico) => {
+    ico.addEventListener('click', () => {
+      const table = tableNameFor(ico);
+      if (table) activateSnifferFilter(ico, table);
     });
   });
 })();
