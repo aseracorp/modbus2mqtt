@@ -69,7 +69,7 @@ it('classifies a read response correctly when a request precedes it', () => {
   expect(received[1].decoded?.byteCount).toBe(4)
 })
 
-it('marks a frame with a bad CRC as crcOk=false but still emits it', () => {
+it('drops a frame with a bad CRC as noise', () => {
   const received: ParsedTelegram[] = []
   const parser = new RtuFrameParser((t) => received.push(t), 20)
   const raw = frame(5, 0x03, [0x00, 0x00, 0x00, 0x01])
@@ -77,9 +77,9 @@ it('marks a frame with a bad CRC as crcOk=false but still emits it', () => {
   let now = 1000
   raw.forEach((b) => { parser.feed([b], now); now += 3 })
   parser.feed([], now + 50)
-  expect(received).toHaveLength(1)
-  expect(received[0].crcOk).toBe(false)
-  expect(received[0].slaveId).toBe(5)
+  // Frames that fail the CRC check are line noise / partial reads and must
+  // not pollute the telegram stream.
+  expect(received).toHaveLength(0)
 })
 
 it('drops garbage frames shorter than 4 bytes', () => {

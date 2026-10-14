@@ -1,5 +1,8 @@
+import Debug from 'debug'
 import { ParsedTelegram, TelegramDirection } from './types.js'
 import { decodePdu } from './decode.js'
+
+const debug = Debug('modbus2mqtt:sniffer:parser')
 
 /**
  * Pure Modbus RTU frame parser. No I/O, no dependencies on the rest of the
@@ -100,6 +103,17 @@ export class RtuFrameParser {
     // So the payload is everything between addr+fc and the trailing CRC pair.
     const payload = bytes.slice(2, bytes.length - 2)
     const crcOk = this.crc16(bytes.slice(0, bytes.length - 2)) === ((bytes[bytes.length - 1] << 8) | bytes[bytes.length - 2])
+    // Frames without a valid CRC are noise (partial frames, line noise, or
+    // bytes captured at the wrong baud) and must not pollute the telegram
+    // stream: they carry no decodable address/values and would otherwise
+    // drown out real frames. The serial tap sees full wire frames; the stack
+    // hook (ModbusAPI) appends the CRC when it emits, so everything that
+    // reaches the parser is CRC-checkable.
+    if (!crcOk) {
+      debug('dropping frame with invalid CRC: ' + bytes.map((b) => b.toString(16).padStart(2, '0')).join(''))
+      this.buffer = []
+      return
+    }
     const telegram: ParsedTelegram = {
       direction: this.classifyDirection(slaveId, functionCode, payload),
       timestamp: Date.now() / 1000,

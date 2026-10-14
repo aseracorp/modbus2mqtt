@@ -48,12 +48,26 @@ export class ModbusSnifferRegistry {
     return this.services.get(busId)
   }
 
+  /** The RTU serial device the given bus is configured with (if any). */
+  private busSerialport(busId: number): string | undefined {
+    const bus = Bus.getBus(busId)
+    if (!bus) return undefined
+    const rtu = bus.properties.connectionData as { serialport?: string }
+    return rtu?.serialport
+  }
+
+  /** Enriches a config with the current bus serial device before use. */
+  private enrichConfig(config: SnifferBusConfig): SnifferBusConfig {
+    const serialport = this.busSerialport(config.busId)
+    return { ...config, busSerialport: serialport ?? config.busSerialport }
+  }
+
   getConfig(busId: number): SnifferBusConfig | undefined {
     return this.store.getConfig(busId)
   }
 
   saveConfig(config: SnifferBusConfig): void {
-    this.store.upsertConfig(config)
+    this.store.upsertConfig(this.enrichConfig(config))
     debug('saved sniffer config for bus ' + config.busId + ' mode=' + config.mode)
   }
 
@@ -69,11 +83,12 @@ export class ModbusSnifferRegistry {
    * the Bus/ModbusAPI. Called from Bus construction when a config exists.
    */
   serviceForBus(busId: number, config: SnifferBusConfig): SnifferService {
+    const enriched = this.enrichConfig(config)
     let svc = this.services.get(busId)
     if (!svc) {
-      svc = new SnifferService(config, this.store)
+      svc = new SnifferService(enriched, this.store)
       this.services.set(busId, svc)
-    } else svc.setConfig(config)
+    } else svc.setConfig(enriched)
     return svc
   }
 

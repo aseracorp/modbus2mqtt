@@ -23,6 +23,8 @@ export interface SnifferBusConfig {
   frameTimeoutMs?: number
   /** Baud rate for the passive tap port (default 9600). */
   baudRate?: number
+  /** The serial device the active bus uses (set by the Bus/registry wiring). */
+  busSerialport?: string
   /** Limit the retained telegram history per bus (default 1000). */
   maxTelegrams?: number
   enabled: boolean
