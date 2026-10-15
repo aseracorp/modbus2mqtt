@@ -285,3 +285,146 @@ describe('register-400 double-read fix', () => {
     expect(conditionOptions?.errorHandling?.retry).toBe(false)
   })
 })
+
+describe('WRF06 nested condition (400 + 501 bitmask) poll behaviour', () => {
+  it('reads the value registers when both condition registers match', async () => {
+    // Mimic the real Thermokon WRF06 spec: reg 400 selects the unit system
+    // (1=SI), reg 501 is a bitmask of present sensors (bit0=Temp, bit1=rH...).
+    const reads: Set<number>[] = []
+    const api = {
+      readModbusRegister: async (_slaveId: number, addresses: Set<ImodbusAddress>) => {
+        reads.push(new Set(Array.from(addresses).map((a) => a.address)))
+        const rc = emptyModbusValues()
+        for (const a of addresses) {
+          if (a.address === 400) rc.holdingRegisters.set(400, { data: [1] }) // SI
+          if (a.address === 501) rc.holdingRegisters.set(501, { data: [0b00000011] }) // Temp + rH present
+          if (a.address === 0) rc.holdingRegisters.set(0, { data: [215] })
+          if (a.address === 1) rc.holdingRegisters.set(1, { data: [452] })
+        }
+        return rc
+      },
+      writeModbusRegister: async () => {},
+      readHoldingRegisters: async () => ({ data: [], duration: 0 }),
+      readInputRegisters: async () => ({ data: [], duration: 0 }),
+      getName: () => 'fake',
+    } as unknown as IconsumerModbusAPI
+
+    const wrf06Spec: IfileSpecification = {
+      filename: 'thermokon-wrf06',
+      model: 'WRF06',
+      manufacturer: 'Thermokon',
+      status: 2,
+      version: '0.5',
+      i18n: [],
+      files: [],
+      entities: [
+        { id: 1, mqttname: 'sensor_identification', name: 'Sensor identification', converter: 'number', registerType: 3, modbusAddress: 501, entityCategory: 'diagnostic', converterParameters: { multiplier: 1, offset: 0, decimals: 0, numberFormat: 0 } },
+        { id: 2, mqttname: 'temperature_si', name: 'Temperature', converter: 'number', registerType: 3, modbusAddress: 0, conditions: [{ register: 400, comparator: 'eq', value: 1 }, { register: 501, bit: 0, comparator: 'eq', value: 1 }], converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 } },
+        { id: 3, mqttname: 'relative_humidity', name: 'Relative humidity', converter: 'number', registerType: 3, modbusAddress: 1, condition: { register: 501, bit: 1, comparator: 'eq', value: 1 }, converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 } },
+        { id: 4, mqttname: 'co2', name: 'CO2', converter: 'number', registerType: 3, modbusAddress: 2, condition: { register: 501, bit: 5, comparator: 'eq', value: 1 }, converterParameters: { multiplier: 1, offset: 0, decimals: 0, numberFormat: 0 } },
+      ],
+    }
+    const sub = new Subject<any>()
+    const result = new Promise<any>((resolve) => sub.subscribe((m) => resolve(m)))
+    await Modbus.getModbusSpecificationFromData(ModbusTasks.poll, api, 1, wrf06Spec, sub)
+    await result
+
+    const conditionRead = reads[0] ?? new Set<number>()
+    expect(conditionRead.has(400)).toBe(true)
+    expect(conditionRead.has(501)).toBe(true)
+    const valueRead = reads[1] ?? new Set<number>()
+    expect(valueRead.has(0)).toBe(true)
+    expect(valueRead.has(1)).toBe(true)
+    expect(valueRead.has(2)).toBe(false)
+  })
+
+  it('keeps polling only the condition registers when the bitmask does not match (nothing active)', async () => {
+    const reads: Set<number>[] = []
+    const api = {
+      readModbusRegister: async (_slaveId: number, addresses: Set<ImodbusAddress>) => {
+        reads.push(new Set(Array.from(addresses).map((a) => a.address)))
+        const rc = emptyModbusValues()
+        for (const a of addresses) {
+          if (a.address === 400) rc.holdingRegisters.set(400, { data: [1] })
+          if (a.address === 501) rc.holdingRegisters.set(501, { data: [0] })
+        }
+        return rc
+      },
+      writeModbusRegister: async () => {},
+      readHoldingRegisters: async () => ({ data: [], duration: 0 }),
+      readInputRegisters: async () => ({ data: [], duration: 0 }),
+      getName: () => 'fake',
+    } as unknown as IconsumerModbusAPI
+
+    const wrf06Spec: IfileSpecification = {
+      filename: 'thermokon-wrf06',
+      model: 'WRF06',
+      manufacturer: 'Thermokon',
+      status: 2,
+      version: '0.5',
+      i18n: [],
+      files: [],
+      entities: [
+        { id: 1, mqttname: 'sensor_identification', name: 'Sensor identification', converter: 'number', registerType: 3, modbusAddress: 501, entityCategory: 'diagnostic', converterParameters: { multiplier: 1, offset: 0, decimals: 0, numberFormat: 0 } },
+        { id: 2, mqttname: 'temperature_si', name: 'Temperature', converter: 'number', registerType: 3, modbusAddress: 0, conditions: [{ register: 400, comparator: 'eq', value: 1 }, { register: 501, bit: 0, comparator: 'eq', value: 1 }], converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 } },
+      ],
+    }
+    const sub = new Subject<any>()
+    const result = new Promise<any>((resolve) => sub.subscribe((m) => resolve(m)))
+    await Modbus.getModbusSpecificationFromData(ModbusTasks.poll, api, 1, wrf06Spec, sub)
+    await result
+    expect(reads[0]?.has(400)).toBe(true)
+    expect(reads[0]?.has(501)).toBe(true)
+    const all = reads.flatMap((s) => Array.from(s))
+    expect(all.includes(0)).toBe(false)
+  })
+})
+
+describe('400-only condition spec (legacy WRF06 without 501)', () => {
+  it('polls only register 400 when 400 does not match (value 2 = imperial)', async () => {
+    // A spec whose entities gate on register 400 ONLY (no 501 bitmask).
+    // If register 400 reads back 2 (imperial unit system) while the SI entities
+    // expect 1, every entity is inactive -> the poll degenerates to "only 400".
+    const reads: Set<number>[] = []
+    const api = {
+      readModbusRegister: async (_slaveId: number, addresses: Set<ImodbusAddress>) => {
+        reads.push(new Set(Array.from(addresses).map((a) => a.address)))
+        const rc = emptyModbusValues()
+        for (const a of addresses) {
+          if (a.address === 400) rc.holdingRegisters.set(400, { data: [2] }) // imperial!
+          if (a.address === 0) rc.holdingRegisters.set(0, { data: [215] })
+          if (a.address === 1) rc.holdingRegisters.set(1, { data: [452] })
+        }
+        return rc
+      },
+      writeModbusRegister: async () => {},
+      readHoldingRegisters: async () => ({ data: [], duration: 0 }),
+      readInputRegisters: async () => ({ data: [], duration: 0 }),
+      getName: () => 'fake',
+    } as unknown as IconsumerModbusAPI
+
+    const spec400Only: IfileSpecification = {
+      filename: 'legacy-wrf06',
+      model: 'WRF06',
+      manufacturer: 'Thermokon',
+      status: 2,
+      version: '0.3',
+      i18n: [],
+      files: [],
+      entities: [
+        { id: 1, mqttname: 'temperature_si', name: 'Temperature SI', converter: 'number', registerType: 3, modbusAddress: 0, condition: { register: 400, comparator: 'eq', value: 1 }, converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 } },
+        { id: 2, mqttname: 'relative_humidity', name: 'Relative humidity', converter: 'number', registerType: 3, modbusAddress: 1, condition: { register: 400, comparator: 'eq', value: 1 }, converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 } },
+      ],
+    }
+    const sub = new Subject<any>()
+    const result = new Promise<any>((resolve) => sub.subscribe((m) => resolve(m)))
+    await Modbus.getModbusSpecificationFromData(ModbusTasks.poll, api, 1, spec400Only, sub)
+    await result
+    // Condition phase reads 400
+    expect(reads[0]?.has(400)).toBe(true)
+    // Both entities inactive -> value registers 0,1 never read
+    const all = reads.flatMap((s) => Array.from(s))
+    expect(all.includes(0)).toBe(false)
+    expect(all.includes(1)).toBe(false)
+  })
+})
