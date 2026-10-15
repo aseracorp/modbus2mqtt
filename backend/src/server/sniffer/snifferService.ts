@@ -24,8 +24,6 @@ import { ImodbusValues } from '../../specification/modbusValues.js'
 const debug = Debug('modbus2mqtt:sniffer:service')
 const log = new Logger('sniffer:service')
 
-export const DEFAULT_MAX_TELEGRAMS = 1000
-
 /**
  * Orchestrates the RTU sniffer for one bus: owns the transport(s), feeds the
  * parser, decorates decoded frames, maintains the device/register inventory in
@@ -194,33 +192,68 @@ export class SnifferService implements SnifferTransport {
     this.transports.push(stack)
     await stack.start(this.stackSink)
 
-    if (useTap) {
-      if (sameAsBus) {
-        // Borrow the bus's open serial port (passive listener) so we still see
-        // the foreign master's frames without opening a conflicting second port.
-        try {
-          const tap = this.busPortTapFactory(this.config.busId)
-          await tap.start(this.tapSink)
-          this.transports.push(tap)
-          log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          this.error = msg
-          log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} bus-port tap failed, falling back to stack hook: ${msg}`)
-          debug(`sniffer bus ${this.config.busId} bus-port tap failed: ${msg}`)
-        }
-      } else {
-        const tap = this.tapFactory(this.config.tapDevice!, this.config.baudRate ?? 9600)
-        try {
-          await tap.start(this.tapSink)
-          this.transports.push(tap)
-          log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          this.error = msg
-          log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} tap failed, falling back to stack hook: ${msg}`)
-          debug(`sniffer bus ${this.config.busId} tap failed: ${msg}`)
-        }
+    // The passive capture path must NOT depend on the master being configured:
+    // a master (or a foreign master on the same line) can be polled with zero
+    // slaves configured. So besides the stack hook (which only sees the active
+    // master's own traffic) we ALWAYS try to tap the bus line passively:
+    //  1. bus-port tap: borrow the bus's already-open serial port (no extra fd,
+    //     sees foreign master RX/TX). Works as soon as the ModbusAPI has the
+    //     port open (e.g. a slave is configured) OR after the fallback below
+    //     opened it.
+    //  2. If the bus port is not open yet (no slaves -> no polling -> ModbusAPI
+    //     never connected), open the bus serial device OURSELVES in read-only/
+    //     non-exclusive mode (lock:false) so the sniffer hears everything even
+    //     when the master has nothing to poll. This is safe: with no slave there
+    //     is no ModbusAPI on that device, and with a slave the bus-port tap
+    //     already works (fallback only runs when the bus-port tap didn't).
+    // A tap on a DIFFERENT device (Y-splitter / dedicated RS485 adapter) always
+    // uses the classic SerialTap.
+    const differntTap = this.config.tapDevice && !sameAsBus && (mode === 'tap' || mode === 'auto')
+    if (differntTap) {
+      const tap = this.tapFactory(this.config.tapDevice!, this.config.baudRate ?? 9600)
+      try {
+        await tap.start(this.tapSink)
+        this.transports.push(tap)
+        log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Keep the FIRST error; later failures are secondary fallbacks.
+        if (!this.error) this.error = msg
+        log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} tap failed, falling back to stack hook: ${msg}`)
+        debug(`sniffer bus ${this.config.busId} tap failed: ${msg}`)
+      }
+    }
+
+    // Always try the passive bus-line capture (bus-port tap first, then a
+    // self-opened serial tap on the bus device as fallback).
+    let busTapActive = false
+    try {
+      const tap = this.busPortTapFactory(this.config.busId)
+      await tap.start(this.tapSink)
+      this.transports.push(tap)
+      busTapActive = true
+      log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} bus-port tap active: ${tap.describe()}`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!this.error) this.error = msg
+      log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} bus-port tap failed: ${msg}`)
+      debug(`sniffer bus ${this.config.busId} bus-port tap failed: ${msg}`)
+    }
+    // When the bus port is not open yet (no slaves -> ModbusAPI never opened
+    // it), the bus-port tap above silently attached to nothing. Open the serial
+    // device ourselves (non-exclusive) so a foreign master's frames are still
+    // captured. The stack hook remains as a safety net for the active master.
+    if (!busTapActive && this.config.busSerialport && this.config.busSerialport.length > 0) {
+      const serialTap = this.tapFactory(this.config.busSerialport, this.config.baudRate ?? 9600)
+      try {
+        await serialTap.start(this.tapSink)
+        this.transports.push(serialTap)
+        log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} serial tap on bus device active: ${serialTap.describe()}`)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!this.error) this.error = msg
+        log.log(LogLevelEnum.error, `sniffer bus ${this.config.busId} serial tap on bus device failed: ${msg}`)
+        debug(`sniffer bus ${this.config.busId} serial tap on bus device failed: ${msg}`)
       }
     }
 
@@ -248,10 +281,35 @@ export class SnifferService implements SnifferTransport {
     this.telegramCount++
     // Decorate the frame with its PDU shape.
     telegram.decoded = decodePdu(telegram)
+    // Pair responses with their request BEFORE persisting: a read response has
+    // no address of its own - the register list and the telegram table would
+    // show an empty Addr column for every response. Copying the request's
+    // address/length into the decoded response makes the telegram overview show
+    // e.g. "0x03 400 len 1" and lets the register view split multi-register
+    // reads into per-address rows.
+    const paired = this.pairResponse(telegram)
+    if (paired) {
+      telegram.decoded = {
+        ...telegram.decoded,
+        address: paired.request.decoded?.address,
+        length: paired.request.decoded?.length,
+      }
+    }
     this.store.appendTelegram(this.config.busId, telegram)
     this.store.upsertDevice(this.config.busId, telegram)
     this.updateRegisters(telegram)
-    this.trimTelegrams()
+  }
+
+  /**
+   * Looks up the outstanding request for a response (same slave + function)
+   * in the parser's FIFO queue. Returns the request but does NOT consume it
+   * here - updateRegisters consumes once the values were split. This lets the
+   * telegram table AND the register split share the same pairing.
+   */
+  private pairResponse(telegram: ParsedTelegram): { request: ParsedTelegram } | undefined {
+    if (telegram.direction !== 'response') return undefined
+    const req = this.parser?.getLastRequest(telegram.slaveId, telegram.functionCode)
+    return req ? { request: req } : undefined
   }
 
   private updateRegisters(telegram: ParsedTelegram): void {
@@ -288,11 +346,10 @@ export class SnifferService implements SnifferTransport {
   }
 
   private trimTelegrams(): void {
-    const max = this.config.maxTelegrams ?? DEFAULT_MAX_TELEGRAMS
-    if (this.telegramCount > max) {
-      // Cheap in-memory trim; the store keeps a bounded history per bus.
-      this.telegramCount = max
-    }
+    // The counter must reflect the REAL total telegram count, not a capped
+    // value: the UI shows it as "N telegrams" and users expect the true
+    // number of frames captured. History retention is bounded in the store
+    // (if configured); the counter is not trimmed here anymore.
   }
 
   // ---- Query API for the HTTP routes ----
@@ -308,7 +365,11 @@ export class SnifferService implements SnifferTransport {
     // slave) so entities whose conditions reference other registers (e.g. a
     // device-type select at 400 gating a temperature at 0) can be evaluated.
     const values = snifferValuesFromRows(rows)
-    return this.mergeRegisterWords(rows).map((r) => this.enrichRegister(r, values))
+    // No block-merging: every register address is its own row (the user wants
+    // a read of N registers to appear as N rows). Multi-word entities (32 bit
+    // float etc.) are decoded in enrichRegister by collecting the words of
+    // the whole entity from the values map.
+    return rows.map((r) => this.enrichRegister(r, values))
   }
 
   /**
@@ -317,33 +378,6 @@ export class SnifferService implements SnifferTransport {
    * full word array. Rows are merged by (slaveId, matching entity range from a
    * template spec); without a spec each row stays as it is.
    */
-  private mergeRegisterWords(rows: SnifferRegisterRow[]): SnifferRegisterRow[] {
-    const out: SnifferRegisterRow[] = []
-    let i = 0
-    while (i < rows.length) {
-      const row = rows[i]
-      let end = i + 1
-      let mergedWords = [...row.words]
-      // Same slave + consecutive addresses: merge into a multi-word entity.
-      while (end < rows.length && rows[end].slaveId === row.slaveId && rows[end].address === rows[end - 1].address + 1) {
-        mergedWords = mergedWords.concat(rows[end].words)
-        end++
-      }
-      if (end > i + 1) {
-        out.push({
-          ...row,
-          quantity: end - i,
-          words: mergedWords,
-          rawValue: mergedWords.join(', '),
-        })
-      } else {
-        out.push(row)
-      }
-      i = end
-    }
-    return out
-  }
-
   /** Re-interprets a single register row after an annotation changed it. */
   refreshRegisterValue(row: SnifferRegisterRow): SnifferRegisterRow {
     const values = snifferValuesFromRows(this.store.getRegisters(row.busId, row.slaveId))
@@ -411,7 +445,28 @@ export class SnifferService implements SnifferTransport {
     const converter = ConverterMap.getConverter(entity)
     if (!converter) return row
     try {
-      const decoded = converter.modbus2mqtt(spec, entity.id, row.words)
+      // Rebuild the entity's full word list from the per-address values map:
+      // a 32 bit float occupies 2 registers, decoded from the words of BOTH
+      // addresses. Without this, splitting reads into per-address rows would
+      // hand float converters only the first word.
+      const map =
+        registerType === ModbusRegisterType.Coils
+          ? values.coils
+          : registerType === ModbusRegisterType.DiscreteInputs
+            ? values.discreteInputs
+            : registerType === ModbusRegisterType.AnalogInputs
+              ? values.analogInputs
+              : values.holdingRegisters
+      const len = entityLength(entity)
+      const entityWords: number[] = []
+      if (len > 1) {
+        for (let a = 0; a < len; a++) {
+          const cell = map.get(row.address + a)
+          if (cell && cell.data) entityWords.push(...cell.data)
+        }
+      }
+      const words = entityWords.length > 0 ? entityWords : row.words
+      const decoded = converter.modbus2mqtt(spec, entity.id, words)
       const uom = entityUom(entity)
       return {
         ...row,
@@ -516,7 +571,11 @@ function snifferValuesFromRows(rows: SnifferRegisterRow[]): ImodbusValues {
   const analogInputs = new Map<number, { data: number[] }>()
   for (const r of rows) {
     if (r.words.length === 0) continue
-    const entry = { data: [r.words[0]] }
+    // Keep ALL words of the row (a row may carry several words when a single
+    // frame was stored as one inventory entry). Word lists per address let
+    // enrichRegister rebuild multi-word entities (32 bit float) from the
+    // individual address rows without block-merging.
+    const entry = { data: [...r.words] }
     switch (functionCodeToRegisterType(r.functionCode)) {
       case ModbusRegisterType.Coils: coils.set(r.address, entry); break
       case ModbusRegisterType.DiscreteInputs: discreteInputs.set(r.address, entry); break

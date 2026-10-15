@@ -55,9 +55,12 @@ export interface IconsumerModbusAPI {
    * bytes the bus itself wrote (TX), wrapped with a direction hint. This lets
    * the sniffer observe ALL bus traffic - including frames from a foreign
    * master - without opening a second port (which would fight the bus for the
-   * serial device). Returns a function that detaches the tap again.
+   * serial device). Returns `{ detach, active }`: `active` is false when no open serial
+   * port is present (nothing to tap yet).
    */
-  attachSerialTap: (listener: (direction: 'request' | 'response', bytes: number[]) => void) => () => void
+  attachSerialTap: (
+    listener: (direction: 'request' | 'response', bytes: number[]) => void
+  ) => { detach: () => void; active: boolean }
 }
 export interface IModbusConfiguration {
   getId: () => number
@@ -105,7 +108,7 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
    */
   attachSerialTap(
     listener: (direction: 'request' | 'response', bytes: number[]) => void
-  ): () => void {
+  ): { detach: () => void; active: boolean } {
     // The modbus-serial client stores its port as _port. For
     // connectRTUBuffered (used on RTU) _port is an RTUBufferedPort wrapper
     // that holds the REAL SerialPort as `_client`. ALL bytes that arrive on
@@ -126,7 +129,7 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
     // (non-buffered) RTU connections. If neither is a usable emitter, no tap.
     const port = (wrapper && 'on' in wrapper && (wrapper as { _client?: EventEmitter })._client) || wrapper
     if (!port || typeof (port as EventEmitter).on !== 'function' || typeof (port as EventEmitter).removeListener !== 'function')
-      return () => undefined
+      return { detach: () => undefined, active: false }
     const tapPort = port as EventEmitter & { write?: (data: unknown, ...args: unknown[]) => unknown }
     // The serial port may only be created later (e.g. reconnects replace the
     // _client object). Re-arm the listener whenever a new _client appears so a
@@ -180,10 +183,13 @@ export class ModbusAPI implements IModbusAPI, IconsumerModbusAPI {
       }
     }
     tapPort.on('data', onData)
-    return () => {
-      clearInterval(poll)
-      tapPort.removeListener('data', onData)
-      if (originalWrite && tapPort.write !== originalWrite) tapPort.write = originalWrite
+    return {
+      detach: () => {
+        clearInterval(poll)
+        tapPort.removeListener('data', onData)
+        if (originalWrite && tapPort.write !== originalWrite) tapPort.write = originalWrite
+      },
+      active: true,
     }
   }
 

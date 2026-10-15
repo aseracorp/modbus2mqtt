@@ -2498,25 +2498,14 @@ let snifferState = null;
 let snifferFilters = {};   // { table: { field: filterText } }
 let snifferAnnotateTarget = null; // { busId, slaveId, address, converter?, uom? }
 
-function snifferModeTapVisible() {
-  // Tap device & baud are not configurable anymore: the sniffer always uses the
-  // same serial connection the modbus bus listens on. The mode select stays for
-  // stack/tap/auto semantics but no extra fields are shown.
-  const mode = $('sn-mode')?.value || 'stack';
-  document.querySelectorAll('.sniffer-tapdev, .sniffer-baud').forEach((el) => { el.hidden = true; });
-}
-
 async function openSniffer(busid) {
   snifferBusId = Number(busid);
   try {
     const cfg = await api('/api/sniffer/config?busid=' + snifferBusId);
-    // The mode select was removed from the toolbar (tap device/baud are not
-    // configurable anymore); guard the access so the popup still opens/Starts
-    // when the element is absent.
-    if ($('sn-mode')) $('sn-mode').value = cfg.mode || 'stack';
+    // Config is fixed (mode/tap device are not configurable in the UI anymore);
+    // only the auto-start checkbox reflects the persisted config.
     if ($('sn-enabled')) $('sn-enabled').checked = !!cfg.enabled;
   } catch (e) { /* defaults are fine */ }
-  snifferModeTapVisible();
   $('sniffer-overlay').hidden = false;
   resetSnifferFilters();
   snifferRefresh();
@@ -2553,8 +2542,7 @@ function snifferDir(d) { return d === 'request' ? '→' : '←'; }
 function resetSnifferFilters() {
   snifferFilters = {};
   document.querySelectorAll('.sn-filter-ico').forEach((ico) => {
-    ico.classList.remove('active');
-    ico.textContent = '🔽';
+    setSnifferFilterIndicator(ico);
   });
 }
 function tableNameFor(icon) {
@@ -2563,31 +2551,61 @@ function tableNameFor(icon) {
   if (!panel) return null;
   return panel.id === 'sntab-telegrams' ? 'telegrams' : panel.id === 'sntab-devices' ? 'devices' : 'registers';
 }
+function setSnifferFilterIndicator(icon) {
+  const th = icon.closest('th');
+  const field = icon.getAttribute('data-snf');
+  const table = tableNameFor(icon);
+  const has = !!(table && snifferFilters[table] && snifferFilters[table][field]);
+  icon.classList.toggle('active', has);
+  icon.textContent = has ? '🔽 ✕' : '🔽';
+  if (th) th.classList.toggle('sn-filtered', has);
+}
 function activateSnifferFilter(icon, table) {
   const field = icon.getAttribute('data-snf');
-  const val = prompt(t('sniffer_filter') + ' — ' + field, (snifferFilters[table] && snifferFilters[table][field]) || '');
+  const current = (snifferFilters[table] && snifferFilters[table][field]) || '';
+  const val = prompt(t('sniffer_filter') + ' — ' + field, current);
   if (val === null) return; // cancelled
   snifferFilters[table] = snifferFilters[table] || {};
   if (val.trim() === '') {
     delete snifferFilters[table][field];
-    icon.classList.remove('active');
-    icon.textContent = '🔽';
   } else {
     snifferFilters[table][field] = val.trim();
-    icon.classList.add('active');
-    icon.textContent = '🔽 ✕';
   }
+  setSnifferFilterIndicator(icon);
   snifferRefresh();
+}
+function snifferFilterValue(row, field, needle) {
+  const raw = row[field];
+  if (raw === undefined || raw === null) return false;
+  const n = String(needle).trim().toLowerCase();
+  if (n === '') return true;
+  // Boolean fields (CRC): accept true/false/yes/no/ok/bad plus the rendered
+  // glyphs (✓/✗) so the filter matches what the user SEES in the column.
+  if (typeof raw === 'boolean' || field === 'crcOk') {
+    const b = raw === true || raw === 1 || String(raw) === 'true';
+    if (n === 'true' || n === 'yes' || n === 'ok' || n === '✓' || n === '1') return b;
+    if (n === 'false' || n === 'no' || n === 'bad' || n === '✗' || n === '0') return !b;
+    return false;
+  }
+  // Direction accepts short forms: req/res/→/←.
+  if (field === 'direction') {
+    const d = String(raw).toLowerCase();
+    if (n === 'req' || n === 'request' || n === '→' || n === '>') return d.startsWith('req') || d === '→';
+    if (n === 'res' || n === 'response' || n === '←' || n === '<') return d.startsWith('res') || d === '←';
+  }
+  // Numeric fields: exact match after trimming (input "5" should not match
+  // "50" via substring).
+  if (field === 'slaveId' || field === 'address' || field === 'length' ||
+      field === 'requestCount' || field === 'responseCount' || field === 'errorCount') {
+    return String(raw).trim() === n;
+  }
+  return String(raw).toLowerCase().includes(n);
 }
 function applySnifferFilters(rows, table) {
   const filters = snifferFilters[table];
   if (!filters || !Object.keys(filters).length) return rows;
   return rows.filter((row) => {
-    return Object.entries(filters).every(([field, needle]) => {
-      const raw = row[field];
-      const val = raw === undefined || raw === null ? '' : String(raw);
-      return val.toLowerCase().includes(String(needle).toLowerCase());
-    });
+    return Object.entries(filters).every(([field, needle]) => snifferFilterValue(row, field, needle));
   });
 }
 
@@ -2680,7 +2698,7 @@ async function snifferRefresh() {
     $('sn-stop').hidden = !running;
     if (running) {
       const [tgs, devs, regs] = await Promise.all([
-        api('/api/sniffer/telegrams?busid=' + bid + '&limit=100'),
+        api('/api/sniffer/telegrams?busid=' + bid + '&limit=2000'),
         api('/api/sniffer/devices?busid=' + bid),
         api('/api/sniffer/registers?busid=' + bid)
       ]);
@@ -2766,7 +2784,7 @@ function renderSnifferRegisters(regs) {
 async function snifferStart() {
   if (snifferBusId == null) return;
   try {
-    await snifferSaveConfig(true);
+    await snifferSaveConfig();
     await api('/api/sniffer/start?busid=' + snifferBusId, { method: 'POST' });
     toast(t('sniffer_started'), 'success');
     snifferRefresh();
@@ -2784,26 +2802,23 @@ async function snifferStop() {
     toast(t('err_sniffer_stop') + e.message, 'error');
   }
 }
-async function snifferSaveConfig(autoStart) {
+async function snifferSaveConfig() {
   if (snifferBusId == null) return;
-  // Tap device and baud rate are not configurable: the sniffer always listens
-  // on the same connection the modbus bus uses, so they stay out of the payload.
+  // Config is fixed: mode is always 'stack' and the tap device is the bus's
+  // own serial connection. Only the auto-start checkbox is user-settable.
   const body = {
     busId: snifferBusId,
-    mode: $('sn-mode')?.value || 'stack',
+    mode: 'stack',
     enabled: !!$('sn-enabled')?.checked
   };
   await api('/api/sniffer/config', { method: 'POST', body: JSON.stringify(body) });
-  if (!autoStart) toast(t('sniffer_saved'), 'success');
 }
 
 /* Wire up sniffer modal controls (idempotent — app.js runs once) */
 (function () {
   $('sn-start')?.addEventListener('click', snifferStart);
   $('sn-stop')?.addEventListener('click', snifferStop);
-  $('sn-save')?.addEventListener('click', () => snifferSaveConfig(false));
   $('sn-close')?.addEventListener('click', closeSniffer);
-  $('sn-mode')?.addEventListener('change', snifferModeTapVisible);
   $('sn-clear')?.addEventListener('click', snifferClearDatabase);
   $('sn-annotate-save')?.addEventListener('click', saveSnifferAnnotate);
   $('sn-annotate-cancel')?.addEventListener('click', closeSnifferAnnotate);
@@ -2815,9 +2830,12 @@ async function snifferSaveConfig(autoStart) {
       document.querySelectorAll('.sniffer-tab-panel').forEach((p) => { p.hidden = (p.id !== 'sntab-' + tab); });
     });
   });
-  // Column filter icons (event delegation — the thead is static).
-  document.querySelectorAll('.sn-filter-ico').forEach((ico) => {
-    ico.addEventListener('click', () => {
+  // Column filters: clicking anywhere in a header cell opens the filter for
+  // that column (delegation — the thead is static).
+  document.querySelectorAll('.sniffer-table thead th').forEach((th) => {
+    th.addEventListener('click', () => {
+      const ico = th.querySelector('.sn-filter-ico');
+      if (!ico) return;
       const table = tableNameFor(ico);
       if (table) activateSnifferFilter(ico, table);
     });

@@ -30,11 +30,19 @@ export class BusPortTapTransport implements SnifferTransport {
 
   async start(sink: SnifferByteSink): Promise<void> {
     if (this.started) return
-    this.detach = this.bus.attachSerialTap((direction, bytes) => {
+    const result = this.bus.attachSerialTap((direction, bytes) => {
       // frame bytes may arrive in multiple chunks - the sink routes them into
       // the parser which reassembles frames by silence.
       sink.onBytes(direction, bytes)
     })
+    if (!result.active) {
+      // No open serial port on the bus yet (no slaves -> no polling -> the
+      // ModbusAPI never connected). Do NOT mark started: the caller falls back
+      // to opening the bus device itself so foreign master traffic is still
+      // captured.
+      return
+    }
+    this.detach = result.detach
     this.started = true
   }
 
