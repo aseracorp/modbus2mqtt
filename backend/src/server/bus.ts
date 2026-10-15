@@ -220,7 +220,7 @@ export class Bus implements IModbusConfiguration {
    * a foreign master - without opening a second serial port (which would fight
    * the bus for the device).
    */
-  attachSerialTap(listener: (direction: 'request' | 'response', bytes: number[]) => void): () => void {
+  attachSerialTap(listener: (direction: 'request' | 'response', bytes: number[]) => void): { detach: () => void; active: boolean } {
     return this.modbusAPI.attachSerialTap(listener)
   }
   getSlaveTimeoutBySlaveId(slaveid: number): number {

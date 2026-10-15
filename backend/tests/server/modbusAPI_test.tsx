@@ -350,7 +350,7 @@ describe('serial tap (passive rx on real serial port)', () => {
     expect(seen).toContain('response:5,3,0,0,0,1,133,142')
     expect(seen).toContain('request:5,3,0,0,0,2,197,143')
 
-    detach()
+    detach.detach()
     client.emit('data', Buffer.from([0x06, 0x03, 0x00, 0x00, 0x00, 0x01, 0x85, 0x7e]))
     expect(seen).toHaveLength(2) // detached: no more events
   })
@@ -402,7 +402,7 @@ describe('serial tap (passive rx on real serial port)', () => {
     await new Promise((r) => setTimeout(r, 400))
     fresh.emit('data', Buffer.from([0x05, 0x03, 0x00, 0x00, 0x00, 0x01, 0x85, 0x8e]))
     expect(seen).toContain('response:5,3,0,0,0,1,133,142')
-    detach()
+    detach.detach()
   })
 
   it('falls back to _port when there is no _client (plain RTU port)', () => {
@@ -441,6 +441,6 @@ describe('serial tap (passive rx on real serial port)', () => {
     const detach = modbusAPI.attachSerialTap((direction, bytes) => seen.push(`${direction}:${bytes.join(',')}`))
     ;(port as unknown as { emit: (e: string, d: unknown) => void }).emit('data', Buffer.from([0x05, 0x04, 0x00, 0x00, 0x00, 0x01, 0xb1, 0x8e]))
     expect(seen).toContain('response:5,4,0,0,0,1,177,142')
-    detach()
+    detach.detach()
   })
 })

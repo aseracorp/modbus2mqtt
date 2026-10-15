@@ -616,3 +616,86 @@ it('keeps the row raw when no condition matches', async () => {
   }
   await svc.stop()
 })
+
+it('pairs response address/length from the request into the telegram row', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  // Read holding registers 0x0100, quantity 4
+  svc.feed('request', frame(1, 0x03, [0x01, 0x00, 0x00, 0x04]))
+  svc.feed('response', frame(1, 0x03, [0x08, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04]))
+  const telegrams = store.getTelegrams(1)
+  const resp = telegrams.find((t) => t.direction === TelegramDirection.response)
+  expect(resp).toBeDefined()
+  // The response row now carries the request's address/length (not empty).
+  expect(resp!.address).toBe(0x0100)
+  expect(resp!.length).toBe(4)
+  await svc.stop()
+})
+
+it('splits a multi-register read into one register row per address', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  // Read 8 holding registers starting at 0
+  const values = [0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x0008]
+  const payload: number[] = [values.length * 2]
+  values.forEach((v) => payload.push((v >> 8) & 0xff, v & 0xff))
+  svc.feed('request', frame(1, 0x03, [0x00, 0x00, 0x00, 0x08]))
+  svc.feed('response', frame(1, 0x03, payload))
+  const regs = store.getRegisters(1)
+  expect(regs).toHaveLength(8)
+  regs.forEach((r, i) => {
+    expect(r.address).toBe(i)
+    expect(r.words).toEqual([values[i]])
+  })
+  await svc.stop()
+})
+
+it('bus-port tap starts in stack mode (passive capture of foreign master)', async () => {
+  const store = new InMemorySnifferStore()
+  const config: SnifferBusConfig = {
+    busId: 21,
+    busName: '/dev/ttyModbus',
+    mode: 'stack',
+    enabled: true,
+    busSerialport: '/dev/ttyModbus',
+    baudRate: 38400,
+  }
+  store.upsertConfig(config)
+  let busTapAttached = false
+  let serialTapUsed = false
+  const mockBus = {
+    getName: () => '/dev/ttyModbus',
+    attachSerialTap: () => {
+      busTapAttached = true
+      return { detach: () => undefined, active: true }
+    },
+  } as never
+  const busPortFactory = (_busId: number) => ({
+    describe: () => 'bus port (mock)',
+    start: async (sink: { onBytes: (d: 'request' | 'response', b: number[]) => void }) => {
+      busTapAttached = true
+      const detach = (mockBus as { attachSerialTap: () => { detach: () => void; active: boolean } }).attachSerialTap
+      const result = detach()
+      if (result.active) result.detach()
+      // simulate a foreign master frame observed on the wire
+      sink.onBytes('request', frame(3, 0x04, [0x00, 0x00, 0x00, 0x02]))
+      sink.onBytes('response', frame(3, 0x04, [0x04, 0x12, 0x34, 0x56, 0x78]))
+    },
+    stop: async () => undefined,
+    isRunning: () => busTapAttached,
+  })
+  const tapFactory: TapTransportFactory = () => ({
+    describe: () => 'mock serial tap',
+    start: async () => {
+      serialTapUsed = true
+    },
+    stop: async () => undefined,
+    isRunning: () => serialTapUsed,
+  })
+  const svc = new SnifferService(config, store, tapFactory, busPortFactory as never)
+  await svc.start()
+  // The passive bus tap is active even in stack mode.
+  expect(busTapAttached).toBe(true)
+  expect(serialTapUsed).toBe(false)
+  await svc.stop()
+})

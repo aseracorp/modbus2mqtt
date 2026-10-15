@@ -1130,3 +1130,9 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .sn-pencil:hover { background: var(--bg-hover); color: var(--text); }
 .sniff-interp { font-weight: 600; }
 .sniffer-toolbar .btn-danger { margin-left: auto; }
+
+/* sniffer column filters: whole header cell is clickable, active filter visible */
+.sniffer-table thead th { cursor: pointer; user-select: none; white-space: nowrap; }
+.sniffer-table thead th:hover .sn-filter-ico { color: var(--primary); }
+.sniffer-table thead th.sn-filtered { background: rgba(13, 110, 253, 0.08); }
+.sniffer-table thead th.sn-filtered .sn-filter-ico { color: var(--primary); font-weight: 700; }
