@@ -163,8 +163,11 @@ export class Modbus {
 
       const hasConditional = specification.entities.some((e) => entityConditions(e).length > 0)
       if (hasConditional) {
-        // Read the condition registers first.
-        conditionValues = await modbusAPI.readModbusRegister(slaveid, conditionAddresses, { task: task, errorHandling: { retry: true } })
+        // Read the condition registers first. retry:false - a condition register
+        // that does not answer (offline slave, unsupported register) must not be
+        // re-sent on the wire: every retry doubles the telegram count for the
+        // same register on every poll cycle (seen as "register 400 spam").
+        conditionValues = await modbusAPI.readModbusRegister(slaveid, conditionAddresses, { task: task, errorHandling: { retry: false } })
         // Mark inactive entities: keep them out of the address read but still report
         // them (not identified) so the UI can hide them in the device view.
         activeEntities = activeEntities.filter((e) => {
@@ -186,7 +189,13 @@ export class Modbus {
         const converter = ConverterMap.getConverter(ent)
         if (ent.modbusAddress != undefined && converter && ent.registerType)
           for (let i = 0; i < converter.getModbusLength(ent); i++) {
-            addresses.add({ address: ent.modbusAddress + i, registerType: ent.registerType })
+            const addr = { address: ent.modbusAddress + i, registerType: ent.registerType }
+            // Skip addresses already read in the condition phase: a register that
+            // gates conditions AND carries an entity value (e.g. WRF06 reg 400)
+            // must not be read a second time - that would double the telegrams
+            // for the same register on every poll cycle.
+            if (hasConditional && conditionValues && [...conditionAddresses].some((c) => c.address === addr.address && c.registerType === addr.registerType)) return
+            addresses.add(addr)
           }
       }
       for (const ent of activeEntities) addEntityAddresses(ent)

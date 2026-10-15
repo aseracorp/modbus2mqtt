@@ -117,15 +117,22 @@ export class InMemorySnifferStore implements SnifferStore {
   upsertRegister(busId: number, telegram: ParsedTelegram, address: number, quantity: number, words: number[]): void {
     const key = busId + ':' + telegram.slaveId + ':' + address
     const existing = this.registers.get(key)
+    // A read request with no matching response (e.g. a polled register whose
+    // slave is offline) must NOT wipe the last known value we captured earlier:
+    // keep the previous words when the new frame carries none.
+    const hasWords = words.length > 0
+    const keptWords = hasWords ? words : existing?.words ?? []
     this.registers.set(key, {
       id: existing?.id ?? this.registers.size + 1,
       busId,
       slaveId: telegram.slaveId,
       address,
       quantity,
-      functionCode: telegram.functionCode,
-      words,
-      rawValue: words.length ? words.join(', ') : undefined,
+      functionCode: telegram.functionCode ?? existing?.functionCode,
+      words: keptWords,
+      rawValue: keptWords.length ? keptWords.join(', ') : undefined,
+      // Interpreted value stays with the entity template (enrichRegister); a
+      // bare request with no captured response keeps the previous value.
       value: existing?.value,
       converter: existing?.converter,
       uom: existing?.uom,

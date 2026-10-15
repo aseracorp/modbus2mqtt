@@ -178,3 +178,110 @@ describe('two-phase conditional read', () => {
     expect(cfg.mqttValue).toBe('')
   })
 })
+
+describe('register-400 double-read fix', () => {
+  it('does not read a condition register a second time as entity value', async () => {
+    // Register 400 is BOTH the condition register (gating temperature) AND an
+    // entity/config register. It must be read exactly ONCE per poll, not once
+    // in the condition phase and again in the value phase (which spams the
+    // wire with duplicate telegrams for the same register).
+    const reads: Set<number>[] = []
+    const api = {
+      readModbusRegister: async (_slaveId: number, addresses: Set<ImodbusAddress>) => {
+        reads.push(new Set(Array.from(addresses).map((a) => a.address)))
+        const rc = emptyModbusValues()
+        for (const a of addresses) {
+          if (a.address === 400) rc.holdingRegisters.set(400, { data: [1] })
+          if (a.address === 0) rc.holdingRegisters.set(0, { data: [215] })
+        }
+        return rc
+      },
+      writeModbusRegister: async () => {},
+      readHoldingRegisters: async () => ({ data: [], duration: 0 }),
+      readInputRegisters: async () => ({ data: [], duration: 0 }),
+      getName: () => 'fake',
+    } as unknown as IconsumerModbusAPI
+
+    const dualSpec: IfileSpecification = {
+      filename: 'dual-400',
+      model: 'Dual400',
+      manufacturer: 'Test',
+      status: 2,
+      version: '0.1',
+      i18n: [],
+      files: [],
+      entities: [
+        {
+          id: 1,
+          mqttname: 'sensor_identification',
+          converter: 'number',
+          registerType: ModbusRegisterType.HoldingRegister,
+          modbusAddress: 400,
+          readonly: true,
+          converterParameters: { multiplier: 1, offset: 0, decimals: 0, numberFormat: 0 },
+        },
+        {
+          id: 2,
+          mqttname: 'temperature',
+          converter: 'number',
+          registerType: ModbusRegisterType.HoldingRegister,
+          modbusAddress: 0,
+          readonly: true,
+          condition: { register: 400, comparator: 'eq', value: 1 },
+          converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 },
+        },
+      ],
+    }
+    const sub = new Subject<any>()
+    const result = new Promise<any>((resolve) => sub.subscribe((m) => resolve(m)))
+    await Modbus.getModbusSpecificationFromData(ModbusTasks.poll, api, 1, dualSpec, sub)
+    await result
+
+    // The value phase must NOT re-read register 400: it was already captured
+    // in the condition phase.
+    const conditionRead = reads[0] ?? new Set<number>()
+    const valueRead = reads[1] ?? new Set<number>()
+    expect(conditionRead.has(400)).toBe(true)
+    expect(valueRead.has(400)).toBe(false)
+    expect(valueRead.has(0)).toBe(true)
+  })
+
+  it('condition read does not retry on timeout (no duplicate telegrams)', async () => {
+    const reads: Set<number>[] = []
+    const api = {
+      readModbusRegister: async (_slaveId: number, addresses: Set<ImodbusAddress>, options: { errorHandling?: { retry?: boolean } }) => {
+        reads.push(new Set(Array.from(addresses).map((a) => a.address)))
+        const rc = emptyModbusValues()
+        for (const a of addresses) {
+          if (a.address === 501) rc.holdingRegisters.set(501, { data: [0b00100001] })
+        }
+        return rc
+      },
+      writeModbusRegister: async () => {},
+      readHoldingRegisters: async () => ({ data: [], duration: 0 }),
+      readInputRegisters: async () => ({ data: [], duration: 0 }),
+      getName: () => 'fake',
+    } as unknown as IconsumerModbusAPI
+    // Spy on the options passed to the condition-phase read.
+    let conditionOptions: { errorHandling?: { retry?: boolean } } | undefined
+    const apiSpy = {
+      ...api,
+      readModbusRegister: async (
+        _slaveId: number,
+        addresses: Set<ImodbusAddress>,
+        options: { errorHandling?: { retry?: boolean } }
+      ) => {
+        if (Array.from(addresses).some((a) => a.address === 501)) conditionOptions = options
+        return api.readModbusRegister(_slaveId, addresses, options)
+      },
+    } as unknown as IconsumerModbusAPI
+
+    const sub = new Subject<any>()
+    const result = new Promise<any>((resolve) => sub.subscribe((m) => resolve(m)))
+    await Modbus.getModbusSpecificationFromData(ModbusTasks.poll, apiSpy, 1, spec, sub)
+    await result
+    // Condition phase must be retry:false - a dead condition register must
+    // not be re-sent on the wire on every poll cycle.
+    expect(conditionOptions?.errorHandling?.retry).toBe(false)
+  })
+})
