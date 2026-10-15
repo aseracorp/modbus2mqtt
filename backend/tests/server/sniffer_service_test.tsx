@@ -503,3 +503,116 @@ it('getRegisters interprets values via the slave template (number converter + uo
   }
   await svc.stop()
 })
+
+// --- Condition-aware interpretation (device-type gated entities) ---
+it('picks the entity whose conditions match the captured condition register', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  // Spec: two entities at address 0 gated by register 400, plus the gating
+  // register 400 itself. Mirrors thermokon-wrf06 / ineltec-style templates.
+  const spec = {
+    filename: 'cond-spec',
+    entities: [
+      {
+        id: 1,
+        name: 'Temp type 1',
+        converter: 'number',
+        registerType: 3, // HoldingRegisters
+        modbusAddress: 0,
+        converterParameters: { multiplier: 0.1, uom: '°C' },
+        conditions: [{ register: 400, comparator: 'eq', value: 1 }],
+      },
+      {
+        id: 2,
+        name: 'Temp type 2',
+        converter: 'number',
+        registerType: 3,
+        modbusAddress: 0,
+        converterParameters: { multiplier: 0.1, uom: '°C' },
+        conditions: [{ register: 400, comparator: 'eq', value: 2 }],
+      },
+      {
+        id: 3,
+        name: 'Device type',
+        converter: 'select',
+        registerType: 3,
+        modbusAddress: 400,
+        converterParameters: { multiplier: 1, uom: '' },
+      },
+    ],
+    i18n: [],
+    files: [],
+    status: 0,
+    identified: 0,
+  }
+  const configBusModule = await import('../../src/server/configbus.js')
+  const original = configBusModule.ConfigBus.getSlave
+  configBusModule.ConfigBus.getSlave = () => ({
+    slaveid: 7,
+    name: 'Test',
+    specification: spec,
+  })
+  try {
+    // Capture device type register 400 = 2 first, then temperature 0 = 486.
+    svc.feed('request', frame(7, 0x03, [0x01, 0x90, 0x00, 0x01])) // read 400
+    svc.feed('request', frame(7, 0x03, [0x00, 0x00, 0x00, 0x01])) // read 0
+    svc.feed('response', frame(7, 0x03, [0x02, 0x00, 0x02])) // 400 = 2
+    svc.feed('response', frame(7, 0x03, [0x02, 0x01, 0xe6])) // 0 = 486 -> 48.6
+
+    const regs = svc.getRegisters(1, 7)
+    const row0 = regs.find((r) => r.address === 0)
+    expect(row0).toBeDefined()
+    // Condition 400==2 -> must pick 'Temp type 2' (id 2), value 48.6
+    expect(row0!.entityName).toBe('Temp type 2')
+    expect(row0!.value).toBe('48.6')
+    expect(row0!.uom).toBe('°C')
+  } finally {
+    configBusModule.ConfigBus.getSlave = original
+  }
+  await svc.stop()
+})
+
+// --- Condition-aware: no matching condition -> keep raw (no interpretation) ---
+it('keeps the row raw when no condition matches', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  const spec = {
+    filename: 'cond-spec2',
+    entities: [
+      {
+        id: 1,
+        name: 'Temp type 1',
+        converter: 'number',
+        registerType: 3,
+        modbusAddress: 0,
+        converterParameters: { multiplier: 0.1, uom: '°C' },
+        conditions: [{ register: 400, comparator: 'eq', value: 1 }],
+      },
+    ],
+    i18n: [],
+    files: [],
+    status: 0,
+    identified: 0,
+  }
+  const configBusModule = await import('../../src/server/configbus.js')
+  const original = configBusModule.ConfigBus.getSlave
+  configBusModule.ConfigBus.getSlave = () => ({
+    slaveid: 7,
+    name: 'Test',
+    specification: spec,
+  })
+  try {
+    // Only register 0 read, no value for condition register 400 captured.
+    svc.feed('request', frame(7, 0x03, [0x00, 0x00, 0x00, 0x01]))
+    svc.feed('response', frame(7, 0x03, [0x02, 0x01, 0xe6]))
+    const regs = svc.getRegisters(1, 7)
+    const row0 = regs.find((r) => r.address === 0)
+    expect(row0).toBeDefined()
+    // 400 never seen -> condition unknown -> no interpretation
+    expect(row0!.value).toBeUndefined()
+    expect(row0!.converter).toBeUndefined()
+  } finally {
+    configBusModule.ConfigBus.getSlave = original
+  }
+  await svc.stop()
+})

@@ -60,6 +60,11 @@ export class RtuFrameParser {
   private buffer: number[] = []
   private lastByteTime: number = 0
   private pendingRequest: ParsedTelegram | undefined
+  /** Requests awaiting a matching response, oldest first. A fast master can
+   *  emit several requests before any response arrives (e.g. sequential reads
+   *  of different register blocks); response values must be paired back to the
+   *  request they belong to, not to the most recent one. */
+  private pendingRequests: ParsedTelegram[] = []
 
   constructor(
     private listener: (telegram: ParsedTelegram) => void,
@@ -199,7 +204,14 @@ export class RtuFrameParser {
     telegram.decoded = decodePdu(telegram)
     // Keep the pending request until the NEXT request arrives: the response
     // listener needs it to map response values back to register addresses.
-    if (telegram.direction === TelegramDirection.request) this.pendingRequest = telegram
+    if (telegram.direction === TelegramDirection.request) {
+      this.pendingRequest = telegram
+      // Multiple in-flight requests (fast polling of several blocks) must all
+      // stay available for response pairing; cap the queue so a master that
+      // never gets answers cannot grow it forever.
+      this.pendingRequests.push(telegram)
+      if (this.pendingRequests.length > 32) this.pendingRequests.shift()
+    }
 
     this.listener(telegram)
   }
@@ -276,7 +288,25 @@ export class RtuFrameParser {
   }
 
   /** The most recent request frame (used to pair response values with addresses). */
-  getLastRequest(): ParsedTelegram | undefined {
+  getLastRequest(slaveId?: number, functionCode?: number): ParsedTelegram | undefined {
+    // Prefer the OLDEST outstanding request matching slave+fc: a response
+    // answers exactly the request that started the transaction, and when the
+    // master pipelines several reads the pending list holds them in order.
+    if (slaveId !== undefined) {
+      const match = this.pendingRequests.find(
+        (r) => r.slaveId === slaveId && (functionCode === undefined || r.functionCode === functionCode)
+      )
+      if (match) return match
+      // Nothing outstanding for this slave+fc: fall back (broadcast probe /
+      // scan without a request we ever saw) to the generic-most recent.
+    }
     return this.pendingRequest
+  }
+
+  /** Removes the given request from the outstanding-pairing queue. */
+  consumeRequest(req: ParsedTelegram | undefined): void {
+    if (!req) return
+    const idx = this.pendingRequests.indexOf(req)
+    if (idx >= 0) this.pendingRequests.splice(idx, 1)
   }
 }
