@@ -699,3 +699,42 @@ it('bus-port tap starts in stack mode (passive capture of foreign master)', asyn
   expect(serialTapUsed).toBe(false)
   await svc.stop()
 })
+
+it('falls back to a serial tap on the bus device when the bus-port tap is idle (no open port)', async () => {
+  const store = new InMemorySnifferStore()
+  const config: SnifferBusConfig = {
+    busId: 22,
+    busName: '/dev/ttyModbus',
+    mode: 'stack',
+    enabled: true,
+    busSerialport: '/dev/ttyModbus',
+    baudRate: 38400,
+  }
+  store.upsertConfig(config)
+  // bus-port tap: attachSerialTap reports NOT active (no open port yet)
+  const busPortFactory = (_busId: number) => ({
+    describe: () => 'bus port (mock)',
+    start: async (sink: { onBytes: (d: 'request' | 'response', b: number[]) => void }) => {
+      // simulate a tap that later activates: feed a foreign master frame
+      sink.onBytes('request', frame(9, 0x03, [0x01, 0x00, 0x00, 0x02]))
+      sink.onBytes('response', frame(9, 0x03, [0x04, 0xAA, 0xBB, 0xCC, 0xDD]))
+    },
+    stop: async () => undefined,
+    // After start() the tap is NOT running -> the service must use the fallback.
+    isRunning: () => false,
+  })
+  let serialTapStarted = false
+  const tapFactory: TapTransportFactory = (_dev) => ({
+    describe: () => 'mock serial tap on ' + _dev,
+    start: async () => {
+      serialTapStarted = true
+    },
+    stop: async () => undefined,
+    isRunning: () => serialTapStarted,
+  })
+  const svc = new SnifferService(config, store, tapFactory, busPortFactory as never)
+  await svc.start()
+  // The fallback serial tap on the bus device was started.
+  expect(serialTapStarted).toBe(true)
+  await svc.stop()
+})

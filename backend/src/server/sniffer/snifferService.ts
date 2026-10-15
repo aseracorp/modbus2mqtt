@@ -230,9 +230,15 @@ export class SnifferService implements SnifferTransport {
     try {
       const tap = this.busPortTapFactory(this.config.busId)
       await tap.start(this.tapSink)
-      this.transports.push(tap)
-      busTapActive = true
-      log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} bus-port tap active: ${tap.describe()}`)
+      // start() resolves even when there is nothing to tap yet (the bus has no
+      // open serial port). Only treat it as active when it actually listens.
+      if (tap.isRunning()) {
+        this.transports.push(tap)
+        busTapActive = true
+        log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} bus-port tap active: ${tap.describe()}`)
+      } else {
+        log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} bus-port tap idle (no open port yet), using fallback`)
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (!this.error) this.error = msg
