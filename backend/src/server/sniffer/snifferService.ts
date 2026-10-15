@@ -18,6 +18,8 @@ import {
 import { ConfigBus } from '../configbus.js'
 import { ConverterMap } from '../../specification/index.js'
 import { ModbusRegisterType, Ientity } from '../../shared/specification/index.js'
+import { entityConditions, conditionMatches, readConditionValue } from '../../specification/conditions.js'
+import { ImodbusValues } from '../../specification/modbusValues.js'
 
 const debug = Debug('modbus2mqtt:sniffer:service')
 const log = new Logger('sniffer:service')
@@ -254,16 +256,19 @@ export class SnifferService implements SnifferTransport {
 
   private updateRegisters(telegram: ParsedTelegram): void {
     // Read responses carry values at a known start address. The address is not
-    // in the response itself - we must pair it with the preceding request.
-    // The parser tracks the pending request, so we can look it up here.
-    const req = this.parser?.getLastRequest()
-    if (telegram.direction === 'response' && telegram.decoded?.values && req && req.slaveId === telegram.slaveId) {
+    // in the response itself - we must pair it with the request that started
+    // the transaction. The parser keeps a queue of outstanding requests (a
+    // fast master pipelines several reads), so we look the oldest one up for
+    // this slave+function instead of the single most recent frame.
+    const req = this.parser?.getLastRequest(telegram.slaveId, telegram.functionCode)
+    if (telegram.direction === 'response' && telegram.decoded?.values && req) {
       const base = req.decoded?.address
       if (base !== undefined) {
         const entries = valueAddresses(telegram, base, telegram.decoded.values)
         entries.forEach((e) => {
           this.store.upsertRegister(this.config.busId, req, e.address, 1, [e.value])
         })
+        this.parser?.consumeRequest(req)
         return
       }
     }
@@ -299,7 +304,11 @@ export class SnifferService implements SnifferTransport {
   }
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[] {
     const rows = this.store.getRegisters(busId, slaveId)
-    return this.mergeRegisterWords(rows).map((r) => this.enrichRegister(r))
+    // Build a condition-values map from ALL register rows of the bus (same
+    // slave) so entities whose conditions reference other registers (e.g. a
+    // device-type select at 400 gating a temperature at 0) can be evaluated.
+    const values = snifferValuesFromRows(rows)
+    return this.mergeRegisterWords(rows).map((r) => this.enrichRegister(r, values))
   }
 
   /**
@@ -337,7 +346,8 @@ export class SnifferService implements SnifferTransport {
 
   /** Re-interprets a single register row after an annotation changed it. */
   refreshRegisterValue(row: SnifferRegisterRow): SnifferRegisterRow {
-    return this.enrichRegister(row)
+    const values = snifferValuesFromRows(this.store.getRegisters(row.busId, row.slaveId))
+    return this.enrichRegister(row, values)
   }
 
   /**
@@ -350,7 +360,7 @@ export class SnifferService implements SnifferTransport {
    * Returns undefined when no template entity matches (the UI then shows the
    * raw words and offers the pencil to annotate manually).
    */
-  private enrichRegister(row: SnifferRegisterRow): SnifferRegisterRow {
+  private enrichRegister(row: SnifferRegisterRow, values: ImodbusValues = emptyValues): SnifferRegisterRow {
     // A manual annotation wins over the template interpretation? No: the
     // template is the source of truth when it exists - the UI only offers the
     // pencil when there is no template. An annotation is therefore only used
@@ -378,8 +388,24 @@ export class SnifferService implements SnifferTransport {
       return row.address >= e.modbusAddress && row.address < e.modbusAddress + len
     })
     if (candidates.length === 0) return row
-    // Prefer the entity that starts exactly at the register address.
-    const entity = candidates.find((e) => e.modbusAddress === row.address) ?? candidates[0]
+    // Prefer the entity that starts exactly at the register address. When
+    // several entities share the same address (device-type variants gated by
+    // conditions on OTHER registers, e.g. 400/501), evaluate their conditions
+    // against the captured values and pick the first ACTIVE one. Entities
+    // without conditions stay always-active candidates.
+    let entity: Ientity | undefined
+    const exact = candidates.filter((e) => e.modbusAddress === row.address)
+    const pool = exact.length > 0 ? exact : candidates
+    // Every candidate with conditions must match the captured values to be
+    // active; entities without conditions are always active. This also covers
+    // the single-candidate case (a lone conditional entity stays raw until its
+    // gating register was captured).
+    const active = pool.filter((e) => {
+      const conds = entityConditions(e)
+      if (conds.length === 0) return true
+      return conds.every((c) => conditionMatches(c, readConditionValue(values, c)))
+    })
+    entity = active[0] ?? pool.find((e) => entityConditions(e).length === 0)
     if (!entity || entity.id === undefined) return row
 
     const converter = ConverterMap.getConverter(entity)
@@ -468,4 +494,35 @@ function entityLength(entity: Ientity): number {
 function entityUom(entity: Ientity): string | undefined {
   const p = entity.converterParameters as { uom?: string } | undefined
   return p?.uom
+}
+
+/** A values map with no data - makes every condition evaluate to inactive. */
+const emptyValues: ImodbusValues = {
+  holdingRegisters: new Map(),
+  coils: new Map(),
+  discreteInputs: new Map(),
+  analogInputs: new Map(),
+}
+
+/**
+ * Builds an ImodbusValues map from captured sniffer rows (first word per
+ * address, holding registers by default). Conditions on other registers are
+ * then evaluated against what the sniffer actually saw on the wire.
+ */
+function snifferValuesFromRows(rows: SnifferRegisterRow[]): ImodbusValues {
+  const holdingRegisters = new Map<number, { data: number[] }>()
+  const coils = new Map<number, { data: number[] }>()
+  const discreteInputs = new Map<number, { data: number[] }>()
+  const analogInputs = new Map<number, { data: number[] }>()
+  for (const r of rows) {
+    if (r.words.length === 0) continue
+    const entry = { data: [r.words[0]] }
+    switch (functionCodeToRegisterType(r.functionCode)) {
+      case ModbusRegisterType.Coils: coils.set(r.address, entry); break
+      case ModbusRegisterType.DiscreteInputs: discreteInputs.set(r.address, entry); break
+      case ModbusRegisterType.AnalogInputs: analogInputs.set(r.address, entry); break
+      default: holdingRegisters.set(r.address, entry); break
+    }
+  }
+  return { holdingRegisters, coils, discreteInputs, analogInputs }
 }
