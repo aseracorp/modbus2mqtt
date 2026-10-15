@@ -62,6 +62,10 @@ export class SnifferService implements SnifferTransport {
   private telegramCount = 0
   private startedAt: number | undefined
   private error: string | undefined
+  /** Transport descriptions of the currently active transports (diagnostics). */
+  private transportLabels: string[] = []
+  /** Raw bytes seen by passive taps (bus-port tap / serial tap) since start. */
+  private tapByteCount = 0
 
   constructor(
     private config: SnifferBusConfig,
@@ -98,6 +102,7 @@ export class SnifferService implements SnifferTransport {
     this.tapSink = {
       onBytes: (_direction, bytes) => {
         if (!this.parser) return
+        this.tapByteCount += bytes.length
         this.parser.feed(bytes, Date.now())
       },
       onTapError: (message) => {
@@ -154,6 +159,8 @@ export class SnifferService implements SnifferTransport {
       telegramCount: this.telegramCount,
       deviceCount: this.store.getDevices(this.config.busId).length,
       error: this.error,
+      transports: [...this.transportLabels],
+      tapBytes: this.tapByteCount,
     }
   }
 
@@ -190,6 +197,7 @@ export class SnifferService implements SnifferTransport {
       isRunning: () => this.running,
     }
     this.transports.push(stack)
+    this.transportLabels = [stack.describe()]
     await stack.start(this.stackSink)
 
     // The passive capture path must NOT depend on the master being configured:
@@ -214,6 +222,7 @@ export class SnifferService implements SnifferTransport {
       try {
         await tap.start(this.tapSink)
         this.transports.push(tap)
+        this.transportLabels.push(tap.describe())
         log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} tap active: ${tap.describe()}`)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -234,6 +243,7 @@ export class SnifferService implements SnifferTransport {
       // open serial port). Only treat it as active when it actually listens.
       if (tap.isRunning()) {
         this.transports.push(tap)
+        this.transportLabels.push(tap.describe())
         busTapActive = true
         log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} bus-port tap active: ${tap.describe()}`)
       } else {
@@ -254,6 +264,7 @@ export class SnifferService implements SnifferTransport {
       try {
         await serialTap.start(this.tapSink)
         this.transports.push(serialTap)
+        this.transportLabels.push(serialTap.describe())
         log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} serial tap on bus device active: ${serialTap.describe()}`)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -277,6 +288,7 @@ export class SnifferService implements SnifferTransport {
       )
     )
     this.transports = []
+    this.transportLabels = []
     if (this.parser) {
       this.parser.flush()
       this.parser = undefined

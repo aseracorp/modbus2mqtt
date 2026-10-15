@@ -738,3 +738,23 @@ it('falls back to a serial tap on the bus device when the bus-port tap is idle (
   expect(serialTapStarted).toBe(true)
   await svc.stop()
 })
+
+it('keeps the last known register words when a later request gets no response', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  // First cycle: request + response -> register 0x6b has a value.
+  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x01]))
+  svc.feed('response', frame(1, 0x03, [0x02, 0x12, 0x34]))
+  let registers = store.getRegisters(1)
+  expect(registers[0].words).toEqual([0x1234])
+  expect(registers[0].rawValue).toBe('4660')
+
+  // Second cycle: only the request appears on the wire (offline slave,
+  // timeout) - the register table must keep the previously captured words
+  // instead of wiping them to empty.
+  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x01]))
+  registers = store.getRegisters(1)
+  expect(registers[0].words).toEqual([0x1234])
+  expect(registers[0].rawValue).toBe('4660')
+  await svc.stop()
+})

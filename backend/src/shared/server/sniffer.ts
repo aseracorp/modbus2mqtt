@@ -37,6 +37,12 @@ export interface SnifferState {
   telegramCount: number
   deviceCount: number
   error?: string
+  /** Active capture transports, for diagnosing why a sniffer hears (or does
+   *  not hear) bus traffic - e.g. "stack hook (bus 0)" vs "bus-port tap". */
+  transports?: string[]
+  /** Total raw bytes seen by the passive tap since start (0 = tap sees
+   *  nothing on the line, even though the sniffer may be running). */
+  tapBytes?: number
 }
 
 export interface SnifferTelegramRow {
