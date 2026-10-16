@@ -209,6 +209,59 @@ it('decodes registers of a sniffer-discovered slave via the store template', asy
   }
 })
 
+it('upsertRegisterDirect seeds template registers (incl. description) and keeps captured words', () => {
+  // In-memory
+  const mem = new InMemorySnifferStore()
+  mem.upsertRegisterDirect({
+    busId: 1, slaveId: 5, address: 400, quantity: 1,
+    functionCode: 0x03, converter: 'number / 10', uom: '°C', description: 'Outdoor temperature', specKey: 'thermokon-wrf06.yaml',
+  })
+  let rows = mem.getRegisters(1, 5)
+  expect(rows.length).toBe(1)
+  expect(rows[0].address).toBe(400)
+  expect(rows[0].description).toBe('Outdoor temperature')
+  expect(rows[0].uom).toBe('°C')
+  expect(rows[0].specKey).toBe('thermokon-wrf06.yaml')
+  expect(rows[0].words).toEqual([])
+
+  // A later wire capture must keep the template description.
+  const { svc, store } = makeService()
+  store.upsertRegisterDirect({
+    busId: 1, slaveId: 5, address: 400, quantity: 1,
+    functionCode: 0x03, converter: 'number', uom: '°C', description: 'Outdoor temperature', specKey: 'thermokon-wrf06.yaml',
+  })
+  // simulate a frame that updates this row
+  // (uses the same store; service start not required for the store call)
+  svc.feed('request', frame(5, 0x03, [0x01, 0x90, 0x00, 0x01]))
+  svc.feed('response', frame(5, 0x03, [0x02, 0x00, 0x01]))
+  const r400 = store.getRegisters(1, 5).find((r) => r.address === 400)
+  expect(r400?.description).toBe('Outdoor temperature')
+})
+
+it('annotateRegister persists a manual description (InMemory + SQLite)', () => {
+  const mem = new InMemorySnifferStore()
+  mem.upsertRegisterDirect({ busId: 1, slaveId: 5, address: 402, quantity: 1 })
+  const annotated = mem.annotateRegister({
+    busId: 1, slaveId: 5, address: 402,
+    converter: 'number * 0.1', description: 'Room temperature', uom: '°C',
+  })
+  expect(annotated?.description).toBe('Room temperature')
+  expect(annotated?.annotated).toBe(true)
+  expect(mem.getRegisters(1, 5)[0].description).toBe('Room temperature')
+
+  const db = new SqliteSnifferStore(':memory:')
+  db.init()
+  db.upsertRegisterDirect({ busId: 1, slaveId: 5, address: 402, quantity: 1 })
+  const row = db.annotateRegister({
+    busId: 1, slaveId: 5, address: 402,
+    converter: 'number * 0.1', description: 'Room temperature', uom: '°C',
+  })
+  expect(row?.description).toBe('Room temperature')
+  expect(row?.annotated).toBe(true)
+  expect(db.getRegisters(1, 5)[0].description).toBe('Room temperature')
+  db.close()
+})
+
 it('restores per-slave template assignments after a database reset (file-backed)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sniffer-tpl-'))
   const dbPath = path.join(dir, 'modbus-sniffer.db')

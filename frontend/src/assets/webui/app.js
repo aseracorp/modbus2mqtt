@@ -2638,7 +2638,20 @@ function setSnifferFilterIndicator(icon) {
   const has = Array.isArray(vals) && vals.length > 0;
   if (icon) {
     icon.classList.toggle('active', has);
-    icon.textContent = has ? (vals.length === 1 ? 'ƒ 1' : 'ƒ ' + vals.length) : 'ƒ';
+    // Keep the funnel SVG; show a count badge when the column is filtered.
+    let badge = icon.querySelector('.sn-filter-badge');
+    if (has) {
+      icon.setAttribute('aria-label', t('sniffer_filter_active') + ' ' + vals.length);
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'sn-filter-badge';
+        icon.appendChild(badge);
+      }
+      badge.textContent = vals.length;
+    } else {
+      icon.removeAttribute('aria-label');
+      if (badge) badge.remove();
+    }
   }
   if (th) th.classList.toggle('sn-filtered', has);
 }
@@ -2825,17 +2838,13 @@ function getSlaveTemplateId(slaveId) {
 function openSnifferAnnotate(target) {
   snifferAnnotateTarget = target;
   $('sn-annotate-slave').value = '#' + target.slaveId;
-  // Template dropdown: preselect the slave's current template, if any.
-  const sel = $('sn-annotate-template');
+  // Template combo: preselect the slave's current template, if any
+  // (displayed as its localized name; saved back as the spec filename).
+  const tpl = $('sn-annotate-template-search');
   const current = getSlaveTemplateId(target.slaveId) || '';
-  sel.innerHTML = '<option value="" data-i18n="sniffer_annotate_no_template">' + t('sniffer_annotate_no_template') + '</option>';
-  templatesForSniffer().forEach((sp) => {
-    const opt = document.createElement('option');
-    opt.value = sp.filename;
-    opt.textContent = getSpecificationText(sp, 'name') || sp.model || sp.filename;
-    sel.appendChild(opt);
-  });
-  sel.value = current;
+  tpl.value = current ? getSlaveTemplateName(current) : '';
+  $('sn-annotate-template-drop').hidden = true;
+  $('sn-annotate-description').value = target.description || '';
   $('sn-annotate-converter').value = target.converter || '';
   $('sn-annotate-uom').value = target.uom || '';
   $('sn-annotate-overlay').hidden = false;
@@ -2844,12 +2853,73 @@ function closeSnifferAnnotate() {
   snifferAnnotateTarget = null;
   $('sn-annotate-overlay').hidden = true;
 }
+/* Template combo inside the annotate dialog: same look & feel as the
+   other template pickers (search input + dropdown list). */
+function initSnifferAnnotateTemplateCombo() {
+  const input = $('sn-annotate-template-search');
+  const list = $('sn-annotate-template-list');
+  const drop = $('sn-annotate-template-drop');
+  if (!input || !list || !drop) return;
+  const renderList = () => {
+    list.innerHTML = templatesForSniffer().map((sp) => {
+      const tplName = getSpecificationText(sp, 'name') || sp.model || sp.filename;
+      return '<li data-tpl="' + escapeHtml(sp.filename) + '" data-model="' + escapeHtml(sp.model || '') + '" data-manufacturer="' + escapeHtml(sp.manufacturer || '') + '">' +
+        '<span class="eep-code">' + escapeHtml(sp.filename) + '</span>' +
+        '<span class="eep-name">' + escapeHtml(tplName) + (sp.manufacturer ? ' · ' + escapeHtml(sp.manufacturer) : '') + '</span></li>';
+    }).join('');
+  };
+  let filter = '';
+  const render = () => {
+    const q = filter.toLowerCase();
+    let count = 0;
+    list.querySelectorAll('li').forEach((li) => {
+      const hay = (li.getAttribute('data-tpl') + ' ' + li.getAttribute('data-model') + ' ' + li.getAttribute('data-manufacturer')).toLowerCase();
+      const match = !q || hay.includes(q);
+      li.hidden = !match;
+      if (match) count++;
+    });
+    return count;
+  };
+  const selectLi = (li) => {
+    input.value = li.getAttribute('data-model') || li.getAttribute('data-tpl');
+    drop.hidden = true;
+    filter = input.value;
+  };
+  renderList();
+  // When the dialog opens, the input is prefilled with the current template:
+  // on first focus show the full list anyway (empty filter), matching the
+  // other combos.
+  input.addEventListener('focus', () => { filter = ''; render(); drop.hidden = false; });
+  input.addEventListener('input', () => { filter = input.value; render(); drop.hidden = false; });
+  input.addEventListener('blur', () => setTimeout(() => { drop.hidden = true; }, 150));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); const c = list.querySelector('li:not([hidden])'); if (c) c.focus(); }
+    else if (e.key === 'Escape') drop.hidden = true;
+  });
+  list.addEventListener('mousedown', (e) => {
+    const li = e.target.closest('li[data-tpl]');
+    if (!li) return;
+    e.preventDefault();
+    selectLi(li);
+  });
+  list.addEventListener('click', (e) => {
+    const li = e.target.closest('li[data-tpl]');
+    if (!li) return;
+    selectLi(li);
+  });
+  list.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); const li = e.target.closest('li[data-tpl]'); if (li) selectLi(li); }
+  });
+}
 async function saveSnifferAnnotate() {
   if (!snifferAnnotateTarget) return;
   const tgt = snifferAnnotateTarget;
+  const description = $('sn-annotate-description').value.trim();
   const converter = $('sn-annotate-converter').value.trim();
   const uom = $('sn-annotate-uom').value.trim();
-  const template = $('sn-annotate-template').value;
+  // Resolve the search input (name / model / filename) back to the spec.
+  const templateResolved = resolveTemplate($('sn-annotate-template-search').value);
+  const template = templateResolved ? templateResolved.filename : '';
   try {
     // Template assignment (optional): changing it re-interprets via the spec.
     if (template) {
@@ -2857,8 +2927,13 @@ async function saveSnifferAnnotate() {
         method: 'POST',
         body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, specificationid: template })
       });
+    } else if (!templateResolved && $('sn-annotate-template-search').value.trim() && getSlaveTemplateId(tgt.slaveId)) {
+      // User typed something unresolvable into the template field: keep the
+      // current assignment instead of wiping it silently.
+      toast(t('sniffer_template_not_found'), 'error');
+      return;
     } else if (template === '' && getSlaveTemplateId(tgt.slaveId)) {
-      // User explicitly picked "No template": detach.
+      // User explicitly emptied the field: detach.
       await api('/api/sniffer/registers/template', {
         method: 'POST',
         body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, specificationid: '' })
@@ -2869,7 +2944,7 @@ async function saveSnifferAnnotate() {
     if (converter || uom) {
       await api('/api/sniffer/registers/annotation', {
         method: 'POST',
-        body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, address: tgt.address, converter, uom })
+        body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, address: tgt.address, converter, uom, description })
       });
     }
     closeSnifferAnnotate();
@@ -2893,7 +2968,8 @@ function bindSnifferPencils() {
         slaveId: Number(btn.getAttribute('data-slaveid')),
         address: Number(btn.getAttribute('data-address')),
         converter: btn.getAttribute('data-converter') || '',
-        uom: btn.getAttribute('data-uom') || ''
+        uom: btn.getAttribute('data-uom') || '',
+        description: btn.getAttribute('data-description') || ''
       };
       openSnifferAnnotate(target);
     });
@@ -3009,6 +3085,7 @@ function renderSnifferRegisters(regs) {
     const interp = r.value != null && r.value !== '' ? escapeHtml(String(r.value)) : '<span class="sn-muted">—</span>';
     const conv = r.converter ? escapeHtml(String(r.converter)) : '<span class="sn-muted">' + t('sniffer_no_template') + '</span>';
     const uom = r.uom ? escapeHtml(String(r.uom)) : '';
+    const desc = r.description ? escapeHtml(String(r.description)) : '<span class="sn-muted">—</span>';
     const annotated = r.annotated ? ' <span class="sn-annotated-badge">' + t('sniffer_annotated') + '</span>' : '';
     const pencilTitle = t('sniffer_annotate');
     return '<tr>' +
@@ -3018,8 +3095,9 @@ function renderSnifferRegisters(regs) {
       '<td class="sniff-interp">' + interp + annotated + '</td>' +
       '<td>' + conv + '</td>' +
       '<td>' + uom + '</td>' +
+      '<td>' + desc + '</td>' +
       '<td><button class="icon-btn sn-pencil" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
-        '" data-address="' + r.address + '" data-converter="' + escapeHtml(r.converter || '') + '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + pencilTitle + '">✎</button></td>' +
+        '" data-address="' + r.address + '" data-converter="' + escapeHtml(r.converter || '') + '" data-uom="' + escapeHtml(r.uom || '') + '" data-description="' + escapeHtml(r.description || '') + '" title="' + pencilTitle + '">✎</button></td>' +
       '</tr>';
   }).join('');
 }
@@ -3067,6 +3145,7 @@ async function snifferSaveConfig() {
   $('sn-clear')?.addEventListener('click', snifferClearDatabase);
   $('sn-annotate-save')?.addEventListener('click', saveSnifferAnnotate);
   $('sn-annotate-cancel')?.addEventListener('click', closeSnifferAnnotate);
+  initSnifferAnnotateTemplateCombo();
   $('sn-filter-apply')?.addEventListener('click', applySnifferCustomFilter);
   $('sn-filter-clear')?.addEventListener('click', clearSnifferFilter);
   $('sn-filter-custom')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') applySnifferCustomFilter(); });

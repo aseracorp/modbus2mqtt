@@ -558,13 +558,17 @@ export class SnifferService implements SnifferTransport {
       const words = entityWords.length > 0 ? entityWords : row.words
       const decoded = converter.modbus2mqtt(spec, entity.id, words)
       const uom = entityUom(entity)
+      const entityDesc = entity.name ?? entity.mqttname ?? entity.converter ?? ''
       return {
         ...row,
         value: String(decoded),
         converter: entity.converter ?? row.converter,
         uom: uom ?? row.uom,
+        // A template always wins the description; a manual annotation would
+        // have set `annotated` without a specKey, so it is kept over this.
+        description: entityDesc || row.description,
         specKey: spec.filename ?? row.specKey,
-        entityName: entity.name ?? entity.mqttname ?? entity.converter ?? 'unknown',
+        entityName: entityDesc || 'unknown',
       }
     } catch (e) {
       debug('enrichRegister: decode failed for bus ' + row.busId + ' slave ' + row.slaveId + ' addr ' + row.address + ': ' + (e instanceof Error ? e.message : String(e)))
@@ -614,7 +618,7 @@ export class ModbusSnifferRegistry {
 }
 
 /** Maps a Modbus function code to the ModbusRegisterType it reads/writes. */
-function functionCodeToRegisterType(fc: number | undefined): ModbusRegisterType | undefined {
+export function functionCodeToRegisterType(fc: number | undefined): ModbusRegisterType | undefined {
   switch (fc) {
     case 0x01: return ModbusRegisterType.Coils
     case 0x02: return ModbusRegisterType.DiscreteInputs
@@ -629,14 +633,14 @@ function functionCodeToRegisterType(fc: number | undefined): ModbusRegisterType 
 }
 
 /** Number of registers an entity occupies on the bus. */
-function entityLength(entity: Ientity): number {
+export function entityLength(entity: Ientity): number {
   const converter = ConverterMap.getConverter(entity)
   if (converter) return Math.max(1, converter.getModbusLength(entity))
   return 1
 }
 
 /** Unit of measurement from the entity's converter parameters (Inumber.uom). */
-function entityUom(entity: Ientity): string | undefined {
+export function entityUom(entity: Ientity): string | undefined {
   const p = entity.converterParameters as { uom?: string } | undefined
   return p?.uom
 }
