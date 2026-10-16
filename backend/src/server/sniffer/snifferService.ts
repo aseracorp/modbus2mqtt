@@ -16,6 +16,7 @@ import {
   SnifferMappingCreate,
 } from './types.js'
 import { ConfigBus } from '../configbus.js'
+import { ConfigSpecification } from '../../specification/configspec.js'
 import { ConverterMap } from '../../specification/index.js'
 import { ModbusRegisterType, Ientity } from '../../shared/specification/index.js'
 import { entityConditions, conditionMatches, readConditionValue } from '../../specification/conditions.js'
@@ -483,17 +484,26 @@ export class SnifferService implements SnifferTransport {
     }
 
     const slave = ConfigBus.getSlave(row.busId, row.slaveId)
-    if (!slave) return row
-
-    // Resolve reference slaves: the actual spec lives on the root slave.
-    let specSlave = slave
-    if (slave.referenceSlaveId !== undefined) {
-      const root = ConfigBus.getSlave(row.busId, slave.referenceSlaveId)
-      if (root) specSlave = root
+    // Sniffer-only slaves (seen on the wire but not configured in the bus)
+    // can still get a template via the pencil dialog; the assignment lives in
+    // the sniffer store. Prefer the bus config, fall back to the store.
+    const storeSpecId = slave ? undefined : this.store.getSlaveTemplate(row.busId, row.slaveId)
+    const spec = slave ? undefined : storeSpecId ? ConfigSpecification.getSpecificationByFilename(storeSpecId) : undefined
+    if (slave) {
+      // Resolve reference slaves: the actual spec lives on the root slave.
+      let specSlave = slave
+      if (slave.referenceSlaveId !== undefined) {
+        const root = ConfigBus.getSlave(row.busId, slave.referenceSlaveId)
+        if (root) specSlave = root
+      }
+      if (!specSlave.specification) return row
+      return this.enrichRegisterWithSpec(row, specSlave.specification, values)
     }
-    if (!specSlave.specification) return row
+    if (!spec) return row
+    return this.enrichRegisterWithSpec(row, spec, values)
+  }
 
-    const spec = specSlave.specification
+  private enrichRegisterWithSpec(row: SnifferRegisterRow, spec: import('../../shared/specification/index.js').Ispecification, values: ImodbusValues): SnifferRegisterRow {
     const registerType = functionCodeToRegisterType(row.functionCode)
     const candidates = spec.entities.filter((e) => {
       if (e.modbusAddress === undefined) return false

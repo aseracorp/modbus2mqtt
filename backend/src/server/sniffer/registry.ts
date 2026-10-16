@@ -206,6 +206,21 @@ export class ModbusSnifferRegistry {
     return undefined
   }
 
+  /** Template (specification filename) assigned to a sniffer-discovered slave, if any. */
+  getSlaveTemplate(busId: number, slaveId: number): string | undefined {
+    return this.store.getSlaveTemplate(busId, slaveId)
+  }
+
+  /** Assigns (or clears) the template for a sniffer-discovered slave. */
+  setSlaveTemplate(busId: number, slaveId: number, specificationId: string | undefined): void {
+    this.store.setSlaveTemplate(busId, slaveId, specificationId)
+  }
+
+  /** All per-slave template assignments stored for a bus. */
+  getSlaveTemplates(busId: number): Map<number, string> {
+    return this.store.getSlaveTemplates(busId)
+  }
+
   /**
    * Clears the sniffer database by renaming the sqlite file with a timestamp
    * suffix and creating a fresh one in its place. Stops all running sniffers

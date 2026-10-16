@@ -1,5 +1,8 @@
 import { it, expect } from '@jest/globals'
 import { SnifferService } from '../../src/server/sniffer/snifferService.js'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 import { InMemorySnifferStore, SqliteSnifferStore } from '../../src/server/sniffer/store.js'
 import { RtuFrameParser } from '../../src/server/sniffer/parser.js'
 import { SnifferBusConfig, TelegramDirection } from '../../src/server/sniffer/types.js'
@@ -126,6 +129,98 @@ it('SqliteSnifferStore persists config, telegrams, devices and registers', () =>
   expect(store.getRegisters(3)).toHaveLength(1)
   expect(store.getRegisters(3)[0].address).toBe(0x10)
   store.close()
+})
+
+// --- Per-slave template assignment (sniffer-discovered slaves) ---
+it('stores per-slave template assignments (InMemory + SQLite) and restores them after reset', () => {
+  // In-memory
+  const mem = new InMemorySnifferStore()
+  mem.setSlaveTemplate(3, 5, 'thermokon-wrf06.yaml')
+  expect(mem.getSlaveTemplate(3, 5)).toBe('thermokon-wrf06.yaml')
+  expect(mem.getSlaveTemplate(3, 6)).toBeUndefined()
+  expect(mem.getSlaveTemplates(3).get(5)).toBe('thermokon-wrf06.yaml')
+  mem.setSlaveTemplate(3, 5, undefined)
+  expect(mem.getSlaveTemplate(3, 5)).toBeUndefined()
+
+  // SQLite
+  const db = new SqliteSnifferStore(':memory:')
+  db.init()
+  db.setSlaveTemplate(3, 7, 'some-spec.yaml')
+  expect(db.getSlaveTemplate(3, 7)).toBe('some-spec.yaml')
+  expect(db.getSlaveTemplates(3).get(7)).toBe('some-spec.yaml')
+  // Different bus unaffected
+  expect(db.getSlaveTemplate(4, 7)).toBeUndefined()
+  // Clearing works
+  db.setSlaveTemplate(3, 7, undefined)
+  expect(db.getSlaveTemplate(3, 7)).toBeUndefined()
+  db.close()
+})
+
+it('decodes registers of a sniffer-discovered slave via the store template', async () => {
+  const { svc, store } = makeService()
+  // Slave 5 is NOT configured in any bus (ConfigBus has no slave 5), but the
+  // sniffer-visible template assignment lives in the store.
+  store.setSlaveTemplate(1, 5, 'thermokon-wrf06.yaml')
+
+  // Stub ConfigBus.getSlave to return undefined (slave not configured) and
+  // ConfigSpecification.getSpecificationByFilename to return a minimal spec so
+  // the store-template fallback path in enrichRegister can decode the rows.
+  const configBusModule = await import('../../src/server/configbus.js')
+  const specModule = await import('../../src/specification/configspec.js')
+  const origGetSlave = configBusModule.ConfigBus.getSlave
+  const origGetSpec = specModule.ConfigSpecification.getSpecificationByFilename
+  configBusModule.ConfigBus.getSlave = () => undefined
+  specModule.ConfigSpecification.getSpecificationByFilename = (filename?: string) => ({
+    filename: filename ?? 'thermokon-wrf06.yaml',
+    entities: [
+      {
+        id: 1,
+        name: 'Unit system',
+        converter: 'number',
+        registerType: 3, // HoldingRegister
+        modbusAddress: 400,
+        converterParameters: { multiplier: 1, uom: 'select' },
+      },
+    ],
+    i18n: [],
+    files: [],
+    status: 0,
+    identified: 0,
+  })
+
+  try {
+    await svc.start()
+    // Read holding register 400 (0x190), quantity 1 -> WRF06 "Unit system" select
+    svc.feed('request', frame(5, 0x03, [0x01, 0x90, 0x00, 0x01]))
+    svc.feed('response', frame(5, 0x03, [0x02, 0x00, 0x01]))
+
+    const registers = store.getRegisters(1, 5)
+    expect(registers.length).toBeGreaterThan(0)
+    const r400 = registers.find((r) => r.address === 0x190)
+    expect(r400).toBeDefined()
+    // The service enriches via the store template fallback.
+    const regs = svc.getRegisters(1, 5)
+    expect(regs.length).toBeGreaterThan(0)
+    expect(regs.find((r) => r.address === 0x190)?.specKey).toBe('thermokon-wrf06.yaml')
+  } finally {
+    configBusModule.ConfigBus.getSlave = origGetSlave
+    specModule.ConfigSpecification.getSpecificationByFilename = origGetSpec
+    await svc.stop()
+  }
+})
+
+it('restores per-slave template assignments after a database reset (file-backed)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sniffer-tpl-'))
+  const dbPath = path.join(dir, 'modbus-sniffer.db')
+  const db = new SqliteSnifferStore(dbPath)
+  db.init()
+  db.setSlaveTemplate(3, 7, 'some-spec.yaml')
+  // No close(): resetDatabase handles the open db itself (checkpoint+rename).
+  const renamed = db.resetDatabase('backup')
+  expect(renamed).toBeDefined()
+  expect(db.getSlaveTemplate(3, 7)).toBe('some-spec.yaml')
+  db.close()
+  fs.rmSync(dir, { recursive: true, force: true })
 })
 
 // --- Tap fallback + stack sink (fix: reliable capture with visible errors) ---

@@ -250,4 +250,8 @@ window.LANG_de = {
   sniffer_annotate_template: "Template",
   sniffer_annotate_no_template: "Kein Template (manuelle Umrechnung)",
   sniffer_annotate_template_hint: "Ein vorhandenes Template diesem Slave zuweisen, damit seine Register automatisch dekodiert werden.",
+  sniffer_crc: "CRC",
+  sniffer_filter_tooltip: "Diese Spalte filtern",
+  sniffer_filter_field: "Filter: {field}",
+  sniffer_filter_placeholder: "Wert eingeben, nach dem gefiltert werden soll…",
 };

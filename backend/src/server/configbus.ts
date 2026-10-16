@@ -253,7 +253,7 @@ export class ConfigBus {
   }
 
   static getSlave(busid: number, slaveid: number): Islave | undefined {
-    if (ConfigBus.busses.length <= busid) {
+    if (!ConfigBus.busses || ConfigBus.busses.length <= busid || !ConfigBus.busses[busid] || !Array.isArray(ConfigBus.busses[busid].slaves)) {
       debug('Config.getslave: unknown bus')
       return undefined
     }
@@ -267,6 +267,7 @@ export class ConfigBus {
     return rc
   }
   static getslaveBySlaveId(busid: number, slaveId: number) {
+    if (!ConfigBus.busses || ConfigBus.busses.length <= busid || !ConfigBus.busses[busid] || !Array.isArray(ConfigBus.busses[busid].slaves)) return undefined
     const rc = ConfigBus.busses[busid].slaves.find((dev) => {
       return dev.slaveid === slaveId
     })

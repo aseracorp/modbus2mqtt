@@ -1134,20 +1134,30 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .modal-xlg .sniffer-toolbar { max-width: none; }
 
 /* Sniffer eye icon in the bus list - live status */
-.bus-sniffer.sn-eye-running { color: var(--success, #2e8b57); border-color: rgba(46, 139, 87, 0.45); background: rgba(46, 139, 87, 0.10); animation: eye-pulse 1.6s ease-in-out infinite; }
+/* Running: GREEN with a bright "flash" pulse so the active state is obvious. */
+.bus-sniffer.sn-eye-running { color: var(--success, #2e8b57); border-color: rgba(46, 139, 87, 0.45); background: rgba(46, 139, 87, 0.10); animation: sn-eye-flash 1.2s ease-in-out infinite; }
 .bus-sniffer.sn-eye-running:hover { background: rgba(46, 139, 87, 0.18); color: var(--success, #2e8b57); }
-.bus-sniffer.sn-eye-stopped { color: #b22222; border-color: rgba(178, 34, 34, 0.35); background: rgba(178, 34, 34, 0.06); }
-.bus-sniffer.sn-eye-stopped:hover { background: rgba(178, 34, 34, 0.14); color: #b22222; }
-.bus-sniffer.sn-eye-error { color: #b22222; border-color: rgba(178, 34, 34, 0.5); background: rgba(178, 34, 34, 0.12); animation: eye-pulse 1s ease-in-out infinite; }
-@keyframes eye-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+/* Stopped: neutral grey (it is not an error to be stopped). */
+.bus-sniffer.sn-eye-stopped { color: var(--text-muted); border-color: rgba(120, 120, 120, 0.35); background: rgba(120, 120, 120, 0.06); }
+.bus-sniffer.sn-eye-stopped:hover { background: rgba(120, 120, 120, 0.12); color: var(--text); }
+/* Error: red + faster pulse. */
+.bus-sniffer.sn-eye-error { color: #b22222; border-color: rgba(178, 34, 34, 0.5); background: rgba(178, 34, 34, 0.12); animation: sn-eye-flash 0.8s ease-in-out infinite; }
+.bus-sniffer.sn-eye-unknown { color: var(--text-muted); border-color: var(--border-strong); background: transparent; }
+@keyframes sn-eye-flash {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(46, 139, 87, 0.0); }
+  50% { opacity: 0.55; box-shadow: 0 0 8px 2px rgba(46, 139, 87, 0.35); }
 }
 
 /* sniffer column filter icons */
-.sn-filter-ico { cursor: pointer; margin-left: 4px; font-size: 11px; color: var(--text-muted); user-select: none; }
-.sn-filter-ico:hover, .sn-filter-ico:focus-visible { color: var(--primary); outline: none; }
-.sn-filter-ico.active { color: var(--primary); font-weight: 700; }
+.sn-filter-ico {
+  cursor: pointer; margin-left: 4px; font-size: 12px; user-select: none;
+  color: var(--text-muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 4px;
+  border: 1px solid transparent; vertical-align: middle; line-height: 1;
+}
+.sn-filter-ico:hover, .sn-filter-ico:focus-visible { color: var(--primary); border-color: rgba(13, 110, 253, 0.35); outline: none; }
+.sn-filter-ico.active { color: var(--primary); font-weight: 700; border-color: rgba(13, 110, 253, 0.45); background: rgba(13, 110, 253, 0.08); }
 .sn-muted { color: var(--text-muted); font-style: italic; }
 .sn-annotated-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 8px; font-size: 10px; background: rgba(84,214,44,0.15); color: var(--success, #2e8b57); }
 .sn-pencil { background: none; border: none; cursor: pointer; font-size: 15px; padding: 2px 4px; border-radius: 6px; color: var(--text-secondary); }

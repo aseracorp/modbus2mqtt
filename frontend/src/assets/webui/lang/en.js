@@ -250,4 +250,8 @@ window.LANG_en = {
   sniffer_annotate_template: "Template",
   sniffer_annotate_no_template: "No template (manual conversion)",
   sniffer_annotate_template_hint: "Assign an existing template to this slave so its registers decode automatically.",
+  sniffer_crc: "CRC",
+  sniffer_filter_tooltip: "Filter this column",
+  sniffer_filter_field: "Filter: {field}",
+  sniffer_filter_placeholder: "Type a value to match…",
 };

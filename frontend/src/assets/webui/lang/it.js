@@ -249,4 +249,8 @@ window.LANG_it = {
   sniffer_annotate_template: "Modello",
   sniffer_annotate_no_template: "Nessun modello (conversione manuale)",
   sniffer_annotate_template_hint: "Assegna un modello esistente a questo slave per decodificare automaticamente i suoi registri.",
+  sniffer_crc: "CRC",
+  sniffer_filter_tooltip: "Filtra questa colonna",
+  sniffer_filter_field: "Filtro: {field}",
+  sniffer_filter_placeholder: "Digita un valore da filtrare…",
 };
