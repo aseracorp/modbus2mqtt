@@ -758,3 +758,97 @@ it('keeps the last known register words when a later request gets no response', 
   expect(registers[0].rawValue).toBe('4660')
   await svc.stop()
 })
+
+it('pairs a response with the pending request of the SAME length (no phantom registers)', async () => {
+  // Regression: a still-pending read(400,1) must not latch an 8-word answer
+  // that belongs to read(0,8). Pairing by FIFO alone shifted the value start
+  // address to 400 and created registers 400..407 that were never read.
+  const { svc, store } = makeService()
+  await svc.start()
+
+  // Older, still unanswered single-register read at 400 (as seen on the wire).
+  svc.feed('request', frame(1, 0x03, [0x01, 0x90, 0x00, 0x01])) // 400, qty 1
+  // The real 8-register poll that the slave DOES answer.
+  svc.feed('request', frame(1, 0x03, [0x00, 0x00, 0x00, 0x08])) // 0, qty 8
+  // Response carries 8 words (byteCount 0x10) -> belongs to read(0,8).
+  svc.feed(
+    'response',
+    frame(1, 0x03, [
+      0x10,
+      0x00,
+      0xfd,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x02,
+      0xa3,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+    ])
+  )
+
+  const addrs = store.getRegisters(1).map((r) => r.address)
+  // Register 0..7 got the values (the real read). Register 400 exists merely as
+  // an inventory row from its own request - but the phantom registers 401..407
+  // must NOT appear (the 8-word answer no longer latches onto the read(400,1)).
+  for (let a = 0; a <= 7; a++) expect(addrs).toContain(a)
+  expect(addrs).not.toContain(401)
+  expect(addrs).not.toContain(407)
+  // The value at 0..7 comes from the 8-word response (0x00fd = 253), NOT from
+  // an answer to the single-register read at 400.
+  const r0 = store.getRegisters(1).find((r) => r.address === 0)
+  expect(r0?.words).toEqual([0x00fd])
+  const r400 = store.getRegisters(1).find((r) => r.address === 400)
+  expect(r400?.words).toEqual([])
+  await svc.stop()
+})
+
+it('a bare request does not wipe previously captured values (SQLite store)', async () => {
+  // Regression: the request path in updateRegisters upserts every polled
+  // address with an EMPTY word list. With the SQLite store that overwrote
+  // words='[]' / raw_value=NULL on every poll, so the register table showed
+  // no values for registers that were actually being read and answered.
+  const store = new SqliteSnifferStore('/tmp/sniffer-wipe-test.db')
+  store.init()
+  try {
+    const config: SnifferBusConfig = {
+      busId: 1,
+      busName: '/dev/ttyUSB0',
+      mode: 'stack',
+      enabled: true,
+    }
+    store.upsertConfig(config)
+    const svc = new SnifferService(config, store)
+    await svc.start()
+
+    // Cycle 1: request + response -> register 0 has a value.
+    svc.feed('request', frame(1, 0x03, [0x00, 0x00, 0x00, 0x01]))
+    svc.feed('response', frame(1, 0x03, [0x02, 0x00, 0x2a]))
+    let rows = store.getRegisters(1)
+    const r0 = rows.find((r) => r.address === 0)
+    expect(r0?.words).toEqual([0x002a])
+
+    // Cycle 2: the poll request alone (response not captured) - the value must
+    // survive instead of being reset to empty by the request-path upsert.
+    svc.feed('request', frame(1, 0x03, [0x00, 0x00, 0x00, 0x01]))
+    rows = store.getRegisters(1)
+    const r0b = rows.find((r) => r.address === 0)
+    expect(r0b?.words).toEqual([0x002a])
+    expect(r0b?.rawValue).toBe('42')
+    await svc.stop()
+  } finally {
+    store.close()
+    try {
+      require('fs').unlinkSync('/tmp/sniffer-wipe-test.db')
+    } catch {
+      /* ignore */
+    }
+  }
+})
