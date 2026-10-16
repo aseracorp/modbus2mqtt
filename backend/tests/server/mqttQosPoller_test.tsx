@@ -178,8 +178,34 @@ test('condition-source registers are added to the plan (config or hidden registe
   expect(addrs).toContain(0)
   expect(addrs).toContain(5)
   expect(addrs).toContain(6)
-  // the condition source is polled realtime (250 ms) so gated values stay fresh
+  // the condition source is a config register: it only changes through the config
+  // API (never at runtime), so it must NOT be polled at realtime speed - that would
+  // spam the bus with 250 ms reads of a static selector while the gated sensor
+  // registers sit inactive. It is polled at the config QoS (static) instead.
   const condReg = plan.registers.find((r) => r.address === 400)!
+  expect(condReg.qos).toBe(QoSLevels.static)
+  expect(condReg.intervalMs).toBe(3600000)
+})
+
+test('condition-source register without its own entity stays realtime (dynamic)', () => {
+  // A condition source that has NO entity of its own (e.g. a hidden/diagnostic
+  // readiness register) is treated as dynamic: gated values must be evaluated
+  // against a fresh selector, so it is polled realtime (250 ms).
+  const plan = buildQosRegisterPlan(
+    makeSlave([
+      reg(1, 0, { converterParameters: { multiplier: 0.1, offset: 0, decimals: 1, numberFormat: 0 } }),
+      { ...reg(2, 5), condition: { register: 501, bit: 0, comparator: 'eq', value: 1 } },
+      { ...reg(3, 6), condition: { register: 501, bit: 5, comparator: 'eq', value: 1 } },
+    ]),
+    0,
+    api,
+    { baudrate: 9600 },
+    1,
+    125,
+    1000
+  )!
+  const condReg = plan.registers.find((r) => r.address === 501)!
+  expect(condReg).toBeDefined()
   expect(condReg.qos).toBe(QoSLevels.realtime)
   expect(condReg.intervalMs).toBe(250)
 })

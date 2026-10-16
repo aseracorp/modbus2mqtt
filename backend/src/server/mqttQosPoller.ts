@@ -125,12 +125,25 @@ export function buildQosRegisterPlan(
   // already in the plan (often a config register or a register with no entity of its
   // own). Without them `isEntityActiveByValues` reports every conditional entity as
   // inactive - empty mqttValue - and the state payload/discovery deletes the entity
-  // in Home Assistant. They are polled realtime (250 ms) so the gated values are
-  // always evaluated against a fresh selector.
+  // in Home Assistant. They are polled with the QoS of the register that holds them:
+  // dynamic value registers (sensor states) are polled realtime (250 ms) so the gated
+  // values are always evaluated against a fresh selector, while static registers that
+  // only ever change through configuration (config/diagnostic, e.g. the unit-system
+  // register) are polled at their slow/static QoS instead of spamming the bus at
+  // realtime speed. This prevents a config selector that responds reliably from
+  // dominating the bus traffic when the gated sensor registers are inactive.
+  const conditionSourceQos = new Map<string, number>()
+  for (const other of spec.entities) {
+    if (other.modbusAddress == undefined) continue
+    const key = (other.registerType ?? ModbusRegisterType.HoldingRegister) + ':' + other.modbusAddress
+    if (!conditionSourceQos.has(key))
+      conditionSourceQos.set(key, Number.isFinite(other.qos as number) ? (other.qos as number) : defaultQosFor(other))
+  }
   for (const ent of spec.entities) {
     for (const c of entityConditions(ent)) {
       const registerType = c.registerType ?? ent.registerType ?? ModbusRegisterType.HoldingRegister
-      addRegister(c.register, registerType, 1, QoSLevels.realtime)
+      const qos = conditionSourceQos.get(registerType + ':' + c.register) ?? QoSLevels.realtime
+      addRegister(c.register, registerType, 1, qos)
     }
   }
   return {
