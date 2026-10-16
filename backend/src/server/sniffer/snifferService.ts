@@ -319,14 +319,25 @@ export class SnifferService implements SnifferTransport {
   }
 
   /**
-   * Looks up the outstanding request for a response (same slave + function)
-   * in the parser's FIFO queue. Returns the request but does NOT consume it
-   * here - updateRegisters consumes once the values were split. This lets the
-   * telegram table AND the register split share the same pairing.
+   * Looks up the outstanding request for a response (same slave + function AND
+   * matching word count) in the parser's FIFO queue. Returns the request but
+   * does NOT consume it here - updateRegisters consumes once the values were
+   * split. This lets the telegram table AND the register split share the same
+   * pairing.
+   *
+   * The word count is essential: a read response carries byteCount(1)+words and
+   * therefore knows its own word count, while the request knows the register
+   * count it asked for. Only a request with the SAME count can be the one this
+   * response answers. Without that check a response was paired with an
+   * unrelated pending request (e.g. an 8-word read(0,8) answer latched onto a
+   * pending read(400,1)) which shifted the value start address and created
+   * phantom registers 400..407.
    */
   private pairResponse(telegram: ParsedTelegram): { request: ParsedTelegram } | undefined {
     if (telegram.direction !== 'response') return undefined
-    const req = this.parser?.getLastRequest(telegram.slaveId, telegram.functionCode)
+    const words = telegram.decoded?.values
+    const expected = words ? words.length : undefined
+    const req = this.parser?.getLastRequest(telegram.slaveId, telegram.functionCode, expected)
     return req ? { request: req } : undefined
   }
 
@@ -335,8 +346,13 @@ export class SnifferService implements SnifferTransport {
     // in the response itself - we must pair it with the request that started
     // the transaction. The parser keeps a queue of outstanding requests (a
     // fast master pipelines several reads), so we look the oldest one up for
-    // this slave+function instead of the single most recent frame.
-    const req = this.parser?.getLastRequest(telegram.slaveId, telegram.functionCode)
+    // this slave+function instead of the single most recent frame. The
+    // response's word count must match the request's register count: otherwise
+    // the answer belongs to a different (still pending) request and pairing it
+    // would write the values to the wrong addresses.
+    const words = telegram.decoded?.values
+    const expected = words ? words.length : undefined
+    const req = this.parser?.getLastRequest(telegram.slaveId, telegram.functionCode, expected)
     if (telegram.direction === 'response' && telegram.decoded?.values && req) {
       const base = req.decoded?.address
       if (base !== undefined) {

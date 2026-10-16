@@ -410,8 +410,12 @@ export class SqliteSnifferStore implements SnifferStore {
          ON CONFLICT(bus_id, slave_id, address) DO UPDATE SET
            quantity = excluded.quantity,
            function_code = excluded.function_code,
-           words = excluded.words,
-           raw_value = excluded.raw_value,
+           -- A bare request (empty words '[]') only advertises the register range
+           -- the master polls; it must NOT wipe the words/value a previous
+           -- response captured. Without this the poll loop erased every value
+           -- right after it arrived (register table showed empty values).
+           words = CASE WHEN excluded.words = '[]' THEN sniffer_register.words ELSE excluded.words END,
+           raw_value = CASE WHEN excluded.raw_value IS NULL THEN sniffer_register.raw_value ELSE excluded.raw_value END,
            value = COALESCE(excluded.value, sniffer_register.value),
            converter = COALESCE(NULLIF(excluded.converter, ''), sniffer_register.converter),
            uom = COALESCE(NULLIF(excluded.uom, ''), sniffer_register.uom),

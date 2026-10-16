@@ -288,15 +288,24 @@ export class RtuFrameParser {
   }
 
   /** The most recent request frame (used to pair response values with addresses). */
-  getLastRequest(slaveId?: number, functionCode?: number): ParsedTelegram | undefined {
+  getLastRequest(slaveId?: number, functionCode?: number, expectedWordCount?: number): ParsedTelegram | undefined {
     // Prefer the OLDEST outstanding request matching slave+fc: a response
     // answers exactly the request that started the transaction, and when the
     // master pipelines several reads the pending list holds them in order.
     if (slaveId !== undefined) {
       const match = this.pendingRequests.find(
-        (r) => r.slaveId === slaveId && (functionCode === undefined || r.functionCode === functionCode)
+        (r) =>
+          r.slaveId === slaveId &&
+          (functionCode === undefined || r.functionCode === functionCode) &&
+          (expectedWordCount === undefined || r.decoded?.length === expectedWordCount)
       )
       if (match) return match
+      // A response whose word count matches NO outstanding request must never be
+      // paired with an unrelated (shorter/longer) request: that shifted the value
+      // start address and produced phantom registers - e.g. an 8-word answer to
+      // read(0,8) latched onto a still-pending read(400,1) and was written to
+      // 400..407. Leave it unpaired (raw) instead of guessing.
+      if (expectedWordCount !== undefined) return undefined
       // Nothing outstanding for this slave+fc: fall back (broadcast probe /
       // scan without a request we ever saw) to the generic-most recent.
     }
