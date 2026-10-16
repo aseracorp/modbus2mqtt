@@ -36,6 +36,16 @@ export interface SnifferStore {
   upsertDevice(busId: number, telegram: ParsedTelegram): void
   getDevices(busId: number): SnifferDeviceRow[]
   upsertRegister(busId: number, telegram: ParsedTelegram, address: number, quantity: number, words: number[]): void
+  /**
+   * Inserts/updates a register row straight from a template entity (no wire
+   * words yet). Used when a template is assigned so ALL template registers
+   * (including conditional ones that were not seen on the wire) show up in
+   * the table with their converter/uom/description.
+   */
+  upsertRegisterDirect(row: {
+    busId: number; slaveId: number; address: number; quantity: number;
+    functionCode?: number; converter?: string; uom?: string; description?: string; specKey?: string
+  }): void
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[]
   /** Persists a manual converter/uom annotation for a register row. */
   annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined
@@ -143,9 +153,34 @@ export class InMemorySnifferStore implements SnifferStore {
       value: existing?.value,
       converter: existing?.converter,
       uom: existing?.uom,
+      description: existing?.description,
       annotated: existing?.annotated,
       lastSeen: telegram.timestamp,
       specKey: existing?.specKey,
+    })
+  }
+  upsertRegisterDirect(row: {
+    busId: number; slaveId: number; address: number; quantity: number;
+    functionCode?: number; converter?: string; uom?: string; description?: string; specKey?: string
+  }): void {
+    const key = row.busId + ':' + row.slaveId + ':' + row.address
+    const existing = this.registers.get(key)
+    this.registers.set(key, {
+      id: existing?.id ?? this.registers.size + 1,
+      busId: row.busId,
+      slaveId: row.slaveId,
+      address: row.address,
+      quantity: row.quantity,
+      functionCode: row.functionCode ?? existing?.functionCode,
+      words: existing?.words ?? [],
+      rawValue: existing?.rawValue,
+      value: existing?.value,
+      converter: row.converter ?? existing?.converter,
+      uom: row.uom ?? existing?.uom,
+      description: row.description?.trim() || existing?.description,
+      annotated: existing?.annotated,
+      lastSeen: existing?.lastSeen ?? Date.now() / 1000,
+      specKey: row.specKey ?? existing?.specKey,
     })
   }
   annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined {
@@ -155,6 +190,7 @@ export class InMemorySnifferStore implements SnifferStore {
     const row: SnifferRegisterRow = {
       ...existing,
       converter: annotation.converter?.trim() || undefined,
+      description: annotation.description?.trim() || existing.description || undefined,
       uom: annotation.uom?.trim() || undefined,
       annotated: true,
     }
@@ -304,6 +340,7 @@ export class SqliteSnifferStore implements SnifferStore {
         value TEXT,
         converter TEXT,
         uom TEXT,
+        description TEXT,
         annotated INTEGER NOT NULL DEFAULT 0,
         last_seen REAL NOT NULL,
         spec_key TEXT,
@@ -329,6 +366,9 @@ export class SqliteSnifferStore implements SnifferStore {
     }
     if (!registerColumns.includes('function_code')) {
       this.db.exec(`ALTER TABLE sniffer_register ADD COLUMN function_code INTEGER;`)
+    }
+    if (!registerColumns.includes('description')) {
+      this.db.exec(`ALTER TABLE sniffer_register ADD COLUMN description TEXT;`)
     }
   }
 
@@ -442,12 +482,12 @@ export class SqliteSnifferStore implements SnifferStore {
   upsertRegister(busId: number, telegram: ParsedTelegram, address: number, quantity: number, words: number[]): void {
     if (!this.db) return
     const prev = this.db
-      .prepare('SELECT words, value, converter, uom, spec_key as specKey, annotated, function_code as functionCode FROM sniffer_register WHERE bus_id=? AND slave_id=? AND address=?')
-      .get(busId, telegram.slaveId, address) as { words: string; value?: string; converter?: string; uom?: string; specKey?: string; annotated?: number; functionCode?: number } | undefined
+      .prepare('SELECT words, value, converter, uom, description, spec_key as specKey, annotated, function_code as functionCode FROM sniffer_register WHERE bus_id=? AND slave_id=? AND address=?')
+      .get(busId, telegram.slaveId, address) as { words: string; value?: string; converter?: string; uom?: string; description?: string; specKey?: string; annotated?: number; functionCode?: number } | undefined
     this.db
       .prepare(
-        `INSERT INTO sniffer_register (bus_id, slave_id, address, quantity, function_code, words, raw_value, value, converter, uom, last_seen, spec_key, annotated)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO sniffer_register (bus_id, slave_id, address, quantity, function_code, words, raw_value, value, converter, uom, description, last_seen, spec_key, annotated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(bus_id, slave_id, address) DO UPDATE SET
            quantity = excluded.quantity,
            function_code = excluded.function_code,
@@ -460,6 +500,7 @@ export class SqliteSnifferStore implements SnifferStore {
            value = COALESCE(excluded.value, sniffer_register.value),
            converter = COALESCE(NULLIF(excluded.converter, ''), sniffer_register.converter),
            uom = COALESCE(NULLIF(excluded.uom, ''), sniffer_register.uom),
+           description = COALESCE(NULLIF(excluded.description, ''), sniffer_register.description),
            annotated = COALESCE(excluded.annotated, sniffer_register.annotated),
            last_seen = excluded.last_seen`
       )
@@ -474,25 +515,62 @@ export class SqliteSnifferStore implements SnifferStore {
         prev?.value ?? null,
         prev?.converter ?? null,
         prev?.uom ?? null,
+        prev?.description ?? null,
         telegram.timestamp,
         prev?.specKey ?? null,
         prev?.annotated ? 1 : 0
       )
   }
 
+  upsertRegisterDirect(row: {
+    busId: number; slaveId: number; address: number; quantity: number;
+    functionCode?: number; converter?: string; uom?: string; description?: string; specKey?: string
+  }): void {
+    if (!this.db) return
+    const prev = this.db
+      .prepare('SELECT converter, uom, description, annotated, spec_key as specKey FROM sniffer_register WHERE bus_id=? AND slave_id=? AND address=?')
+      .get(row.busId, row.slaveId, row.address) as { converter?: string; uom?: string; description?: string; annotated?: number; specKey?: string } | undefined
+    this.db
+      .prepare(
+        `INSERT INTO sniffer_register (bus_id, slave_id, address, quantity, function_code, words, raw_value, value, converter, uom, description, last_seen, spec_key, annotated)
+         VALUES (?, ?, ?, ?, ?, '[]', NULL, NULL, ?, ?, ?, ?, ?, 0)
+         ON CONFLICT(bus_id, slave_id, address) DO UPDATE SET
+           quantity = excluded.quantity,
+           function_code = COALESCE(excluded.function_code, sniffer_register.function_code),
+           converter = COALESCE(NULLIF(excluded.converter, ''), sniffer_register.converter),
+           uom = COALESCE(NULLIF(excluded.uom, ''), sniffer_register.uom),
+           description = COALESCE(NULLIF(excluded.description, ''), sniffer_register.description),
+           spec_key = COALESCE(excluded.spec_key, sniffer_register.spec_key),
+           annotated = sniffer_register.annotated`
+      )
+      .run(
+        row.busId,
+        row.slaveId,
+        row.address,
+        row.quantity,
+        row.functionCode ?? null,
+        row.converter ?? null,
+        row.uom ?? null,
+        row.description?.trim() || null,
+        Date.now() / 1000,
+        row.specKey ?? null
+      )
+  }
+
   annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined {
     if (!this.db) return undefined
     const converter = annotation.converter?.trim() || null
+    const description = annotation.description?.trim() || null
     const uom = annotation.uom?.trim() || null
     this.db
       .prepare(
-        `UPDATE sniffer_register SET converter = ?, uom = ?, annotated = 1
+        `UPDATE sniffer_register SET converter = ?, description = ?, uom = ?, annotated = 1
          WHERE bus_id = ? AND slave_id = ? AND address = ?`
       )
-      .run(converter, uom, annotation.busId, annotation.slaveId, annotation.address)
+      .run(converter, description, uom, annotation.busId, annotation.slaveId, annotation.address)
     const row = this.db
       .prepare(
-        `SELECT id, bus_id as busId, slave_id as slaveId, address, quantity, function_code as functionCode, words, raw_value as rawValue, value, converter, uom, annotated, last_seen as lastSeen, spec_key as specKey
+        `SELECT id, bus_id as busId, slave_id as slaveId, address, quantity, function_code as functionCode, words, raw_value as rawValue, value, converter, uom, description, annotated, last_seen as lastSeen, spec_key as specKey
          FROM sniffer_register WHERE bus_id = ? AND slave_id = ? AND address = ?`
       )
       .get(annotation.busId, annotation.slaveId, annotation.address) as SnifferRegisterRow | undefined
@@ -564,7 +642,7 @@ export class SqliteSnifferStore implements SnifferStore {
     if (!this.db) return []
     const params: unknown[] = [busId]
     let sql =
-      `SELECT id, bus_id as busId, slave_id as slaveId, address, quantity, function_code as functionCode, words, raw_value as rawValue, value, converter, uom,
+      `SELECT id, bus_id as busId, slave_id as slaveId, address, quantity, function_code as functionCode, words, raw_value as rawValue, value, converter, uom, description,
               COALESCE(annotated, 0) as annotated, last_seen as lastSeen, spec_key as specKey
        FROM sniffer_register WHERE bus_id = ?`
     if (slaveId !== undefined) {

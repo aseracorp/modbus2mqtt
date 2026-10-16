@@ -92,6 +92,8 @@ export interface SnifferRegisterRow {
   annotated?: boolean
   /** The specification entity whose converter decoded the value. */
   entityName?: string
+  /** Human-readable register description (from the template entity, or manual). */
+  description?: string
   lastSeen: number
   specKey?: string
 }
@@ -100,8 +102,10 @@ export interface SnifferRegisterAnnotation {
   busId: number
   slaveId: number
   address: number
-  /** Optional human-readable converter/description for the manual annotation. */
+  /** Optional human-readable converter for the manual annotation. */
   converter?: string
+  /** Optional human-readable register description for the manual annotation. */
+  description?: string
   /** Unit of measurement for the manual annotation. */
   uom?: string
 }

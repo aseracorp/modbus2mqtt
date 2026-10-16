@@ -2,6 +2,8 @@ import Debug from 'debug'
 import { HttpErrorsEnum } from '../../../shared/specification/index.js'
 import { apiUri } from '../../../shared/server/index.js'
 import { ModbusSnifferRegistry } from '../../sniffer/registry.js'
+import { ConfigSpecification } from '../../../specification/configspec.js'
+import { entityLength, entityUom } from '../../sniffer/snifferService.js'
 import { SnifferBusConfig } from '../../sniffer/types.js'
 import { Bus } from '../../bus.js'
 import { ApiError, Ctx, Registrar, created, ok } from '../routeHelpers.js'
@@ -86,6 +88,7 @@ export function registerSnifferRoutes(r: Registrar): void {
       slaveId?: number
       address?: number
       converter?: string
+      description?: string
       uom?: string
     }
     if (body.busId === undefined || body.slaveId === undefined || body.address === undefined)
@@ -95,6 +98,7 @@ export function registerSnifferRoutes(r: Registrar): void {
       slaveId: body.slaveId,
       address: body.address,
       converter: body.converter,
+      description: body.description,
       uom: body.uom,
     })
     if (!row) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'register row not found')
@@ -194,11 +198,48 @@ export function registerSnifferRoutes(r: Registrar): void {
       }
       registry.setSlaveTemplate(body.busId, body.slaveId, specId)
     }
+    // Seed every template entity as a register row (including conditional
+    // entities that were not seen on the wire yet) so assigning a template
+    // immediately fills the table with addresses, converters, units and the
+    // register description. Rows that were already captured keep their words.
+    const store = registry.getStore()
+    if (specId && store && specId !== '') {
+      const spec = ConfigSpecification.getSpecificationByFilename(specId)
+      if (spec) {
+        for (const e of spec.entities) {
+          if (e.modbusAddress === undefined) continue
+          const len = entityLength(e)
+          store.upsertRegisterDirect({
+            busId: body.busId,
+            slaveId: body.slaveId,
+            address: e.modbusAddress,
+            quantity: len,
+            functionCode: registerTypeToFunctionCode(e.registerType),
+            converter: e.converter,
+            uom: entityUom(e),
+            description: e.name ?? e.mqttname ?? undefined,
+            specKey: spec.filename,
+          })
+        }
+      }
+    }
     // Re-interpret every register row of the slave so the table reflects the
     // new template (or the raw values after detach).
     const regs = registry.getRegisters(body.busId, body.slaveId)
     return created({ busId: body.busId, slaveId: body.slaveId, specificationid: specId, registers: regs })
   })
+}
+
+
+/** Maps a ModbusRegisterType back to a representative function code (best-effort). */
+function registerTypeToFunctionCode(rt: import('../../../shared/specification/index.js').ModbusRegisterType | undefined): number | undefined {
+  switch (rt) {
+    case 1 /* HoldingRegister */: return 0x03
+    case 2 /* AnalogInputs */: return 0x04
+    case 3 /* Coils */: return 0x01
+    case 4 /* DiscreteInputs */: return 0x02
+    default: return undefined
+  }
 }
 
 function requireBusId(ctx: Ctx): number {
