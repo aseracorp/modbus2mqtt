@@ -158,6 +158,15 @@ export function registerSnifferRoutes(r: Registrar): void {
     })
   })
 
+  // GET /api/sniffer/slave-templates?busid=1 -> per-slave template assignments
+  // stored in the sniffer database (for slaves discovered on the wire that are
+  // not configured in the bus). Returns [{busId, slaveId, specificationid}].
+  r.get(apiUri.snifferSlaveTemplates, (ctx) => {
+    const busId = requireBusId(ctx)
+    const templates = registry.getSlaveTemplates(busId)
+    return ok(Array.from(templates.entries()).map(([slaveId, specificationid]) => ({ busId, slaveId, specificationid })))
+  })
+
   // POST /api/sniffer/registers/template {busId, slaveId, specificationid?}
   // Assigns an existing specification (template) to the slave, so the register
   // table can interpret the slave's registers via the template entities.
@@ -169,11 +178,22 @@ export function registerSnifferRoutes(r: Registrar): void {
       throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'busId and slaveId are required')
     const bus = Bus.getBus(body.busId)
     if (!bus) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'bus not found: ' + body.busId)
-    const slave = bus.getSlaveBySlaveId(body.slaveId)
-    if (!slave) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'slave not found on bus: ' + body.slaveId)
     const specId = body.specificationid && body.specificationid.trim() !== '' ? body.specificationid.trim() : undefined
-    slave.specificationid = specId
-    bus.writeSlave(slave)
+    const slave = bus.getSlaveBySlaveId(body.slaveId)
+    if (slave) {
+      // Configured slave: the template lives in the bus config as usual.
+      slave.specificationid = specId
+      bus.writeSlave(slave)
+    } else {
+      // Sniffer-discovered slave (seen on the wire but not configured in the
+      // bus): persist the assignment in the sniffer store so the register
+      // table can interpret the rows anyway.
+      const storeSpecId = registry.getSlaveTemplate(body.busId, body.slaveId)
+      if (!specId && !storeSpecId) {
+        throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'slave not found on bus and no template stored for it: ' + body.slaveId)
+      }
+      registry.setSlaveTemplate(body.busId, body.slaveId, specId)
+    }
     // Re-interpret every register row of the slave so the table reflects the
     // new template (or the raw values after detach).
     const regs = registry.getRegisters(body.busId, body.slaveId)

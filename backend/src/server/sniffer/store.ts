@@ -39,6 +39,12 @@ export interface SnifferStore {
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[]
   /** Persists a manual converter/uom annotation for a register row. */
   annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined
+  /** Returns the template (specification filename) assigned to a sniffer-discovered slave, if any. */
+  getSlaveTemplate(busId: number, slaveId: number): string | undefined
+  /** Assigns (or clears, with undefined) the template for a sniffer-discovered slave. */
+  setSlaveTemplate(busId: number, slaveId: number, specificationId: string | undefined): void
+  /** All per-slave template assignments for a bus. */
+  getSlaveTemplates(busId: number): Map<number, string>
   /**
    * Closes the underlying database and renames the file with the given
    * timestamp suffix, then re-creates an empty database at the original path.
@@ -57,6 +63,7 @@ export class InMemorySnifferStore implements SnifferStore {
   private telegrams: SnifferTelegramRow[] = []
   private devices = new Map<string, SnifferDeviceRow>()
   private registers = new Map<string, SnifferRegisterRow>()
+  private slaveTemplates = new Map<string, string>() // key busId:slaveId -> specification filename
   private nextTelegramId = 1
 
   init(): void {}
@@ -154,6 +161,21 @@ export class InMemorySnifferStore implements SnifferStore {
     this.registers.set(key, row)
     return row
   }
+  getSlaveTemplate(busId: number, slaveId: number): string | undefined {
+    return this.slaveTemplates.get(busId + ':' + slaveId)
+  }
+  setSlaveTemplate(busId: number, slaveId: number, specificationId: string | undefined): void {
+    const key = busId + ':' + slaveId
+    if (specificationId) this.slaveTemplates.set(key, specificationId)
+    else this.slaveTemplates.delete(key)
+  }
+  getSlaveTemplates(busId: number): Map<number, string> {
+    const out = new Map<number, string>()
+    for (const [k, v] of this.slaveTemplates) {
+      if (k.startsWith(busId + ':')) out.set(Number(k.slice((busId + ':').length)), v)
+    }
+    return out
+  }
   resetDatabase(timestampSuffix: string): string | undefined {
     // In-memory store: nothing to rename on disk, but keep a trace of the
     // reset event in the suffix (mirrors the SQLite behaviour contract).
@@ -162,6 +184,7 @@ export class InMemorySnifferStore implements SnifferStore {
     this.telegrams = []
     this.devices.clear()
     this.registers.clear()
+    this.slaveTemplates.clear()
     return undefined
   }
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[] {
@@ -178,6 +201,9 @@ export class InMemorySnifferStore implements SnifferStore {
     Array.from(this.registers.keys())
       .filter((k) => k.startsWith(busId + ':'))
       .forEach((k) => this.registers.delete(k))
+    Array.from(this.slaveTemplates.keys())
+      .filter((k) => k.startsWith(busId + ':'))
+      .forEach((k) => this.slaveTemplates.delete(k))
   }
 }
 
@@ -213,6 +239,15 @@ export class SqliteSnifferStore implements SnifferStore {
       'INSERT INTO sniffer_config (bus_id, config) VALUES (?, ?) ON CONFLICT(bus_id) DO UPDATE SET config = excluded.config'
     )
     for (const c of configs) restore.run(c.busId, c.config)
+  }
+
+  /** Re-inserts per-slave template assignments into a freshly created database. */
+  private restoreSlaveTemplates(templates: { busId: number; slaveId: number; specificationId: string }[]): void {
+    if (!this.db) return
+    const restore = this.db.prepare(
+      'INSERT INTO sniffer_slave_template (bus_id, slave_id, specification_id) VALUES (?, ?, ?) ON CONFLICT(bus_id, slave_id) DO UPDATE SET specification_id = excluded.specification_id'
+    )
+    for (const t of templates) restore.run(t.busId, t.slaveId, t.specificationId)
   }
 
   close(): void {
@@ -273,6 +308,12 @@ export class SqliteSnifferStore implements SnifferStore {
         last_seen REAL NOT NULL,
         spec_key TEXT,
         UNIQUE (bus_id, slave_id, address)
+      );
+      CREATE TABLE IF NOT EXISTS sniffer_slave_template (
+        bus_id INTEGER NOT NULL,
+        slave_id INTEGER NOT NULL,
+        specification_id TEXT NOT NULL,
+        PRIMARY KEY (bus_id, slave_id)
       );
     `)
     // ALTER TABLE migration for databases created before the raw_value/annotated
@@ -458,17 +499,49 @@ export class SqliteSnifferStore implements SnifferStore {
     return row ? normalizeNulls({ ...row, annotated: row.annotated ? true : false, words: JSON.parse(row.words as unknown as string) as number[] }) : undefined
   }
 
+  getSlaveTemplate(busId: number, slaveId: number): string | undefined {
+    if (!this.db) return undefined
+    const row = this.db
+      .prepare('SELECT specification_id as specId FROM sniffer_slave_template WHERE bus_id=? AND slave_id=?')
+      .get(busId, slaveId) as { specId?: string } | undefined
+    return row?.specId || undefined
+  }
+  setSlaveTemplate(busId: number, slaveId: number, specificationId: string | undefined): void {
+    if (!this.db) return
+    if (specificationId) {
+      this.db
+        .prepare(
+          'INSERT INTO sniffer_slave_template (bus_id, slave_id, specification_id) VALUES (?, ?, ?) ON CONFLICT(bus_id, slave_id) DO UPDATE SET specification_id = excluded.specification_id'
+        )
+        .run(busId, slaveId, specificationId)
+    } else {
+      this.db.prepare('DELETE FROM sniffer_slave_template WHERE bus_id=? AND slave_id=?').run(busId, slaveId)
+    }
+  }
+  getSlaveTemplates(busId: number): Map<number, string> {
+    const out = new Map<number, string>()
+    if (!this.db) return out
+    const rows = this.db
+      .prepare('SELECT slave_id as slaveId, specification_id as specId FROM sniffer_slave_template WHERE bus_id=?')
+      .all(busId) as { slaveId: number; specId: string }[]
+    for (const r of rows) out.set(r.slaveId, r.specId)
+    return out
+  }
   resetDatabase(timestampSuffix: string): string | undefined {
     if (!this.db) return undefined
     // WAL checkpoint + close so the rename is safe on all platforms.
     try {
       this.db.pragma('wal_checkpoint(TRUNCATE)')
     } catch { /* best effort */ }
-    // Export the sniffer configurations: they live in the same database file
-    // and must survive the reset (only the captured traffic is archived).
+    // Export the sniffer configurations AND the per-slave template
+    // assignments: both are configuration (not captured traffic) and must
+    // survive the reset (only the captured traffic is archived).
     const configs = this.db
       .prepare('SELECT bus_id as busId, config FROM sniffer_config')
       .all() as { busId: number; config: string }[]
+    const templates = this.db
+      .prepare('SELECT bus_id as busId, slave_id as slaveId, specification_id as specificationId FROM sniffer_slave_template')
+      .all() as { busId: number; slaveId: number; specificationId: string }[]
     const dbPath = this.dbPath
     this.db.close()
     this.db = undefined
@@ -479,9 +552,11 @@ export class SqliteSnifferStore implements SnifferStore {
       const p = dbPath + suffix
       try { if (fs.existsSync(p)) fs.renameSync(p, p + '.' + timestampSuffix) } catch { /* best effort */ }
     }
-    // Re-create the database at the original path and restore the configs.
+    // Re-create the database at the original path and restore the configs
+    // and per-slave template assignments.
     this.openQuietly()
     this.restoreConfigs(configs)
+    this.restoreSlaveTemplates(templates)
     return renamedPath
   }
 
@@ -507,6 +582,7 @@ export class SqliteSnifferStore implements SnifferStore {
     this.db.prepare('DELETE FROM sniffer_telegram WHERE bus_id=?').run(busId)
     this.db.prepare('DELETE FROM sniffer_device WHERE bus_id=?').run(busId)
     this.db.prepare('DELETE FROM sniffer_register WHERE bus_id=?').run(busId)
+    this.db.prepare('DELETE FROM sniffer_slave_template WHERE bus_id=?').run(busId)
   }
 }
 

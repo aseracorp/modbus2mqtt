@@ -67,6 +67,10 @@ function applyTranslations() {
     const key = el.getAttribute('data-ph');
     if (key && t(key)) el.setAttribute('placeholder', t(key));
   });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-title');
+    if (key && t(key)) el.title = t(key);
+  });
   document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
     const key = el.getAttribute('data-i18n-ph');
     if (key && t(key)) el.setAttribute('placeholder', t(key));
@@ -300,7 +304,7 @@ function renderBusses() {
           <span class="bus-actions">
             <button class="icon-btn bus-add-slave" title="${t('add_slave')}" data-busid="${bus.busId}">＋</button>
             ${(bus.connectionData && bus.connectionData.serialport)
-              ? '<button class="icon-btn bus-sniffer" title="' + t('sniffer_title') + '" data-busid="' + bus.busId + '">👁</button>'
+              ? '<button class="icon-btn bus-sniffer ' + snifferEyeClass(bus.busId) + '" title="' + snifferEyeTitle(bus.busId) + '" data-busid="' + bus.busId + '">👁</button>'
               : ''}
             <button class="icon-btn bus-edit" title="${t('edit_bus')}" data-busid="${bus.busId}">✎</button>
             <button class="icon-btn bus-del" title="${t('remove_device')}" data-busid="${bus.busId}">✕</button>
@@ -2522,12 +2526,20 @@ async function refreshSnifferEyeStates() {
   buttons.forEach((b) => {
     const busId = Number(b.getAttribute('data-busid'));
     const st = snifferEyeStates[busId] || 'stopped';
-    b.classList.remove('sn-eye-running', 'sn-eye-stopped', 'sn-eye-error');
-    if (st === 'running') b.classList.add('sn-eye-running');
-    else if (st === 'error') b.classList.add('sn-eye-error');
-    else b.classList.add('sn-eye-stopped');
-    b.title = (st === 'running' ? t('sniffer_running') : st === 'error' ? t('sniffer_stopped') + ' (⚠)' : t('sniffer_stopped'));
+    b.classList.remove('sn-eye-running', 'sn-eye-stopped', 'sn-eye-error', 'sn-eye-unknown');
+    b.classList.add('sn-eye-' + st);
+    b.title = snifferEyeTitle(busId);
   });
+}
+function snifferEyeClass(busId) {
+  const st = snifferEyeStates[busId] || 'stopped';
+  return 'sn-eye-' + st;
+}
+function snifferEyeTitle(busId) {
+  const st = snifferEyeStates[busId] || 'stopped';
+  return st === 'running' ? t('sniffer_running')
+    : st === 'error' ? t('sniffer_stopped') + ' (⚠)'
+    : t('sniffer_stopped');
 }
 function startSnifferEyeRefresh() {
   stopSnifferEyeRefresh();
@@ -2546,6 +2558,7 @@ async function openSniffer(busid) {
   } catch (e) { /* defaults are fine */ }
   $('sniffer-overlay').hidden = false;
   resetSnifferFilters();
+  await loadSnifferSlaveTemplates();
   // Show what the database already has, regardless of running state.
   await snifferRefresh();
   startSnifferLiveUpdates();
@@ -2625,7 +2638,7 @@ function setSnifferFilterIndicator(icon) {
   const has = Array.isArray(vals) && vals.length > 0;
   if (icon) {
     icon.classList.toggle('active', has);
-    icon.textContent = has ? (vals.length === 1 ? '🔽 1' : '🔽 ' + vals.length) : '🔽';
+    icon.textContent = has ? (vals.length === 1 ? 'ƒ 1' : 'ƒ ' + vals.length) : 'ƒ';
   }
   if (th) th.classList.toggle('sn-filtered', has);
 }
@@ -2647,7 +2660,7 @@ function openSnifferFilterPopup(icon) {
   if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8);
   popup.style.left = left + 'px';
   popup.style.top = (rect.bottom + 4) + 'px';
-  $('sn-filter-popup-field').textContent = field;
+  $('sn-filter-popup-field').textContent = t('sniffer_filter_field').replace('{field}', snifferFilterFieldLabel(field));
   $('sn-filter-custom').value = '';
 
   // Build the value checkboxes from the current rows.
@@ -2720,6 +2733,20 @@ function clearSnifferFilter() {
   snifferRefreshRender();
   hideSnifferFilterPopup();
 }
+// Human-readable (translated) label for a filter field: maps the raw column
+// key to its i18n key; falls back to the raw key when unknown.
+const SNIFFER_FILTER_FIELD_I18N = {
+  timestamp: 'sniffer_time', direction: 'sniffer_dir', slaveId: 'sniffer_slave',
+  functionName: 'sniffer_func', address: 'sniffer_addr', length: 'sniffer_len',
+  rawHex: 'sniffer_data', crcOk: 'sniffer_crc', firstSeen: 'sniffer_first_seen',
+  lastSeen: 'sniffer_last_seen', requestCount: 'sniffer_reqs', responseCount: 'sniffer_resps',
+  errorCount: 'sniffer_errors', lastFunction: 'sniffer_last_func', rawValue: 'sniffer_raw_value',
+  value: 'sniffer_interp_value', converter: 'sniffer_converter', uom: 'sniffer_uom',
+};
+function snifferFilterFieldLabel(field) {
+  const key = SNIFFER_FILTER_FIELD_I18N[field];
+  return key ? t(key) : field;
+}
 // Multi-select match: row passes when ANY selected value matches (OR).
 function snifferFilterValue(row, field, needles) {
   if (!Array.isArray(needles) || needles.length === 0) return true;
@@ -2783,12 +2810,17 @@ function templatesForSniffer() {
   // All available specs (already in state.specs from the main load).
   return (state.specs || []).slice();
 }
+// Client-side cache of per-slave template assignments stored in the sniffer
+// database (for slaves that are NOT configured in the bus). key: busId -> slaveId -> spec filename
+let snifferSlaveTemplateCache = {};
 function getSlaveTemplateId(slaveId) {
-  if (!snifferBusId) return '';
+  if (snifferBusId == null) return ''; // bus 0 is a VALID id (0 is falsy!)
   const bus = (state.busses || []).find((b) => b.busId === snifferBusId);
-  if (!bus) return '';
-  const slave = (bus.slaves || []).find((s) => s.slaveid === slaveId);
-  return (slave && slave.specificationid) || '';
+  if (bus) {
+    const slave = (bus.slaves || []).find((s) => s.slaveid === slaveId);
+    if (slave && slave.specificationid) return slave.specificationid;
+  }
+  return (snifferSlaveTemplateCache[snifferBusId] && snifferSlaveTemplateCache[snifferBusId][slaveId]) || '';
 }
 function openSnifferAnnotate(target) {
   snifferAnnotateTarget = target;
@@ -2842,6 +2874,7 @@ async function saveSnifferAnnotate() {
     }
     closeSnifferAnnotate();
     toast(t('sniffer_saved'), 'success');
+    await loadSnifferSlaveTemplates();
     await snifferRefresh();
     await loadAll(); // bus list template names + slave-ids refreshed
   } catch (e) {
@@ -2867,6 +2900,15 @@ function bindSnifferPencils() {
   });
 }
 
+async function loadSnifferSlaveTemplates() {
+  if (snifferBusId == null) return;
+  try {
+    const res = await api('/api/sniffer/slave-templates?busid=' + snifferBusId);
+    const map = {};
+    (res || []).forEach((t) => { map[t.slaveId] = t.specificationid; });
+    snifferSlaveTemplateCache[snifferBusId] = map;
+  } catch (e) { /* non-fatal */ }
+}
 async function snifferRefresh() {
   if (snifferBusId == null) return;
   const bid = snifferBusId;
@@ -2977,7 +3019,7 @@ function renderSnifferRegisters(regs) {
       '<td>' + conv + '</td>' +
       '<td>' + uom + '</td>' +
       '<td><button class="icon-btn sn-pencil" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
-        '" data-address="' + r.address + '" data-converter="' + escapeHtml(r.converter || '') + '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + pencilTitle + '">✏️</button></td>' +
+        '" data-address="' + r.address + '" data-converter="' + escapeHtml(r.converter || '') + '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + pencilTitle + '">✎</button></td>' +
       '</tr>';
   }).join('');
 }
