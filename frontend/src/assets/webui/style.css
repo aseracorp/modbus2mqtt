@@ -1100,9 +1100,22 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 }
 .sniffer-toolbar .sniffer-mode { flex-wrap: wrap; }
 .sniffer-toolbar .sniffer-spacer { flex: 1; }
-.sniffer-status { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; font-size: 13px; min-height: 20px; }
-.sniffer-running-badge { color: var(--success, #2e8b57); font-weight: 600; }
-.sniffer-stopped-badge { color: var(--text-muted); }
+.sn-startstop { min-width: 88px; font-weight: 600; }
+.sn-autostart { margin-left: 4px; }
+.sn-autostart input { accent-color: var(--primary, #0d6efd); }
+.sniffer-status { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; font-size: 13px; min-height: 24px; }
+.sniffer-status #sn-status-badge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 14px; font-weight: 700; font-size: 13px; letter-spacing: 0.2px; }
+.sn-status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.sniffer-running-badge { color: var(--success, #2e8b57); background: rgba(46, 139, 87, 0.12); }
+.sniffer-running-badge .sn-status-dot { background: var(--success, #2e8b57); animation: sn-pulse 1.4s ease-in-out infinite; }
+.sniffer-stopped-badge { color: var(--text-muted); background: rgba(120, 120, 120, 0.12); }
+.sniffer-stopped-badge .sn-status-dot { background: #b22222; }
+.sniffer-error-badge { color: #b22222; background: rgba(178, 34, 34, 0.12); }
+.sniffer-error-badge .sn-status-dot { background: #b22222; animation: sn-pulse 1s ease-in-out infinite; }
+@keyframes sn-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
 .sniffer-tabs { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
 .sniffer-tab-head { display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
 .sniffer-tab-btn {
@@ -1120,19 +1133,54 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .sniffer-tab-panel { overflow: auto; max-height: 46vh; }
 .modal-xlg .sniffer-toolbar { max-width: none; }
 
+/* Sniffer eye icon in the bus list - live status */
+.bus-sniffer.sn-eye-running { color: var(--success, #2e8b57); border-color: rgba(46, 139, 87, 0.45); background: rgba(46, 139, 87, 0.10); animation: eye-pulse 1.6s ease-in-out infinite; }
+.bus-sniffer.sn-eye-running:hover { background: rgba(46, 139, 87, 0.18); color: var(--success, #2e8b57); }
+.bus-sniffer.sn-eye-stopped { color: #b22222; border-color: rgba(178, 34, 34, 0.35); background: rgba(178, 34, 34, 0.06); }
+.bus-sniffer.sn-eye-stopped:hover { background: rgba(178, 34, 34, 0.14); color: #b22222; }
+.bus-sniffer.sn-eye-error { color: #b22222; border-color: rgba(178, 34, 34, 0.5); background: rgba(178, 34, 34, 0.12); animation: eye-pulse 1s ease-in-out infinite; }
+@keyframes eye-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 /* sniffer column filter icons */
 .sn-filter-ico { cursor: pointer; margin-left: 4px; font-size: 11px; color: var(--text-muted); user-select: none; }
-.sn-filter-ico:hover { color: var(--primary); }
+.sn-filter-ico:hover, .sn-filter-ico:focus-visible { color: var(--primary); outline: none; }
 .sn-filter-ico.active { color: var(--primary); font-weight: 700; }
 .sn-muted { color: var(--text-muted); font-style: italic; }
 .sn-annotated-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 8px; font-size: 10px; background: rgba(84,214,44,0.15); color: var(--success, #2e8b57); }
 .sn-pencil { background: none; border: none; cursor: pointer; font-size: 15px; padding: 2px 4px; border-radius: 6px; color: var(--text-secondary); }
 .sn-pencil:hover { background: var(--bg-hover); color: var(--text); }
 .sniff-interp { font-weight: 600; }
-.sniffer-toolbar .btn-danger { margin-left: auto; }
 
 /* sniffer column filters: whole header cell is clickable, active filter visible */
 .sniffer-table thead th { cursor: pointer; user-select: none; white-space: nowrap; }
 .sniffer-table thead th:hover .sn-filter-ico { color: var(--primary); }
 .sniffer-table thead th.sn-filtered { background: rgba(13, 110, 253, 0.08); }
 .sniffer-table thead th.sn-filtered .sn-filter-ico { color: var(--primary); font-weight: 700; }
+
+/* Column-filter dropdown */
+.sn-filter-popup {
+  position: fixed; z-index: 1200; background: var(--bg, #fff); border: 1px solid var(--border-strong); border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.25); padding: 10px; min-width: 220px; max-width: 320px; max-height: 320px;
+  display: flex; flex-direction: column; gap: 8px; font-size: 13px;
+}
+.sn-filter-popup-title { display: flex; align-items: center; justify-content: space-between; font-weight: 700; color: var(--text); }
+.sn-filter-popup-clear { background: none; border: none; color: var(--danger, #b22222); cursor: pointer; font-size: 12px; padding: 2px 4px; }
+.sn-filter-values { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; max-height: 190px; }
+.sn-filter-value { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+.sn-filter-value:hover { background: var(--bg-hover); }
+.sn-filter-value input { accent-color: var(--primary, #0d6efd); margin: 0; }
+.sn-filter-value .snfv-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sn-filter-custom { display: flex; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.sn-filter-custom input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+.sn-filter-custom .btn { padding: 5px 10px; font-size: 12px; }
+
+/* Annotate modal */
+.sn-annotate-row { margin-bottom: 10px; }
+.sn-annotate-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.sn-annotate-row select, .sn-annotate-row input[type="text"] {
+  width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 9px; font-size: 13px;
+}
+.field-hint { display: block; color: var(--text-muted); font-size: 11px; margin-top: 3px; }

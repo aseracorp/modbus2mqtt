@@ -240,4 +240,13 @@ window.LANG_fr = {
   sniffer_no_template: "pas de modèle",
   err_sniffer_clear_db: "Échec du vidage de la base : ",
   err_sniffer_annotate: "Échec de l'enregistrement de l'annotation : ",
+  sniffer_autostart: "Démarrage auto",
+  sniffer_autostart_hint: "Démarrer le sniffer automatiquement au démarrage de l'application",
+  sniffer_stored: "enregistrés",
+  sniffer_filter_no_values: "Aucune valeur dans cette colonne - saisissez-en une ci-dessous.",
+  sniffer_filter_apply: "Appliquer",
+  sniffer_annotate_slave: "Esclave",
+  sniffer_annotate_template: "Modèle",
+  sniffer_annotate_no_template: "Aucun modèle (conversion manuelle)",
+  sniffer_annotate_template_hint: "Attribuer un modèle existant à cet esclave pour décoder automatiquement ses registres.",
 };

@@ -3,6 +3,7 @@ import { HttpErrorsEnum } from '../../../shared/specification/index.js'
 import { apiUri } from '../../../shared/server/index.js'
 import { ModbusSnifferRegistry } from '../../sniffer/registry.js'
 import { SnifferBusConfig } from '../../sniffer/types.js'
+import { Bus } from '../../bus.js'
 import { ApiError, Ctx, Registrar, created, ok } from '../routeHelpers.js'
 
 const debug = Debug('httpserver:sniffer')
@@ -106,6 +107,77 @@ export function registerSnifferRoutes(r: Registrar): void {
   r.post(apiUri.snifferReset, async (ctx) => {
     const busId = ctx.query['busid'] !== undefined && ctx.query['busid'] !== '' ? parseInt(ctx.query['busid']) : undefined
     return ok(await registry.resetDatabase(busId))
+  })
+
+  // GET /api/sniffer/events?busid=1  (Server-Sent Events)
+  // Long-lived stream: the server writes a "change" event whenever captured
+  // data (telegrams/devices/registers/state) changes for the bus. The client
+  // re-fetches the tables on each event instead of polling every 2s. A
+  // keep-alive comment is written periodically so proxies don't drop the idle
+  // connection.
+  r.raw.get(apiUri.snifferEvents, (req, res) => {
+    const busIdRaw = req.query['busid']
+    const busId = busIdRaw !== undefined && busIdRaw !== '' ? parseInt(String(busIdRaw)) : NaN
+    if (Number.isNaN(busId)) {
+      res.status(400).setHeader('Content-Type', 'text/plain').send('busid was not passed')
+      return
+    }
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
+    res.write(': connected\n\n')
+
+    let unsub: () => void = () => undefined
+    const seen = registry.getChangeCounter(busId)
+    const send = () => {
+      res.write('event: change\n')
+      res.write('data: ' + JSON.stringify({ busId, counter: registry.getChangeCounter(busId) }) + '\n\n')
+    }
+    // Subscribe after the initial state check so a change between the two is
+    // caught by the counter comparison below.
+    unsub = registry.onChange(busId, () => {
+      try {
+        send()
+      } catch {
+        try { unsub() } catch { /* already gone */ }
+      }
+    })
+    if (registry.getChangeCounter(busId) !== seen) send()
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': keep-alive\n\n')
+      } catch {
+        clearInterval(keepAlive)
+      }
+    }, 25000)
+    req.on('close', () => {
+      clearInterval(keepAlive)
+      try { unsub() } catch { /* ignore */ }
+    })
+  })
+
+  // POST /api/sniffer/registers/template {busId, slaveId, specificationid?}
+  // Assigns an existing specification (template) to the slave, so the register
+  // table can interpret the slave's registers via the template entities.
+  // Pass specificationid = '' / null to detach the template again. After the
+  // assignment the affected register rows are re-interpreted immediately.
+  r.post(apiUri.snifferRegisterTemplate, (ctx) => {
+    const body = (ctx.body ?? {}) as { busId?: number; slaveId?: number; specificationid?: string | null }
+    if (body.busId === undefined || body.slaveId === undefined)
+      throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'busId and slaveId are required')
+    const bus = Bus.getBus(body.busId)
+    if (!bus) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'bus not found: ' + body.busId)
+    const slave = bus.getSlaveBySlaveId(body.slaveId)
+    if (!slave) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'slave not found on bus: ' + body.slaveId)
+    const specId = body.specificationid && body.specificationid.trim() !== '' ? body.specificationid.trim() : undefined
+    slave.specificationid = specId
+    bus.writeSlave(slave)
+    // Re-interpret every register row of the slave so the table reflects the
+    // new template (or the raw values after detach).
+    const regs = registry.getRegisters(body.busId, body.slaveId)
+    return created({ busId: body.busId, slaveId: body.slaveId, specificationid: specId, registers: regs })
   })
 }
 

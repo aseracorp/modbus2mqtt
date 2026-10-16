@@ -240,4 +240,13 @@ window.LANG_it = {
   sniffer_no_template: "nessun modello",
   err_sniffer_clear_db: "Errore durante lo svuotamento del database: ",
   err_sniffer_annotate: "Errore durante il salvataggio dell'annotazione: ",
+  sniffer_autostart: "Avvio automatico",
+  sniffer_autostart_hint: "Avvia automaticamente lo sniffer all'avvio dell'applicazione",
+  sniffer_stored: "salvati",
+  sniffer_filter_no_values: "Nessun valore in questa colonna - inseriscine uno sotto.",
+  sniffer_filter_apply: "Applica",
+  sniffer_annotate_slave: "Slave",
+  sniffer_annotate_template: "Modello",
+  sniffer_annotate_no_template: "Nessun modello (conversione manuale)",
+  sniffer_annotate_template_hint: "Assegna un modello esistente a questo slave per decodificare automaticamente i suoi registri.",
 };

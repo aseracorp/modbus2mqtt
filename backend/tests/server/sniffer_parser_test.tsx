@@ -1,6 +1,6 @@
 import { it, expect } from '@jest/globals'
 import { RtuFrameParser } from '../../src/server/sniffer/parser.js'
-import { decodePdu, registerRanges } from '../../src/server/sniffer/decode.js'
+import { decodePdu, registerRanges, evaluateManualConverter } from '../../src/server/sniffer/decode.js'
 import { ParsedTelegram, TelegramDirection } from '../../src/server/sniffer/types.js'
 
 /** Build a valid RTU frame: [slave, fc, ...payload, crcLo, crcHi]. */
@@ -186,4 +186,24 @@ it('flushes the remaining buffer on explicit flush()', () => {
   expect(received).toHaveLength(1)
   expect(received[0].decoded?.address).toBe(1)
   expect(received[0].decoded?.values).toEqual([2])
+})
+
+it('evaluateManualConverter applies multiplier/divisor/offset expressions', () => {
+  expect(evaluateManualConverter('number * 0.1', [262])).toBe(26.2)
+  expect(evaluateManualConverter('value / 10', [262])).toBe(26.2)
+  expect(evaluateManualConverter('0.1', [262])).toBe(26.2)
+  expect(evaluateManualConverter('x * 0.1', [262])).toBe(26.2)
+  expect(evaluateManualConverter('* 0.1', [262])).toBe(26.2)
+  expect(evaluateManualConverter('number + 5', [262])).toBe(267)
+  expect(evaluateManualConverter('number * 0.1 + 5', [262])).toBe(31.2)
+  expect(evaluateManualConverter('value : 2', [262])).toBe(131)
+  expect(evaluateManualConverter('number * 2 - 3.5', [262])).toBe(520.5)
+})
+
+it('evaluateManualConverter keeps opaque descriptions uninterpreted', () => {
+  expect(evaluateManualConverter('temperature in °C', [262])).toBeUndefined()
+  expect(evaluateManualConverter('kWh', [262])).toBeUndefined()
+  expect(evaluateManualConverter('', [262])).toBeUndefined()
+  expect(evaluateManualConverter(undefined, [262])).toBeUndefined()
+  expect(evaluateManualConverter('number * 0.1', [])).toBeUndefined()
 })

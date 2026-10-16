@@ -1,7 +1,7 @@
 import Debug from 'debug'
 import { Logger, LogLevelEnum } from '../../specification/index.js'
 import { RtuFrameParser } from './parser.js'
-import { decodePdu, registerRanges, valueAddresses } from './decode.js'
+import { decodePdu, registerRanges, valueAddresses, evaluateManualConverter } from './decode.js'
 import { SnifferStore } from './store.js'
 import { BusPortTapTransport, SnifferByteSink, SnifferTransport } from './transport.js'
 import { Bus } from '../bus.js'
@@ -66,6 +66,10 @@ export class SnifferService implements SnifferTransport {
   private transportLabels: string[] = []
   /** Raw bytes seen by passive taps (bus-port tap / serial tap) since start. */
   private tapByteCount = 0
+  /** Monotonic change counter - bumped whenever captured data changes. */
+  private changeCounter = 0
+  /** One-shot subscribers notified on the next data change (SSE fan-out). */
+  private changeWaiters: Array<() => void> = []
 
   constructor(
     private config: SnifferBusConfig,
@@ -162,6 +166,38 @@ export class SnifferService implements SnifferTransport {
       transports: [...this.transportLabels],
       tapBytes: this.tapByteCount,
     }
+  }
+
+  /** Current data change counter (incremented per captured telegram). */
+  getChangeCounter(): number {
+    return this.changeCounter
+  }
+
+  /**
+   * Registers a one-shot callback that fires on the next data change (new
+   * telegram/device/register). Used by the SSE endpoint to fan out "something
+   * changed, re-fetch" events to waiting clients. Returns an unsubscribe fn.
+   */
+  onChange(cb: () => void): () => void {
+    this.changeWaiters.push(cb)
+    return () => {
+      const i = this.changeWaiters.indexOf(cb)
+      if (i >= 0) this.changeWaiters.splice(i, 1)
+    }
+  }
+
+  /** Notifies all one-shot waiters that captured data changed. */
+  private notifyChange(): void {
+    this.changeCounter++
+    const waiters = this.changeWaiters
+    this.changeWaiters = []
+    waiters.forEach((cb) => {
+      try {
+        cb()
+      } catch {
+        /* subscriber errors must not break the capture loop */
+      }
+    })
   }
 
   async start(): Promise<void> {
@@ -275,6 +311,7 @@ export class SnifferService implements SnifferTransport {
     }
 
     this.running = true
+    this.notifyChange()
     debug(`sniffer bus ${this.config.busId} started (${this.describe()})`)
     log.log(LogLevelEnum.info, `sniffer bus ${this.config.busId} started (${this.describe()})`)
   }
@@ -293,6 +330,7 @@ export class SnifferService implements SnifferTransport {
       this.parser.flush()
       this.parser = undefined
     }
+    this.notifyChange()
   }
 
   private handleTelegram(telegram: ParsedTelegram): void {
@@ -316,6 +354,7 @@ export class SnifferService implements SnifferTransport {
     this.store.appendTelegram(this.config.busId, telegram)
     this.store.upsertDevice(this.config.busId, telegram)
     this.updateRegisters(telegram)
+    this.notifyChange()
   }
 
   /**
@@ -415,7 +454,9 @@ export class SnifferService implements SnifferTransport {
   /** Re-interprets a single register row after an annotation changed it. */
   refreshRegisterValue(row: SnifferRegisterRow): SnifferRegisterRow {
     const values = snifferValuesFromRows(this.store.getRegisters(row.busId, row.slaveId))
-    return this.enrichRegister(row, values)
+    const enriched = this.enrichRegister(row, values)
+    this.notifyChange()
+    return enriched
   }
 
   /**
@@ -429,12 +470,17 @@ export class SnifferService implements SnifferTransport {
    * raw words and offers the pencil to annotate manually).
    */
   private enrichRegister(row: SnifferRegisterRow, values: ImodbusValues = emptyValues): SnifferRegisterRow {
-    // A manual annotation wins over the template interpretation? No: the
-    // template is the source of truth when it exists - the UI only offers the
-    // pencil when there is no template. An annotation is therefore only used
-    // when no template could be resolved (or the row is explicitly annotated
-    // and has no specKey).
-    if (row.annotated && !row.specKey) return row
+    // Manual annotation: the user typed a converter like "number * 0.1" into
+    // the register's pencil dialog. It applies only when no template entity
+    // owns the register (annotations never override a real template — the
+    // template is the source of truth when it exists). Evaluate the expression
+    // against the captured words and surface the result; an unparseable
+    // description keeps the raw words as the displayed value.
+    if (row.annotated && !row.specKey) {
+      const manual = evaluateManualConverter(row.converter, row.words)
+      if (manual !== undefined) return { ...row, value: String(manual), annotated: true }
+      return { ...row, value: row.rawValue, annotated: true }
+    }
 
     const slave = ConfigBus.getSlave(row.busId, row.slaveId)
     if (!slave) return row

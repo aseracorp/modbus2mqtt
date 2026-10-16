@@ -155,6 +155,22 @@ export class ModbusSnifferRegistry {
     return svc.getState()
   }
 
+  /** Change counter for a bus (0 when no service exists yet). */
+  getChangeCounter(busId: number): number {
+    return this.services.get(busId)?.getChangeCounter() ?? 0
+  }
+
+  /**
+   * One-shot data-change subscription for a bus. Fires on the next captured
+   * telegram / register / device change or state transition. Returns an
+   * unsubscribe function; calling it after the event is a no-op.
+   */
+  onChange(busId: number, cb: () => void): () => void {
+    const svc = this.services.get(busId)
+    if (!svc) return () => undefined
+    return svc.onChange(cb)
+  }
+
   getTelegrams(busId: number, slaveId?: number, limit?: number) {
     return this.store.getTelegrams(busId, slaveId, limit)
   }
@@ -179,8 +195,15 @@ export class ModbusSnifferRegistry {
   /** Persists a manual converter/uom annotation for one register row. */
   annotateRegister(annotation: SnifferRegisterAnnotation): SnifferRegisterRow | undefined {
     const row = this.store.annotateRegister(annotation)
-    if (row) this.services.get(annotation.busId)?.refreshRegisterValue(row)
-    return row
+    if (row) {
+      // Re-interpret the annotated row so the returned value already carries
+      // the computed interpretation (e.g. "number * 0.1" -> 26.2), not just
+      // the stored annotation fields.
+      const svc = this.services.get(annotation.busId)
+      if (svc) return svc.refreshRegisterValue(row)
+      return row
+    }
+    return undefined
   }
 
   /**
