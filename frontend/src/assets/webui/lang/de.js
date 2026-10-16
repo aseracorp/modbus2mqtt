@@ -241,4 +241,13 @@ window.LANG_de = {
   sniffer_no_template: "kein Template",
   err_sniffer_clear_db: "Datenbank leeren fehlgeschlagen: ",
   err_sniffer_annotate: "Annotation speichern fehlgeschlagen: ",
+  sniffer_autostart: "Auto-Start",
+  sniffer_autostart_hint: "Sniffer beim Start der Anwendung automatisch laufen lassen",
+  sniffer_stored: "gespeichert",
+  sniffer_filter_no_values: "Noch keine Werte in dieser Spalte - unten einen eingeben.",
+  sniffer_filter_apply: "Übernehmen",
+  sniffer_annotate_slave: "Slave",
+  sniffer_annotate_template: "Template",
+  sniffer_annotate_no_template: "Kein Template (manuelle Umrechnung)",
+  sniffer_annotate_template_hint: "Ein vorhandenes Template diesem Slave zuweisen, damit seine Register automatisch dekodiert werden.",
 };

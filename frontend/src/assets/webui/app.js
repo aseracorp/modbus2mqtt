@@ -2493,31 +2493,97 @@ function initCustomSelect(selectId) {
 
 /* ---------------- RTU sniffer ---------------- */
 let snifferBusId = null;
-let snifferPollTimer = null;
+let snifferPollTimer = null;          // fallback polling (SSE unavailable)
+let snifferSseSource = null;          // EventSource for live updates
+let snifferSseSupported = true;       // becomes false after the first failed connect
 let snifferState = null;
-let snifferFilters = {};   // { table: { field: filterText } }
+let snifferFilters = {};   // { table: { field: filterValues[] } } — array = multi-select (OR)
 let snifferAnnotateTarget = null; // { busId, slaveId, address, converter?, uom? }
+let snifferTableData = { telegrams: [], devices: [], registers: [] };
+
+/* ---------------- eye icon / bus list status ---------------- */
+// The sniffer eye-icon lives in the bus list (renderBusses). We refresh its
+// running/stopped state here without re-rendering the whole list.
+let snifferEyeRefreshTimer = null;
+let snifferEyeStates = {}; // { busId: 'running' | 'stopped' | 'error' | 'unknown' }
+
+async function refreshSnifferEyeStates() {
+  const buttons = document.querySelectorAll('.bus-sniffer');
+  if (!buttons.length) return;
+  const busIds = Array.from(new Set(Array.from(buttons).map((b) => Number(b.getAttribute('data-busid')))));
+  await Promise.all(busIds.map(async (busId) => {
+    try {
+      const st = await api('/api/sniffer/state?busid=' + busId);
+      snifferEyeStates[busId] = st && st.running ? 'running' : (st && st.error ? 'error' : 'stopped');
+    } catch (e) {
+      snifferEyeStates[busId] = 'unknown';
+    }
+  }));
+  buttons.forEach((b) => {
+    const busId = Number(b.getAttribute('data-busid'));
+    const st = snifferEyeStates[busId] || 'stopped';
+    b.classList.remove('sn-eye-running', 'sn-eye-stopped', 'sn-eye-error');
+    if (st === 'running') b.classList.add('sn-eye-running');
+    else if (st === 'error') b.classList.add('sn-eye-error');
+    else b.classList.add('sn-eye-stopped');
+    b.title = (st === 'running' ? t('sniffer_running') : st === 'error' ? t('sniffer_stopped') + ' (⚠)' : t('sniffer_stopped'));
+  });
+}
+function startSnifferEyeRefresh() {
+  stopSnifferEyeRefresh();
+  refreshSnifferEyeStates();
+  snifferEyeRefreshTimer = setInterval(refreshSnifferEyeStates, 5000);
+}
+function stopSnifferEyeRefresh() {
+  if (snifferEyeRefreshTimer) { clearInterval(snifferEyeRefreshTimer); snifferEyeRefreshTimer = null; }
+}
 
 async function openSniffer(busid) {
   snifferBusId = Number(busid);
   try {
     const cfg = await api('/api/sniffer/config?busid=' + snifferBusId);
-    // Config is fixed (mode/tap device are not configurable in the UI anymore);
-    // only the auto-start checkbox reflects the persisted config.
     if ($('sn-enabled')) $('sn-enabled').checked = !!cfg.enabled;
   } catch (e) { /* defaults are fine */ }
   $('sniffer-overlay').hidden = false;
   resetSnifferFilters();
-  snifferRefresh();
-  startSnifferPolling();
+  // Show what the database already has, regardless of running state.
+  await snifferRefresh();
+  startSnifferLiveUpdates();
 }
 
 function closeSniffer() {
-  stopSnifferPolling();
+  stopSnifferLiveUpdates();
   $('sniffer-overlay').hidden = true;
   snifferBusId = null;
 }
 
+/* ---------------- live updates (SSE with polling fallback) ---------------- */
+function startSnifferLiveUpdates() {
+  stopSnifferLiveUpdates();
+  if (snifferBusId == null) return;
+  if (typeof EventSource !== 'undefined' && snifferSseSupported) {
+    try {
+      const es = new EventSource('/api/sniffer/events?busid=' + snifferBusId);
+      snifferSseSource = es;
+      es.addEventListener('change', () => snifferRefresh());
+      es.onerror = () => {
+        // Transient network errors are normal (e.g. proxy timeouts); after
+        // repeated failures fall back to polling so the UI stays live.
+        if (es.readyState === EventSource.CLOSED) {
+          snifferSseSupported = false;
+          if (snifferSseSource === es) snifferSseSource = null;
+          startSnifferPolling();
+        }
+      };
+      return;
+    } catch (e) { /* EventSource failed - fall through to polling */ }
+  }
+  startSnifferPolling();
+}
+function stopSnifferLiveUpdates() {
+  if (snifferSseSource) { try { snifferSseSource.close(); } catch (e) { /* ignore */ } snifferSseSource = null; }
+  stopSnifferPolling();
+}
 function startSnifferPolling() {
   stopSnifferPolling();
   snifferPollTimer = setInterval(snifferRefresh, 2000);
@@ -2538,75 +2604,164 @@ function snifferHexRow(hex) {
 }
 function snifferDir(d) { return d === 'request' ? '→' : '←'; }
 
-/* ---------------- sniffer column filters ---------------- */
+/* ---------------- sniffer column filters (multi-select dropdown) ---------------- */
 function resetSnifferFilters() {
   snifferFilters = {};
+  hideSnifferFilterPopup();
   document.querySelectorAll('.sn-filter-ico').forEach((ico) => {
     setSnifferFilterIndicator(ico);
   });
 }
 function tableNameFor(icon) {
-  // The icon sits in a thead of one of the three tables.
   const panel = icon.closest('.sniffer-tab-panel');
   if (!panel) return null;
   return panel.id === 'sntab-telegrams' ? 'telegrams' : panel.id === 'sntab-devices' ? 'devices' : 'registers';
 }
 function setSnifferFilterIndicator(icon) {
-  const th = icon.closest('th');
-  const field = icon.getAttribute('data-snf');
-  const table = tableNameFor(icon);
-  const has = !!(table && snifferFilters[table] && snifferFilters[table][field]);
-  icon.classList.toggle('active', has);
-  icon.textContent = has ? '🔽 ✕' : '🔽';
+  const th = icon ? icon.closest('th') : null;
+  const field = icon ? icon.getAttribute('data-snf') : null;
+  const table = icon ? tableNameFor(icon) : null;
+  const vals = (table && field && snifferFilters[table] && snifferFilters[table][field]) || [];
+  const has = Array.isArray(vals) && vals.length > 0;
+  if (icon) {
+    icon.classList.toggle('active', has);
+    icon.textContent = has ? (vals.length === 1 ? '🔽 1' : '🔽 ' + vals.length) : '🔽';
+  }
   if (th) th.classList.toggle('sn-filtered', has);
 }
-function activateSnifferFilter(icon, table) {
+
+/* The shared popup: shows the present values as checkboxes plus a manual input. */
+let snFilterPopupIcon = null; // the .sn-filter-ico that opened the popup
+function openSnifferFilterPopup(icon) {
   const field = icon.getAttribute('data-snf');
-  const current = (snifferFilters[table] && snifferFilters[table][field]) || '';
-  const val = prompt(t('sniffer_filter') + ' — ' + field, current);
-  if (val === null) return; // cancelled
-  snifferFilters[table] = snifferFilters[table] || {};
-  if (val.trim() === '') {
-    delete snifferFilters[table][field];
-  } else {
-    snifferFilters[table][field] = val.trim();
+  const table = tableNameFor(icon);
+  if (!table || !field) return;
+  snFilterPopupIcon = icon;
+  // Position under the header cell.
+  const th = icon.closest('th');
+  const rect = th.getBoundingClientRect();
+  const popup = $('sn-filter-popup');
+  popup.hidden = false;
+  const pw = popup.offsetWidth || 240;
+  let left = rect.left;
+  if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8);
+  popup.style.left = left + 'px';
+  popup.style.top = (rect.bottom + 4) + 'px';
+  $('sn-filter-popup-field').textContent = field;
+  $('sn-filter-custom').value = '';
+
+  // Build the value checkboxes from the current rows.
+  const rows = snifferTableData[table] || [];
+  const present = new Map();
+  rows.forEach((row) => {
+    const v = row[field];
+    if (v === undefined || v === null) return;
+    const key = String(v);
+    if (!present.has(key)) present.set(key, { label: field === 'crcOk' ? (v ? '✓' : '✗') : (field === 'direction' ? snifferDir(v) : key), raw: key });
+  });
+  const active = (snifferFilters[table] && snifferFilters[table][field]) || [];
+  const container = $('sn-filter-values');
+  container.innerHTML = '';
+  Array.from(present.values())
+    .sort((a, b) => a.raw.localeCompare(b.raw, undefined, { numeric: true }))
+    .forEach((entry) => {
+      const checked = active.includes(entry.raw);
+      const label = document.createElement('label');
+      label.className = 'sn-filter-value';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = checked;
+      cb.dataset.value = entry.raw;
+      cb.addEventListener('change', () => {
+        let vals = (snifferFilters[table] && snifferFilters[table][field]) || [];
+        if (cb.checked) { if (!vals.includes(entry.raw)) vals.push(entry.raw); }
+        else vals = vals.filter((v) => v !== entry.raw);
+        snifferFilters[table] = snifferFilters[table] || {};
+        snifferFilters[table][field] = vals;
+        setSnifferFilterIndicator(icon);
+        snifferRefreshRender();
+      });
+      const span = document.createElement('span');
+      span.className = 'snfv-label';
+      span.textContent = entry.label;
+      label.appendChild(cb); label.appendChild(span);
+      container.appendChild(label);
+    });
+  if (!container.children.length) {
+    container.innerHTML = '<div class="sn-muted">' + t('sniffer_filter_no_values') + '</div>';
   }
-  setSnifferFilterIndicator(icon);
-  snifferRefresh();
 }
-function snifferFilterValue(row, field, needle) {
+function hideSnifferFilterPopup() {
+  const popup = $('sn-filter-popup');
+  if (popup) popup.hidden = true;
+  snFilterPopupIcon = null;
+}
+function applySnifferCustomFilter() {
+  if (!snFilterPopupIcon) return;
+  const field = snFilterPopupIcon.getAttribute('data-snf');
+  const table = tableNameFor(snFilterPopupIcon);
+  if (!table || !field) return;
+  const val = $('sn-filter-custom').value.trim();
+  if (!val) return;
+  let vals = (snifferFilters[table] && snifferFilters[table][field]) || [];
+  if (!vals.includes(val)) vals.push(val);
+  snifferFilters[table] = snifferFilters[table] || {};
+  snifferFilters[table][field] = vals;
+  setSnifferFilterIndicator(snFilterPopupIcon);
+  snifferRefreshRender();
+  hideSnifferFilterPopup();
+}
+function clearSnifferFilter() {
+  if (!snFilterPopupIcon) return;
+  const field = snFilterPopupIcon.getAttribute('data-snf');
+  const table = tableNameFor(snFilterPopupIcon);
+  if (table && field && snifferFilters[table]) delete snifferFilters[table][field];
+  setSnifferFilterIndicator(snFilterPopupIcon);
+  snifferRefreshRender();
+  hideSnifferFilterPopup();
+}
+// Multi-select match: row passes when ANY selected value matches (OR).
+function snifferFilterValue(row, field, needles) {
+  if (!Array.isArray(needles) || needles.length === 0) return true;
   const raw = row[field];
-  if (raw === undefined || raw === null) return false;
-  const n = String(needle).trim().toLowerCase();
-  if (n === '') return true;
-  // Boolean fields (CRC): accept true/false/yes/no/ok/bad plus the rendered
-  // glyphs (✓/✗) so the filter matches what the user SEES in the column.
-  if (typeof raw === 'boolean' || field === 'crcOk') {
-    const b = raw === true || raw === 1 || String(raw) === 'true';
-    if (n === 'true' || n === 'yes' || n === 'ok' || n === '✓' || n === '1') return b;
-    if (n === 'false' || n === 'no' || n === 'bad' || n === '✗' || n === '0') return !b;
-    return false;
+  const hay = raw === undefined || raw === null ? '' : String(raw);
+  const h = hay.toLowerCase();
+  for (const needle of needles) {
+    const n = String(needle).toLowerCase();
+    if (n === '') continue;
+    // Boolean fields (CRC): accept true/false/yes/no/ok/bad plus glyphs.
+    if (field === 'crcOk' || typeof raw === 'boolean') {
+      const b = raw === true || raw === 1 || String(raw) === 'true';
+      if (n === 'true' || n === 'yes' || n === 'ok' || n === '✓' || n === '1') { if (b) return true; continue; }
+      if (n === 'false' || n === 'no' || n === 'bad' || n === '✗' || n === '0') { if (!b) return true; continue; }
+    }
+    // Direction accepts short forms.
+    if (field === 'direction') {
+      if ((n === 'req' || n === 'request' || n === '→' || n === '>') && (h.startsWith('req') || h === '→')) return true;
+      if ((n === 'res' || n === 'response' || n === '←' || n === '<') && (h.startsWith('res') || h === '←')) return true;
+    }
+    // Numeric fields: exact match.
+    if (field === 'slaveId' || field === 'address' || field === 'length' ||
+        field === 'requestCount' || field === 'responseCount' || field === 'errorCount') {
+      if (hay.trim() === n) return true;
+      continue;
+    }
+    if (h.includes(n)) return true;
   }
-  // Direction accepts short forms: req/res/→/←.
-  if (field === 'direction') {
-    const d = String(raw).toLowerCase();
-    if (n === 'req' || n === 'request' || n === '→' || n === '>') return d.startsWith('req') || d === '→';
-    if (n === 'res' || n === 'response' || n === '←' || n === '<') return d.startsWith('res') || d === '←';
-  }
-  // Numeric fields: exact match after trimming (input "5" should not match
-  // "50" via substring).
-  if (field === 'slaveId' || field === 'address' || field === 'length' ||
-      field === 'requestCount' || field === 'responseCount' || field === 'errorCount') {
-    return String(raw).trim() === n;
-  }
-  return String(raw).toLowerCase().includes(n);
+  return false;
 }
 function applySnifferFilters(rows, table) {
   const filters = snifferFilters[table];
   if (!filters || !Object.keys(filters).length) return rows;
   return rows.filter((row) => {
-    return Object.entries(filters).every(([field, needle]) => snifferFilterValue(row, field, needle));
+    return Object.entries(filters).every(([field, needles]) => snifferFilterValue(row, field, needles));
   });
+}
+/* Re-render the tables from the cached data (used by filter changes). */
+function snifferRefreshRender() {
+  renderSnifferTelegrams(snifferTableData.telegrams);
+  renderSnifferDevices(snifferTableData.devices);
+  renderSnifferRegisters(snifferTableData.registers);
 }
 
 /* ---------------- sniffer clear database ---------------- */
@@ -2617,14 +2772,38 @@ async function snifferClearDatabase() {
     await api('/api/sniffer/reset?busid=' + snifferBusId, { method: 'POST' });
     toast(t('sniffer_clear_db_done'), 'success');
     snifferRefresh();
+    refreshSnifferEyeStates();
   } catch (e) {
     toast(t('err_sniffer_clear_db') + (e && e.message ? e.message : e), 'error');
   }
 }
 
-/* ---------------- sniffer register annotation (pencil) ---------------- */
+/* ---------------- sniffer register annotation (pencil) + template ---------------- */
+function templatesForSniffer() {
+  // All available specs (already in state.specs from the main load).
+  return (state.specs || []).slice();
+}
+function getSlaveTemplateId(slaveId) {
+  if (!snifferBusId) return '';
+  const bus = (state.busses || []).find((b) => b.busId === snifferBusId);
+  if (!bus) return '';
+  const slave = (bus.slaves || []).find((s) => s.slaveid === slaveId);
+  return (slave && slave.specificationid) || '';
+}
 function openSnifferAnnotate(target) {
   snifferAnnotateTarget = target;
+  $('sn-annotate-slave').value = '#' + target.slaveId;
+  // Template dropdown: preselect the slave's current template, if any.
+  const sel = $('sn-annotate-template');
+  const current = getSlaveTemplateId(target.slaveId) || '';
+  sel.innerHTML = '<option value="" data-i18n="sniffer_annotate_no_template">' + t('sniffer_annotate_no_template') + '</option>';
+  templatesForSniffer().forEach((sp) => {
+    const opt = document.createElement('option');
+    opt.value = sp.filename;
+    opt.textContent = getSpecificationText(sp, 'name') || sp.model || sp.filename;
+    sel.appendChild(opt);
+  });
+  sel.value = current;
   $('sn-annotate-converter').value = target.converter || '';
   $('sn-annotate-uom').value = target.uom || '';
   $('sn-annotate-overlay').hidden = false;
@@ -2638,14 +2817,33 @@ async function saveSnifferAnnotate() {
   const tgt = snifferAnnotateTarget;
   const converter = $('sn-annotate-converter').value.trim();
   const uom = $('sn-annotate-uom').value.trim();
+  const template = $('sn-annotate-template').value;
   try {
-    await api('/api/sniffer/registers/annotation', {
-      method: 'POST',
-      body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, address: tgt.address, converter, uom })
-    });
+    // Template assignment (optional): changing it re-interprets via the spec.
+    if (template) {
+      await api('/api/sniffer/registers/template', {
+        method: 'POST',
+        body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, specificationid: template })
+      });
+    } else if (template === '' && getSlaveTemplateId(tgt.slaveId)) {
+      // User explicitly picked "No template": detach.
+      await api('/api/sniffer/registers/template', {
+        method: 'POST',
+        body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, specificationid: '' })
+      });
+    }
+    // Converter annotation (only when a template was not assigned: the UI
+    // keeps both fields, but a template takes precedence server-side).
+    if (converter || uom) {
+      await api('/api/sniffer/registers/annotation', {
+        method: 'POST',
+        body: JSON.stringify({ busId: tgt.busId, slaveId: tgt.slaveId, address: tgt.address, converter, uom })
+      });
+    }
     closeSnifferAnnotate();
     toast(t('sniffer_saved'), 'success');
-    snifferRefresh();
+    await snifferRefresh();
+    await loadAll(); // bus list template names + slave-ids refreshed
   } catch (e) {
     toast(t('err_sniffer_annotate') + (e && e.message ? e.message : e), 'error');
   }
@@ -2653,12 +2851,16 @@ async function saveSnifferAnnotate() {
 
 function bindSnifferPencils() {
   document.querySelectorAll('.sn-pencil').forEach((btn) => {
+    // Re-bind only fresh buttons (they are re-created on every render).
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
     btn.addEventListener('click', () => {
       const target = {
         busId: Number(btn.getAttribute('data-busid')),
         slaveId: Number(btn.getAttribute('data-slaveid')),
         address: Number(btn.getAttribute('data-address')),
-        converter: btn.getAttribute('data-converter') || ''
+        converter: btn.getAttribute('data-converter') || '',
+        uom: btn.getAttribute('data-uom') || ''
       };
       openSnifferAnnotate(target);
     });
@@ -2669,51 +2871,50 @@ async function snifferRefresh() {
   if (snifferBusId == null) return;
   const bid = snifferBusId;
   try {
-    const state = await api('/api/sniffer/state?busid=' + bid);
+    const stateRes = await api('/api/sniffer/state?busid=' + bid);
     if (snifferBusId !== bid) return; // closed/changed meanwhile
-    snifferState = state;
-    const running = state && state.running;
+    snifferState = stateRes;
+    const running = stateRes && stateRes.running;
     const badge = $('sn-status-badge');
+    const textEl = $('sn-status-text');
     if (running) {
-      badge.textContent = '◉ ' + t('sniffer_running');
       badge.className = 'sniffer-running-badge';
+      textEl.textContent = t('sniffer_running');
+    } else if (stateRes && stateRes.error) {
+      badge.className = 'sniffer-error-badge';
+      textEl.textContent = t('sniffer_stopped');
     } else {
-      badge.textContent = '○ ' + t('sniffer_stopped');
       badge.className = 'sniffer-stopped-badge';
+      textEl.textContent = t('sniffer_stopped');
     }
     const extra = $('sn-status-extra');
-    // Surface transport errors prominently (even while running), otherwise
-    // show the capture progress.
-    if (state && state.error) {
-      extra.textContent = state.error;
+    if (stateRes && stateRes.error) {
+      extra.textContent = stateRes.error;
       extra.style.color = 'var(--danger, #b22222)';
-    } else if (running && state.telegramCount != null) {
-      extra.textContent = state.telegramCount + ' ' + t('sniffer_telegrams').toLowerCase();
+    } else if (running && stateRes.telegramCount != null) {
+      extra.textContent = stateRes.telegramCount + ' ' + t('sniffer_telegrams').toLowerCase();
       extra.style.color = '';
     } else {
-      extra.textContent = '';
+      // Keep showing the DB totals even when stopped.
+      const n = (snifferTableData.telegrams || []).length;
+      extra.textContent = n > 0 ? (t('sniffer_stored') + ': ' + n) : '';
       extra.style.color = '';
     }
     $('sn-start').hidden = running;
     $('sn-stop').hidden = !running;
-    if (running) {
-      const [tgs, devs, regs] = await Promise.all([
-        api('/api/sniffer/telegrams?busid=' + bid + '&limit=2000'),
-        api('/api/sniffer/devices?busid=' + bid),
-        api('/api/sniffer/registers?busid=' + bid)
-      ]);
-      if (snifferBusId !== bid) return;
-      renderSnifferTelegrams(tgs || []);
-      renderSnifferDevices(devs || []);
-      renderSnifferRegisters(regs || []);
-      bindSnifferPencils();
-    } else {
-      renderSnifferTelegrams([]);
-      renderSnifferDevices([]);
-      renderSnifferRegisters([]);
-    }
+
+    // Always load from the database, running or not.
+    const [tgs, devs, regs] = await Promise.all([
+      api('/api/sniffer/telegrams?busid=' + bid + '&limit=2000'),
+      api('/api/sniffer/devices?busid=' + bid),
+      api('/api/sniffer/registers?busid=' + bid)
+    ]);
+    if (snifferBusId !== bid) return;
+    snifferTableData = { telegrams: tgs || [], devices: devs || [], registers: regs || [] };
+    snifferRefreshRender();
+    bindSnifferPencils();
   } catch (e) {
-    // transient — keep polling
+    // transient — keep polling/live updates
   }
 }
 
@@ -2776,7 +2977,7 @@ function renderSnifferRegisters(regs) {
       '<td>' + conv + '</td>' +
       '<td>' + uom + '</td>' +
       '<td><button class="icon-btn sn-pencil" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
-        '" data-address="' + r.address + '" title="' + pencilTitle + '">✏️</button></td>' +
+        '" data-address="' + r.address + '" data-converter="' + escapeHtml(r.converter || '') + '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + pencilTitle + '">✏️</button></td>' +
       '</tr>';
   }).join('');
 }
@@ -2787,9 +2988,10 @@ async function snifferStart() {
     await snifferSaveConfig();
     await api('/api/sniffer/start?busid=' + snifferBusId, { method: 'POST' });
     toast(t('sniffer_started'), 'success');
-    snifferRefresh();
+    await snifferRefresh();
+    refreshSnifferEyeStates();
   } catch (e) {
-    toast(t('err_sniffer_start') + e.message, 'error');
+    toast(t('err_sniffer_start') + (e && e.message ? e.message : e), 'error');
   }
 }
 async function snifferStop() {
@@ -2797,9 +2999,10 @@ async function snifferStop() {
   try {
     await api('/api/sniffer/stop?busid=' + snifferBusId, { method: 'POST' });
     toast(t('sniffer_stopped'), 'info');
-    snifferRefresh();
+    await snifferRefresh();
+    refreshSnifferEyeStates();
   } catch (e) {
-    toast(t('err_sniffer_stop') + e.message, 'error');
+    toast(t('err_sniffer_stop') + (e && e.message ? e.message : e), 'error');
   }
 }
 async function snifferSaveConfig() {
@@ -2822,6 +3025,12 @@ async function snifferSaveConfig() {
   $('sn-clear')?.addEventListener('click', snifferClearDatabase);
   $('sn-annotate-save')?.addEventListener('click', saveSnifferAnnotate);
   $('sn-annotate-cancel')?.addEventListener('click', closeSnifferAnnotate);
+  $('sn-filter-apply')?.addEventListener('click', applySnifferCustomFilter);
+  $('sn-filter-clear')?.addEventListener('click', clearSnifferFilter);
+  $('sn-filter-custom')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') applySnifferCustomFilter(); });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#sn-filter-popup') && !e.target.closest('.sn-filter-ico')) hideSnifferFilterPopup();
+  });
   document.querySelectorAll('.sniffer-tab-btn').forEach((b) => {
     b.addEventListener('click', () => {
       document.querySelectorAll('.sniffer-tab-btn').forEach((x) => x.classList.remove('active'));
@@ -2830,18 +3039,25 @@ async function snifferSaveConfig() {
       document.querySelectorAll('.sniffer-tab-panel').forEach((p) => { p.hidden = (p.id !== 'sntab-' + tab); });
     });
   });
-  // Column filters: clicking anywhere in a header cell opens the filter for
-  // that column (delegation — the thead is static).
-  document.querySelectorAll('.sniffer-table thead th').forEach((th) => {
-    th.addEventListener('click', () => {
-      const ico = th.querySelector('.sn-filter-ico');
-      if (!ico) return;
-      const table = tableNameFor(ico);
-      if (table) activateSnifferFilter(ico, table);
+  // Column filters: clicking the icon opens the multi-select dropdown.
+  document.querySelectorAll('.sn-filter-ico').forEach((ico) => {
+    ico.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if ($('sn-filter-popup') && !$('sn-filter-popup').hidden && snFilterPopupIcon === ico) {
+        hideSnifferFilterPopup();
+        return;
+      }
+      openSnifferFilterPopup(ico);
     });
+  });
+  // Auto-start checkbox: persist immediately on change.
+  $('sn-enabled')?.addEventListener('change', () => {
+    snifferSaveConfig();
   });
 })();
 
+// Refresh the eye icons in the bus list every load.
+startSnifferEyeRefresh();
 
 /* ---------------- init ---------------- */
 (function () {

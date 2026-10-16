@@ -111,3 +111,70 @@ export function valueAddresses(telegram: ParsedTelegram, baseAddress: number, va
   values.forEach((v, idx) => rc.push({ address: baseAddress + idx, value: v }))
   return rc
 }
+
+/**
+ * Evaluates a manual register annotation converter against the captured raw
+ * word(s). The UI stores free-form text in the converter field (e.g.
+ * "number * 0.1", "value / 10", "0.1", "temperature °C") — this parser
+ * extracts the mathematical part and applies it to the numeric raw value.
+ *
+ * Supported forms (case-insensitive):
+ *   - "number * 0.1" / "value * 0.1"   multiply the raw value
+ *   - "value / 10" / "number : 2"      divide the raw value
+ *   - "0.1" / "x * 0.1" / "* 0.1"      bare multiplier (defaults to multiply)
+ *   - "number + 5" / "value - 2"       add/subtract an offset
+ *   - "number * 0.1 + 5"               combined multiplier and offset
+ *   - anything else (descriptive text) is treated as an opaque label: the raw
+ *     value is returned unchanged so the column still shows the raw number.
+ *
+ * Returns the applied numeric result when the expression was understood,
+ * otherwise undefined (caller keeps the raw display).
+ */
+export function evaluateManualConverter(converter: string | undefined, rawWords: number[]): number | undefined {
+  if (!converter || rawWords.length === 0) return undefined
+  const raw = rawWords[0]
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined
+
+  // Keep only numbers, math operators, the 'v' placeholder and whitespace.
+  const expr = converter
+    .toLowerCase()
+    .replace(/[°]/g, ' ')
+    .replace(/[^0-9.v+\-*/:,\s]/g, ' ')
+    .replace(/,/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!expr) return undefined
+
+  let offset = 0
+  let body = expr
+  // Trailing offset: "... + 5" / "... - 2.5" (not part of a multiplier/divisor).
+  const offMatch = /([+-])\s*([0-9]+(?:\.[0-9]+)?)\s*$/.exec(expr)
+  if (offMatch && !/(\*|\/|:)\s*[0-9.]+\s*$/.test(expr)) {
+    offset = parseFloat(offMatch[1] + offMatch[2])
+    body = expr.slice(0, offMatch.index).trim()
+  }
+
+  let divisor: number | undefined
+  const divMatch = /(\/|:)\s*([0-9]+(?:\.[0-9]+)?)\s*$/.exec(body)
+  if (divMatch) {
+    divisor = parseFloat(divMatch[2])
+    body = body.slice(0, divMatch.index).trim()
+  }
+
+  let multiplier: number | undefined
+  const stripV = body.replace(/v/g, '').trim()
+  const multMatch = /\*\s*([0-9]+(?:\.[0-9]+)?)\s*$/.exec(stripV) || /^([0-9]+(?:\.[0-9]+)?)\s*\*?\s*$/.exec(stripV)
+  if (multMatch) multiplier = parseFloat(multMatch[1])
+
+  // Nothing math-like survived -> opaque description, keep the raw value.
+  if (multiplier === undefined && divisor === undefined && offset === 0 && !/[0-9]/.test(stripV.replace(/\*/g, ''))) {
+    return undefined
+  }
+
+  let v = raw
+  if (divisor !== undefined && divisor !== 0) v = v / divisor
+  else if (multiplier !== undefined && multiplier !== 0) v = v * multiplier
+  if (offset !== 0) v = v + offset
+  const rounded = Math.round(v * 1e10) / 1e10
+  return Number.isFinite(rounded) ? rounded : undefined
+}

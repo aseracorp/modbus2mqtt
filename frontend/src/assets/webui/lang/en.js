@@ -241,4 +241,13 @@ window.LANG_en = {
   sniffer_no_template: "no template",
   err_sniffer_clear_db: "Failed to clear database: ",
   err_sniffer_annotate: "Failed to save annotation: ",
+  sniffer_autostart: "Auto-start",
+  sniffer_autostart_hint: "Auto-start the sniffer whenever the application boots",
+  sniffer_stored: "stored",
+  sniffer_filter_no_values: "No values in this column yet - type one below.",
+  sniffer_filter_apply: "Apply",
+  sniffer_annotate_slave: "Slave",
+  sniffer_annotate_template: "Template",
+  sniffer_annotate_no_template: "No template (manual conversion)",
+  sniffer_annotate_template_hint: "Assign an existing template to this slave so its registers decode automatically.",
 };
