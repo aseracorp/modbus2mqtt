@@ -117,39 +117,56 @@ export class RtuFrameParser {
   private frameLengthAt(buf: number[]): number {
     if (buf.length < 4) return 0
     const fc = buf[1]
-    const payloadLen = this.expectedPayloadLength(fc, buf)
-    if (payloadLen < 0) return 0
-    const total = 2 + payloadLen + 2 // addr + fc + payload + crc
-    if (buf.length < total) return 0
-    // Only accept when the CRC over the frame prefix matches: a wrong guess
-    // would split a frame at the wrong boundary and destroy both halves.
-    const crcOk = this.crc16(buf.slice(0, total - 2)) === ((buf[total - 1] << 8) | buf[total - 2])
-    return crcOk ? total : 0
+    // A function code can appear in request AND response shape, and the shapes
+    // have different lengths. Read requests (1-4) carry addr(2)+qty(2)=4, while
+    // their responses carry byteCount(1)+data. Only the CRC validates a guess,
+    // so try every plausible length and accept the one whose CRC matches -
+    // picking a single hardcoded length made responses unrecognizable (the
+    // 4-byte request guess never matched a 1+byteCount response frame, so the
+    // frame stayed in the buffer until it was dropped and almost the whole
+    // capture was lost).
+    for (const payloadLen of this.candidatePayloadLengths(fc, buf)) {
+      if (payloadLen < 0) continue
+      const total = 2 + payloadLen + 2 // addr + fc + payload + crc
+      if (buf.length < total) continue
+      const crcOk = this.crc16(buf.slice(0, total - 2)) === ((buf[total - 1] << 8) | buf[total - 2])
+      if (crcOk) return total
+    }
+    return 0
   }
 
   /**
-   * Payload length for a frame starting at buf[0..] given its fc, or -1 when
-   * the frame length is not (yet) determinable. Only the bytes of the frame
-   * under test are inspected - trailing bytes (a second frame in the same
-   * chunk) are ignored. The CRC check in frameLengthAt validates the guess.
+   * Plausible payload lengths for a frame starting at buf[0..] with function
+   * code `fc`. The caller probes each candidate and accepts the one whose CRC
+   * matches. A function code has a request shape and (for reads) a different
+   * response shape; both are returned so the CRC can discriminate them.
+   * Returns [] when the length is not determinable (silence-based framing).
    */
-  private expectedPayloadLength(fc: number, buf: number[]): number {
+  private candidatePayloadLengths(fc: number, buf: number[]): number[] {
     // Exception responses: [exceptionCode]. Deterministic length 1.
-    if ((fc & 0x80) !== 0) return 1
-    // Read requests (1-4): addr(2)+qty(2) = 4 payload bytes, total 8.
+    if ((fc & 0x80) !== 0) return [1]
+    // Read requests (1-4): addr(2)+qty(2) = 4 payload bytes.
+    // Read responses (1-4): byteCount(1)+data(byteCount) - length is read from
+    // the frame, so request and response are distinguished by the CRC probe.
     if (READ_FCS.has(fc)) {
-      return buf.length >= 6 ? 4 : -1
+      const cands: number[] = []
+      if (buf.length >= 6) cands.push(4) // request (or a write-shaped echo)
+      if (buf.length >= 3) {
+        const byteCount = buf[2]
+        if (byteCount >= 1 && byteCount <= 250) cands.push(1 + byteCount)
+      }
+      return cands
     }
     // Single writes (5,6): addr(2)+value(2).
-    if (fc === 0x05 || fc === 0x06) return buf.length >= 6 ? 4 : -1
+    if (fc === 0x05 || fc === 0x06) return buf.length >= 6 ? [4] : []
     // Multi writes (15,16): addr(2)+qty(2)+byteCount(1)+data.
     if (fc === 0x0f || fc === 0x10) {
-      if (buf.length < 7) return -1
-      return 5 + buf[6]
+      if (buf.length < 7) return []
+      return [5 + buf[6]]
     }
     // Other function codes (e.g. 0x08 diagnostics, 0x2b MEI) have
     // non-deterministic lengths: fall back to silence-based framing.
-    return -1
+    return []
   }
 
   /** Flushes the buffer when the silence since the last byte exceeded the timeout. */

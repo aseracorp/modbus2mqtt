@@ -91,6 +91,44 @@ it('drops garbage frames shorter than 4 bytes', () => {
   expect(received).toHaveLength(0)
 })
 
+it('structurally recognizes read RESPONSES, not only requests (regression)', () => {
+  // Regression: frameLengthAt() assumed a single payload length per function
+  // code - for fc 0x03 it locked onto the 4-byte REQUEST shape. A read response
+  // (byteCount(1)+data) therefore never matched its CRC, stayed in the buffer
+  // and was dropped once the buffer filled up, so almost the entire capture was
+  // lost (only the bare read requests survived). The parser must probe both the
+  // request and the response shape and let the CRC decide.
+  const received: ParsedTelegram[] = []
+  const parser = new RtuFrameParser((t) => received.push(t), 20)
+
+  // Several read blocks, each request+response delivered as ONE complete chunk
+  // (no inter-frame silence inside a chunk, like the passive bus-port tap).
+  const blocks: [number, number][] = [
+    [0, 8],
+    [100, 4],
+    [200, 4],
+    [400, 1],
+    [501, 3],
+  ]
+  let now = 1000
+  for (const [addr, qty] of blocks) {
+    parser.feed(frame(5, 0x03, [(addr >> 8) & 0xff, addr & 0xff, (qty >> 8) & 0xff, qty & 0xff]), now)
+    now += 3
+    const words: number[] = []
+    for (let i = 0; i < qty; i++) words.push(0x0100 + i)
+    parser.feed(frame(5, 0x03, [qty * 2, ...words.flatMap((w) => [(w >> 8) & 0xff, w & 0xff])]), now)
+    now += 5
+  }
+
+  // Every request AND every response must be recognized.
+  expect(received).toHaveLength(blocks.length * 2)
+  const responses = received.filter((t) => t.direction === TelegramDirection.response)
+  expect(responses).toHaveLength(blocks.length)
+  expect(responses[0].decoded?.values).toEqual([0x0100, 0x0101, 0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0107])
+  expect(responses[0].decoded?.byteCount).toBe(16)
+  expect(responses[3].decoded?.values).toEqual([0x0100])
+})
+
 it('decodes an exception response (0x83) as response with exceptionCode', () => {
   const received: ParsedTelegram[] = []
   const parser = new RtuFrameParser((t) => received.push(t), 20)
