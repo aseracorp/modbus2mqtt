@@ -580,8 +580,24 @@ export class SnifferService implements SnifferTransport {
     entity = active[0] ?? pool.find((e) => entityConditions(e).length === 0)
     if (!entity || entity.id === undefined) return row
 
+    const entityDesc = entity.name ?? entity.mqttname ?? entity.converter ?? ''
+    // Always surface the template identity (entityId + specKey + template
+    // description) even when the value can't be decoded (no data yet, gate
+    // conditions inactive, converter error): the UI translates the description
+    // from the spec i18n and shows the entity's converter/unit regardless.
+    const templateRow: SnifferRegisterRow = {
+      ...row,
+      converter: entityConverterLabel(entity) ?? row.converter,
+      converterParameters: entityConverterParams(entity),
+      uom: entityUom(entity) ?? row.uom,
+      description: entityDesc || row.description,
+      entityId: entity.id,
+      specKey: spec.filename ?? row.specKey,
+      entityName: entityDesc || 'unknown',
+    }
+
     const converter = ConverterMap.getConverter(entity)
-    if (!converter) return row
+    if (!converter) return templateRow
     try {
       // Rebuild the entity's full word list from the per-address values map:
       // a 32 bit float occupies 2 registers, decoded from the words of BOTH
@@ -606,23 +622,14 @@ export class SnifferService implements SnifferTransport {
       const words = entityWords.length > 0 ? entityWords : row.words
       const decoded = converter.modbus2mqtt(spec, entity.id, words)
       const uom = entityUom(entity)
-      const entityDesc = entity.name ?? entity.mqttname ?? entity.converter ?? ''
       return {
-        ...row,
+        ...templateRow,
         value: String(decoded),
-        converter: entityConverterLabel(entity) ?? row.converter,
-        converterParameters: entityConverterParams(entity),
         uom: uom ?? row.uom,
-        // A template always wins the description; a manual annotation would
-        // have set `annotated` without a specKey, so it is kept over this.
-        description: entityDesc || row.description,
-        entityId: entity.id,
-        specKey: spec.filename ?? row.specKey,
-        entityName: entityDesc || 'unknown',
       }
     } catch (e) {
       debug('enrichRegister: decode failed for bus ' + row.busId + ' slave ' + row.slaveId + ' addr ' + row.address + ': ' + (e instanceof Error ? e.message : String(e)))
-      return row
+      return templateRow
     }
   }
   createMapping(mapping: SnifferMappingCreate): Promise<SnifferRegisterRow> {
