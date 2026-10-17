@@ -500,9 +500,22 @@ export class ApiService {
   getSnifferState(busId: number): Observable<SnifferState> {
     return this.httpClient.get<SnifferState>(this.getFullUri(apiUri.snifferState) + `?busid=${busId}`)
   }
-  getSnifferTelegrams(busId: number, slaveId?: number, limit = 100): Observable<SnifferTelegramRow[]> {
+  /** Result envelope for paginated telegram queries. */
+  getSnifferTelegrams(busId: number, slaveId?: number, limit = 100, offset = 0, from?: number, to?: number): Observable<{ rows: SnifferTelegramRow[]; total: number }> {
     const slave = slaveId !== undefined ? `&slaveid=${slaveId}` : ''
-    return this.httpClient.get<SnifferTelegramRow[]>(this.getFullUri(apiUri.snifferTelegrams) + `?busid=${busId}${slave}&limit=${limit}`)
+    const fromQ = from !== undefined ? `&from=${from}` : ''
+    const toQ = to !== undefined ? `&to=${to}` : ''
+    return this.httpClient.get<{ rows: SnifferTelegramRow[]; total: number }>(
+      this.getFullUri(apiUri.snifferTelegrams) + `?busid=${busId}${slave}&limit=${limit}&offset=${offset}${fromQ}${toQ}`
+    )
+  }
+  /** Response history of one register (timestamps + raw values) for the trend chart. */
+  getSnifferRegisterHistory(busId: number, slaveId: number, address: number, limit = 500, from?: number, to?: number): Observable<SnifferTelegramRow[]> {
+    const fromQ = from !== undefined ? `&from=${from}` : ''
+    const toQ = to !== undefined ? `&to=${to}` : ''
+    return this.httpClient.get<SnifferTelegramRow[]>(
+      this.getFullUri(apiUri.snifferRegisterHistory) + `?busid=${busId}&slaveid=${slaveId}&address=${address}&limit=${limit}${fromQ}${toQ}`
+    )
   }
   getSnifferDevices(busId: number): Observable<SnifferDeviceRow[]> {
     return this.httpClient.get<SnifferDeviceRow[]>(this.getFullUri(apiUri.snifferDevices) + `?busid=${busId}`)

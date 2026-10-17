@@ -47,7 +47,20 @@
     }
   </div>
 
-  @if (isRunning()) {
+  <!-- view tabs -->
+  <div class="sniffer-tabs">
+    <button class="sniffer-tab" [class.active]="view === 'live'" (click)="switchView('live')">
+      <mat-icon>bolt</mat-icon> {{ t('sniffer.live') }}
+    </button>
+    <button class="sniffer-tab" [class.active]="view === 'history'" (click)="switchView('history')">
+      <mat-icon>history</mat-icon> {{ t('sniffer.history') }}
+      @if (historyTotal > 0) {
+        <span class="sniffer-tab-count">{{ historyTotal }}</span>
+      }
+    </button>
+  </div>
+
+  @if (view === 'live') {
     <div class="sniffer-tables">
       <h4>{{ t('sniffer.telegrams') }}</h4>
       <table class="sniffer-table">
@@ -80,6 +93,13 @@
           }
         </tbody>
       </table>
+      @if (telegramTotal > telegramPageSize) {
+        <div class="sniffer-pager">
+          <button mat-icon-button [disabled]="telegramPage <= 1" (click)="goTelegramPage(telegramPage - 1)"><mat-icon>chevron_left</mat-icon></button>
+          <span>{{ telegramPage }} / {{ totalPages(telegramTotal, telegramPageSize) }} ({{ telegramTotal }})</span>
+          <button mat-icon-button [disabled]="telegramPage >= totalPages(telegramTotal, telegramPageSize)" (click)="goTelegramPage(telegramPage + 1)"><mat-icon>chevron_right</mat-icon></button>
+        </div>
+      }
 
       <h4>{{ t('sniffer.devices') }}</h4>
       <table class="sniffer-table">
@@ -95,7 +115,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (dev of devices; track dev.slaveId) {
+          @for (dev of pagedDevices(); track dev.slaveId) {
             <tr>
               <td>{{ dev.slaveId }}</td>
               <td>{{ time(dev.firstSeen) }}</td>
@@ -110,6 +130,13 @@
           }
         </tbody>
       </table>
+      @if (devices.length > devicePageSize) {
+        <div class="sniffer-pager">
+          <button mat-icon-button [disabled]="devicePageSignal() <= 1" (click)="goDevicePage(devicePageSignal() - 1)"><mat-icon>chevron_left</mat-icon></button>
+          <span>{{ devicePageSignal() }} / {{ totalPages(devices.length, devicePageSize) }} ({{ devices.length }})</span>
+          <button mat-icon-button [disabled]="devicePageSignal() >= totalPages(devices.length, devicePageSize)" (click)="goDevicePage(devicePageSignal() + 1)"><mat-icon>chevron_right</mat-icon></button>
+        </div>
+      }
 
       <h4>{{ t('sniffer.registers') }}</h4>
       <table class="sniffer-table">
@@ -125,7 +152,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (reg of registers; track reg.id) {
+          @for (reg of pagedRegisters(); track reg.id) {
             <tr>
               <td>{{ reg.slaveId }}</td>
               <td>{{ reg.address }}</td>
@@ -137,6 +164,9 @@
                 <button mat-icon-button [matTooltip]="t('sniffer.annotate')" (click)="annotate(reg)">
                   <mat-icon>edit</mat-icon>
                 </button>
+                <button mat-icon-button [matTooltip]="t('sniffer.trend')" (click)="openTrend(reg)">
+                  <mat-icon>trending_up</mat-icon>
+                </button>
               </td>
             </tr>
           } @empty {
@@ -144,6 +174,77 @@
           }
         </tbody>
       </table>
+      @if (registers.length > registerPageSize) {
+        <div class="sniffer-pager">
+          <button mat-icon-button [disabled]="registerPageSignal() <= 1" (click)="goRegisterPage(registerPageSignal() - 1)"><mat-icon>chevron_left</mat-icon></button>
+          <span>{{ registerPageSignal() }} / {{ totalPages(registers.length, registerPageSize) }} ({{ registers.length }})</span>
+          <button mat-icon-button [disabled]="registerPageSignal() >= totalPages(registers.length, registerPageSize)" (click)="goRegisterPage(registerPageSignal() + 1)"><mat-icon>chevron_right</mat-icon></button>
+        </div>
+      }
     </div>
+  }
+
+  @if (view === 'history') {
+    <div class="sniffer-history">
+      <div class="sniffer-history-filters">
+        <label>
+          {{ t('sniffer.from') }}
+          <input type="datetime-local" [value]="historyFrom ? toLocalInput(historyFrom) : ''" (change)="onHistoryFromInput($event)" />
+        </label>
+        <label>
+          {{ t('sniffer.to') }}
+          <input type="datetime-local" [value]="historyTo ? toLocalInput(historyTo) : ''" (change)="onHistoryToInput($event)" />
+        </label>
+        <button mat-icon-button color="primary" [matTooltip]="t('sniffer.filter')" (click)="applyHistoryFilter()">
+          <mat-icon>filter_alt</mat-icon>
+        </button>
+        <button mat-icon-button [matTooltip]="t('sniffer.clearFilter')" (click)="clearHistoryFilter()">
+          <mat-icon>clear</mat-icon>
+        </button>
+      </div>
+
+      <table class="sniffer-table">
+        <thead>
+          <tr>
+            <th>{{ t('sniffer.timestamp') }}</th>
+            <th>{{ t('sniffer.dir') }}</th>
+            <th>{{ t('sniffer.slave') }}</th>
+            <th>{{ t('sniffer.function') }}</th>
+            <th>{{ t('sniffer.address') }}</th>
+            <th>{{ t('sniffer.length') }}</th>
+            <th>{{ t('sniffer.data') }}</th>
+            <th>CRC</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (tg of history; track tg.id) {
+            <tr [class.crc-bad]="!tg.crcOk">
+              <td>{{ dateTime(tg.timestamp) }}</td>
+              <td>{{ SnifferComponent.formatDirection(tg.direction) }}</td>
+              <td>{{ tg.slaveId }}</td>
+              <td>{{ tg.functionName ?? ('0x' + tg.functionCode.toString(16)) }}</td>
+              <td>{{ tg.address ?? '' }}</td>
+              <td>{{ tg.length ?? '' }}</td>
+              <td class="sniffer-hex">{{ hexRow(tg.rawHex) }}</td>
+              <td>{{ tg.crcOk ? '✓' : '✗' }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="8">{{ historyLoading ? t('sniffer.loading') : t('sniffer.noTelegrams') }}</td></tr>
+          }
+        </tbody>
+      </table>
+
+      @if (historyTotal > historyPageSize) {
+        <div class="sniffer-pager">
+          <button mat-icon-button [disabled]="historyPage <= 1" (click)="goHistoryPage(historyPage - 1)"><mat-icon>chevron_left</mat-icon></button>
+          <span>{{ historyPage }} / {{ totalPages(historyTotal, historyPageSize) }} ({{ historyTotal }})</span>
+          <button mat-icon-button [disabled]="historyPage >= totalPages(historyTotal, historyPageSize)" (click)="goHistoryPage(historyPage + 1)"><mat-icon>chevron_right</mat-icon></button>
+        </div>
+      }
+    </div>
+  }
+
+  @if (trendReg) {
+    <app-trend-dialog [busId]="busId" [reg]="trendReg" (closed)="closeTrend()"></app-trend-dialog>
   }
 </div>
