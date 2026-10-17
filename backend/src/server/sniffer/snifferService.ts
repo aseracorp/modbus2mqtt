@@ -553,12 +553,24 @@ export class SnifferService implements SnifferTransport {
 
   private enrichRegisterWithSpec(row: SnifferRegisterRow, spec: import('../../shared/specification/index.js').Ispecification, values: ImodbusValues): SnifferRegisterRow {
     const registerType = functionCodeToRegisterType(row.functionCode)
-    const candidates = spec.entities.filter((e) => {
+    let candidates = spec.entities.filter((e) => {
       if (e.modbusAddress === undefined) return false
       if (registerType !== undefined && e.registerType !== registerType) return false
       const len = entityLength(e)
       return row.address >= e.modbusAddress && row.address < e.modbusAddress + len
     })
+    // A row may carry a function code that does not match the entity's
+    // register type (e.g. the same address read as FC4 input AND FC3 holding,
+    // last write wins). The address range is the stronger signal for the
+    // template description — drop the registerType filter when it yields
+    // nothing, so every template-backed row still gets its entityId + name.
+    if (candidates.length === 0) {
+      candidates = spec.entities.filter((e) => {
+        if (e.modbusAddress === undefined) return false
+        const len = entityLength(e)
+        return row.address >= e.modbusAddress && row.address < e.modbusAddress + len
+      })
+    }
     if (candidates.length === 0) return row
     // Prefer the entity that starts exactly at the register address. When
     // several entities share the same address (device-type variants gated by
