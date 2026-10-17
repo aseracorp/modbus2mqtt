@@ -1,7 +1,7 @@
 import Debug from 'debug'
 import { Logger, LogLevelEnum } from '../../specification/index.js'
 import { RtuFrameParser } from './parser.js'
-import { decodePdu, registerRanges, valueAddresses, evaluateManualConverter } from './decode.js'
+import { decodePdu, valueAddresses, evaluateManualConverter } from './decode.js'
 import { SnifferStore } from './store.js'
 import { BusPortTapTransport, SnifferByteSink, SnifferTransport } from './transport.js'
 import { Bus } from '../bus.js'
@@ -228,6 +228,15 @@ export class SnifferService implements SnifferTransport {
   async start(): Promise<void> {
     if (this.running) return
     this.error = undefined
+    // Sweep phantom register rows (created by bare read requests of address
+    // scans etc.) once per start: they have no captured words and no template,
+    // so they only clutter the register table with addresses that were never
+    // answered by any slave.
+    try {
+      this.store.prunePhantomRegisters(this.config.busId)
+    } catch (e) {
+      debug('prune phantom registers failed: ' + (e instanceof Error ? e.message : String(e)))
+    }
     // Re-create the parser so a restart starts with a clean buffer.
     this.parser = new RtuFrameParser((telegram) => this.handleTelegram(telegram), this.config.frameTimeoutMs ?? 20)
     this.transports = []
@@ -443,19 +452,11 @@ export class SnifferService implements SnifferTransport {
       this.parser?.consumeRequest(req)
       return
     }
-    // A read request alone (e.g. scan probe with no responding slave, or a
-    // master that polls while we only hear the request side) still reveals the
-    // register range the master is interested in. Create the inventory entry
-    // so the register table populates immediately; the value stays empty until
-    // a matching response arrives.
-    if (telegram.direction === 'request' && telegram.decoded?.address !== undefined && telegram.decoded?.length !== undefined) {
-      const ranges = registerRanges(telegram)
-      ranges?.forEach((r) => {
-        for (let a = 0; a < r.quantity; a++) {
-          this.store.upsertRegister(this.config.busId, telegram, r.address + a, 1, [])
-        }
-      })
-    }
+    // A bare read request (scan probe / master poll while we only hear the
+    // request side) does NOT create register rows: an address scanner sweeps
+    // huge ranges (e.g. 0..7680) and leaves phantom rows for addresses that
+    // no slave ever answered. Only frames that actually carry data for an
+    // address (read responses, write requests) populate the inventory.
   }
 
   private trimTelegrams(): void {
@@ -473,6 +474,14 @@ export class SnifferService implements SnifferTransport {
     return this.store.getDevices(busId)
   }
   getRegisters(busId: number, slaveId?: number): SnifferRegisterRow[] {
+    // Prune phantom rows (bare read-request artifacts with no words and no
+    // template) whenever the register table is loaded. Cheap and idempotent —
+    // a running sniffer writes real rows with words, which are never pruned.
+    try {
+      this.store.prunePhantomRegisters(busId)
+    } catch (e) {
+      debug('prune phantom registers failed: ' + (e instanceof Error ? e.message : String(e)))
+    }
     const rows = this.store.getRegisters(busId, slaveId)
     // Build a condition-values map from ALL register rows of the bus (same
     // slave) so entities whose conditions reference other registers (e.g. a
@@ -607,6 +616,7 @@ export class SnifferService implements SnifferTransport {
         // A template always wins the description; a manual annotation would
         // have set `annotated` without a specKey, so it is kept over this.
         description: entityDesc || row.description,
+        entityId: entity.id,
         specKey: spec.filename ?? row.specKey,
         entityName: entityDesc || 'unknown',
       }

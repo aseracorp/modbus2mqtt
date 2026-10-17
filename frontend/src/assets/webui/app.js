@@ -2510,7 +2510,7 @@ let snifferTelegramTimeFilter = { from: null, to: null };
 /* ---------------- eye icon / bus list status ---------------- */
 // The sniffer eye-icon lives in the bus list (renderBusses). We refresh its
 // running/stopped state here without re-rendering the whole list.
-let snifferEyeRefreshTimer = null;
+let snifferEyeReconnectTimer = null;
 let snifferEyeStates = {}; // { busId: 'running' | 'stopped' | 'error' | 'unknown' }
 
 async function refreshSnifferEyeStates() {
@@ -2549,46 +2549,59 @@ function startSnifferEyeRefresh() {
   // Push-based: a single global SSE stream reports any sniffer change across
   // all buses. On each event we refresh only the eye states (cheap) and, if
   // the sniffer dialog is open, the table for the active bus. Falls back to a
-  // 2s poll when SSE is unavailable.
+  // 2s poll while the SSE is (re)connecting, and RECONNECTS the stream after a
+  // hard close instead of giving up forever — a proxy restart would otherwise
+  // leave the eye on the slow poll indefinitely.
+  let retryDelay = 500;
   const startFallbackPoll = () => {
-    if (snifferEyeRefreshTimer) return;
-    snifferEyeRefreshTimer = setInterval(() => {
+    // Share ONE poll timer with the dialog (startSnifferPolling). The poll
+    // refreshes the eye badges AND the open dialog's tables, so a single
+    // interval covers both.
+    if (snifferPollTimer) return;
+    snifferPollTimer = setInterval(() => {
       refreshSnifferEyeStates();
       if (snifferBusId != null) snifferRefresh();
     }, 2000);
   };
   const stopFallbackPoll = () => {
-    if (snifferEyeRefreshTimer) { clearInterval(snifferEyeRefreshTimer); snifferEyeRefreshTimer = null; }
+    if (snifferPollTimer) { clearInterval(snifferPollTimer); snifferPollTimer = null; }
   };
-  if (typeof EventSource !== 'undefined' && !snifferGlobalSseDisabled) {
+  const connect = () => {
+    if (snifferGlobalSse) { try { snifferGlobalSse.close(); } catch (e) { /* ignore */ } snifferGlobalSse = null; }
+    if (typeof EventSource === 'undefined' || snifferGlobalSseDisabled) { startFallbackPoll(); return; }
+    let es;
     try {
-      const es = new EventSource('/api/sniffer/events');
-      snifferGlobalSse = es;
-      es.addEventListener('change', (ev) => {
-        // Bus list is already rendered; just refresh the eye badges + (if the
-        // dialog is open) the active bus's tables.
-        refreshSnifferEyeStates();
-        if (snifferBusId != null && typeof snifferRefresh === 'function') snifferRefresh();
-      });
-      es.onopen = () => { stopFallbackPoll(); };
-      es.onerror = () => {
-        // A transient error (proxy reconnect) leaves the EventSource in
-        // CONNECTING and it will resume by itself. Bridge that gap with the
-        // poll so the eye state never goes stale for minutes. Only give up on
-        // the SSE (permanently) after repeated hard failures.
-        if (es.readyState === EventSource.CLOSED) {
-          snifferGlobalSseDisabled = true;
-          if (snifferGlobalSse === es) { try { es.close(); } catch (e) { /* ignore */ } snifferGlobalSse = null; }
-        }
-        startFallbackPoll();
-      };
-      return;
-    } catch (e) { /* EventSource failed - fall back to polling */ }
-  }
-  startFallbackPoll();
+      es = new EventSource('/api/sniffer/events');
+    } catch (e) { startFallbackPoll(); return; }
+    snifferGlobalSse = es;
+    es.addEventListener('change', (ev) => {
+      // Stream is alive again - reset the reconnect backoff. Bus list is
+      // already rendered; just refresh the eye badges + (if the dialog is
+      // open) the active bus's tables.
+      retryDelay = 500;
+      refreshSnifferEyeStates();
+      if (snifferBusId != null && typeof snifferRefresh === 'function') snifferRefresh();
+    });
+    es.onopen = () => { stopFallbackPoll(); retryDelay = 500; };
+    es.onerror = () => {
+      // The EventSource is in CONNECTING (transient network/proxy blip) or
+      // CLOSED (hard failure). Keep the poll running while it is gone; on a
+      // hard close CLOSE and re-create the stream with backoff — the browser
+      // auto-reconnects only while CONNECTING, not after CLOSED.
+      startFallbackPoll();
+      if (es.readyState === EventSource.CLOSED) {
+        if (snifferGlobalSse === es) { try { es.close(); } catch (e) { /* ignore */ } snifferGlobalSse = null; }
+        clearTimeout(snifferEyeReconnectTimer);
+        snifferEyeReconnectTimer = setTimeout(() => { if (snifferGlobalSse === null) connect(); }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 15000);
+      }
+    };
+  };
+  connect();
 }
 function stopSnifferEyeRefresh() {
-  if (snifferEyeRefreshTimer) { clearInterval(snifferEyeRefreshTimer); snifferEyeRefreshTimer = null; }
+  if (snifferPollTimer) { clearInterval(snifferPollTimer); snifferPollTimer = null; }
+  if (snifferEyeReconnectTimer) { clearTimeout(snifferEyeReconnectTimer); snifferEyeReconnectTimer = null; }
   if (snifferGlobalSse) { try { snifferGlobalSse.close(); } catch (e) { /* ignore */ } snifferGlobalSse = null; }
 }
 
@@ -2603,6 +2616,16 @@ async function openSniffer(busid) {
   await loadSnifferSlaveTemplates();
   // Show what the database already has, regardless of running state.
   await snifferRefresh();
+  // The dialog just fetched the authoritative state — make the bus-list eye
+  // reflect it immediately instead of waiting for the next SSE/poll tick.
+  if (snifferState) snifferEyeStates[snifferBusId] = snifferState.running ? 'running' : (snifferState.error ? 'error' : 'stopped');
+  document.querySelectorAll('.bus-sniffer[data-busid="' + snifferBusId + '"]').forEach((b) => {
+    const st = snifferEyeStates[snifferBusId] || 'stopped';
+    b.classList.remove('sn-eye-running', 'sn-eye-stopped', 'sn-eye-error', 'sn-eye-unknown');
+    b.classList.add('sn-eye-' + st);
+    b.title = snifferEyeTitle(snifferBusId);
+  });
+  refreshSnifferEyeStates();
   startSnifferLiveUpdates();
 }
 
@@ -2615,25 +2638,32 @@ function closeSniffer() {
 /* ---------------- live updates (global SSE + polling fallback) ----------------
  * The bus list keeps ONE global SSE stream open (/api/sniffer/events without
  * busid). It refreshes the eye badges on every change AND refreshes the open
- * sniffer dialog's tables for the active bus. This dialog-local section only
- * manages the fallback 2s poll used when SSE is unavailable.
+ * sniffer dialog's tables for the active bus. The eye-refresh code owns the
+ * SSE stream AND its fallback poll; the dialog simply reuses that same poll
+ * (startSnifferLiveUpdates becomes a no-op if the eye poll is already running),
+ * so there is never more than one poll timer for the whole page.
  */
 function startSnifferLiveUpdates() {
-  stopSnifferLiveUpdates();
   if (snifferBusId == null) return;
-  // The global stream (started with the eye refresh) already re-fetches the
-  // active bus's tables on every change. Only fall back to polling here when
-  // the global SSE is unsupported/dead.
+  // If the SSE stream is up, the global 'change' handler already refreshes the
+  // dialog tables; nothing to do. If it is down (connecting/closing), make
+  // sure the eye fallback poll is ticking — it also re-fetches the dialog.
   if (typeof EventSource === 'undefined' || snifferGlobalSseDisabled || !snifferGlobalSse) {
     startSnifferPolling();
   }
 }
+// The polling timer is owned by the eye-refresh code (startSnifferEyeRefresh):
+// it must keep running even with the dialog closed so the bus-list eye badges
+// stay fresh. Closing the dialog therefore does NOT stop it.
 function stopSnifferLiveUpdates() {
-  if (snifferPollTimer) { clearInterval(snifferPollTimer); snifferPollTimer = null; }
+  /* no-op — see comment above */
 }
 function startSnifferPolling() {
   stopSnifferPolling();
-  snifferPollTimer = setInterval(snifferRefresh, 2000);
+  snifferPollTimer = setInterval(() => {
+    refreshSnifferEyeStates();
+    if (snifferBusId != null) snifferRefresh();
+  }, 2000);
 }
 function stopSnifferPolling() {
   if (snifferPollTimer) { clearInterval(snifferPollTimer); snifferPollTimer = null; }
@@ -2668,6 +2698,32 @@ function setSnifferFilterIndicator(icon) {
   const th = icon ? icon.closest('th') : null;
   const field = icon ? icon.getAttribute('data-snf') : null;
   const table = icon ? tableNameFor(icon) : null;
+  // The timestamp funnel indicates the ACTIVE TIME RANGE (server-side from/to),
+  // not a multi-select list.
+  if (field === 'timestamp') {
+    const active = snifferTelegramTimeFilter.from != null || snifferTelegramTimeFilter.to != null;
+    if (icon) {
+      icon.classList.toggle('active', active);
+      let badge = icon.querySelector('.sn-filter-badge');
+      if (active) {
+        const label = (snifferTelegramTimeFilter.from
+          ? snifferTime(snifferTelegramTimeFilter.from) : '…') + ' – ' +
+          (snifferTelegramTimeFilter.to ? snifferTime(snifferTelegramTimeFilter.to) : '…');
+        icon.setAttribute('aria-label', t('sniffer_filter_active') + ' ' + label);
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'sn-filter-badge';
+          icon.appendChild(badge);
+        }
+        badge.textContent = '⏱';
+      } else {
+        icon.removeAttribute('aria-label');
+        if (badge) badge.remove();
+      }
+    }
+    if (th) th.classList.toggle('sn-filtered', active);
+    return;
+  }
   const vals = (table && field && snifferFilters[table] && snifferFilters[table][field]) || [];
   const has = Array.isArray(vals) && vals.length > 0;
   if (icon) {
@@ -2709,6 +2765,27 @@ function openSnifferFilterPopup(icon) {
   popup.style.top = (rect.bottom + 4) + 'px';
   $('sn-filter-popup-field').textContent = t('sniffer_filter_field').replace('{field}', snifferFilterFieldLabel(field));
   $('sn-filter-custom').value = '';
+
+  // The timestamp column filter is a TIME RANGE (from/to), not a value list:
+  // every telegram has a unique timestamp, so checkboxes would be useless.
+  // Show the from/to datetime pickers wired to the server-side from/to query.
+  const isTime = field === 'timestamp';
+  const timeRange = $('sn-filter-timerange');
+  const valueWrap = $('sn-filter-values');
+  const customWrap = $('sn-filter-custom');
+  if (isTime) {
+    timeRange.hidden = false;
+    valueWrap.hidden = true;
+    customWrap.hidden = true;
+    $('sn-tg-from').value = snifferTelegramTimeFilter.from ? snifferEpochToDatetimeLocal(snifferTelegramTimeFilter.from) : '';
+    $('sn-tg-to').value = snifferTelegramTimeFilter.to ? snifferEpochToDatetimeLocal(snifferTelegramTimeFilter.to) : '';
+    // Reflect an active range on the funnel icon (badge with "from..to").
+    setSnifferFilterIndicator(icon);
+    return;
+  }
+  timeRange.hidden = true;
+  valueWrap.hidden = false;
+  customWrap.hidden = false;
 
   // Build the value checkboxes from the current rows.
   const rows = snifferTableData[table] || [];
@@ -2775,6 +2852,14 @@ function clearSnifferFilter() {
   if (!snFilterPopupIcon) return;
   const field = snFilterPopupIcon.getAttribute('data-snf');
   const table = tableNameFor(snFilterPopupIcon);
+  // The timestamp funnel clears the server-side TIME RANGE, not a value list.
+  if (field === 'timestamp') {
+    if (snifferTelegramTimeFilter.from != null || snifferTelegramTimeFilter.to != null) {
+      clearSnifferTelegramTimeFilter();
+    }
+    hideSnifferFilterPopup();
+    return;
+  }
   if (table && field && snifferFilters[table]) delete snifferFilters[table][field];
   setSnifferFilterIndicator(snFilterPopupIcon);
   snifferRefreshRender();
@@ -2852,6 +2937,20 @@ async function snifferClearDatabase() {
   }
 }
 
+// Convert the raw converter string ("number", "number * 0.1", "select", …)
+// to the localized label: the type name is translated via t('conv_<type>'),
+// parameters (multiplier/offset) stay numeric and language-neutral.
+function snifferConverterLabel(raw) {
+  if (!raw) return raw || '';
+  const rawStr = String(raw);
+  const m = /^([a-z]+)(.*)$/i.exec(rawStr);
+  if (m) {
+    const type = m[1].toLowerCase();
+    const tx = t('conv_' + type);
+    if (tx && tx !== 'conv_' + type) return tx + m[2];
+  }
+  return rawStr;
+}
 /* ---------------- sniffer register annotation (pencil) + template ---------------- */
 function templatesForSniffer() {
   // All available specs (already in state.specs from the main load).
@@ -2913,6 +3012,15 @@ function openSnifferAnnotate(target) {
   tpl.value = current ? getSlaveTemplateName(current) : '';
   $('sn-annotate-template-drop').hidden = true;
   $('sn-annotate-description').value = target.description || '';
+  // Show the LOCALIZED description when a template entity backs this row (the
+  // table itself also renders it translated; keep the editor consistent).
+  if (target.specKey && target.entityId != null && !target.annotated) {
+    const spec = (state.specs || []).find((s) => s.filename === target.specKey);
+    if (spec) {
+      const tx = getSpecificationText(spec, 'e' + target.entityId);
+      if (tx) $('sn-annotate-description').value = tx;
+    }
+  }
   // Converter fields: prefer the template's structured parameters when the
   // row came from a template (so e.g. multiplier 0.1 shows up instead of
   // just "number"). Manual rows fall back to parsing the free-text converter.
@@ -3075,6 +3183,8 @@ function bindSnifferPencils() {
         converter: btn.getAttribute('data-converter') || '',
         uom: btn.getAttribute('data-uom') || '',
         description: btn.getAttribute('data-description') || '',
+        specKey: btn.getAttribute('data-speckey') || '',
+        entityId: btn.getAttribute('data-entityid') !== '' ? btn.getAttribute('data-entityid') : undefined,
         converterParameters: (cpm !== null || cpo !== null || cpd !== null)
           ? { multiplier: cpm !== '' ? Number(cpm) : undefined, offset: cpo !== '' ? Number(cpo) : undefined, decimals: cpd !== '' ? Number(cpd) : undefined }
           : undefined
@@ -3091,20 +3201,30 @@ function snifferTgDatetimeToEpoch(v) {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : Math.floor(d.getTime() / 1000);
 }
+function snifferEpochToDatetimeLocal(epoch) {
+  // epoch seconds -> "YYYY-MM-DDTHH:mm" in the LOCAL timezone (datetime-local).
+  if (epoch == null) return '';
+  const d = new Date(epoch * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
 function applySnifferTelegramTimeFilter() {
   snifferTelegramTimeFilter.from = snifferTgDatetimeToEpoch($('sn-tg-from').value);
   snifferTelegramTimeFilter.to = snifferTgDatetimeToEpoch($('sn-tg-to').value);
+  // Update the funnel icon in the Time column header (badge with active range).
+  document.querySelectorAll('.sn-filter-ico[data-snf="timestamp"]').forEach((ico) => setSnifferFilterIndicator(ico));
   snifferRefresh();
 }
 function clearSnifferTelegramTimeFilter() {
   snifferTelegramTimeFilter = { from: null, to: null };
   $('sn-tg-from').value = '';
   $('sn-tg-to').value = '';
+  document.querySelectorAll('.sn-filter-ico[data-snf="timestamp"]').forEach((ico) => setSnifferFilterIndicator(ico));
   snifferRefresh();
 }
 function bindSnifferTelegramTimeFilter() {
-  $('sn-tg-apply')?.addEventListener('click', applySnifferTelegramTimeFilter);
-  $('sn-tg-clear')?.addEventListener('click', clearSnifferTelegramTimeFilter);
+  $('sn-tg-apply')?.addEventListener('click', () => { applySnifferTelegramTimeFilter(); hideSnifferFilterPopup(); });
+  $('sn-tg-clear')?.addEventListener('click', () => { clearSnifferTelegramTimeFilter(); hideSnifferFilterPopup(); });
 }
 
 async function loadSnifferSlaveTemplates() {
@@ -3220,9 +3340,13 @@ function renderSnifferRegisters(regs) {
   body.innerHTML = filtered.map((r) => {
     const raw = escapeHtml(r.rawValue ?? (r.words || []).join(', '));
     const interp = r.value != null && r.value !== '' ? escapeHtml(String(r.value)) : '<span class="sn-muted">—</span>';
-    const conv = r.converter ? escapeHtml(String(r.converter)) : '<span class="sn-muted">' + t('sniffer_no_template') + '</span>';
+    const conv = r.converter ? escapeHtml(snifferConverterLabel(r.converter)) : '<span class="sn-muted">' + t('sniffer_no_template') + '</span>';
     const uom = r.uom ? escapeHtml(String(r.uom)) : '';
-    const desc = r.description ? escapeHtml(String(r.description)) : '<span class="sn-muted">—</span>';
+    // Description comes from the template entity, which has per-language
+    // translations ("e<id>" textIds in the spec's i18n block). Translate it
+    // like the template editor does; fall back to the raw value when no spec
+    // or no translation exists.
+    const desc = snifferRegisterDescription(r);
     const annotated = r.annotated ? ' <span class="sn-annotated-badge">' + t('sniffer_annotated') + '</span>' : '';
     const editTitle = t('sniffer_annotate');
     return '<tr>' +
@@ -3238,9 +3362,30 @@ function renderSnifferRegisters(regs) {
         '" data-cp-multiplier="' + escapeHtml(r.converterParameters && r.converterParameters.multiplier != null ? String(r.converterParameters.multiplier) : '') +
         '" data-cp-offset="' + escapeHtml(r.converterParameters && r.converterParameters.offset != null ? String(r.converterParameters.offset) : '') +
         '" data-cp-decimals="' + escapeHtml(r.converterParameters && r.converterParameters.decimals != null ? String(r.converterParameters.decimals) : '') +
+        '" data-speckey="' + escapeHtml(r.specKey || '') + '" data-entityid="' + escapeHtml(r.entityId != null ? String(r.entityId) : '') +
         '" title="' + editTitle + '">⚙</button></td>' +
       '</tr>';
   }).join('');
+}
+
+// Resolve the localized register description from the template spec's i18n
+// block. The backend ships the raw entity name in `description` plus the spec
+// filename (specKey) and entity id (entityId); the UI language picks the
+// matching translation ("e<entityId>"), falling back to en, then to the raw
+// template name, then to whatever the row carries (manual annotation).
+function snifferRegisterDescription(r) {
+  if (r.description || r.entityName) {
+    if (r.specKey && r.entityId != null) {
+      const spec = (state.specs || []).find((s) => s.filename === r.specKey);
+      if (spec) {
+        const tx = getSpecificationText(spec, 'e' + r.entityId);
+        if (tx) return escapeHtml(tx);
+      }
+    }
+  }
+  return r.description ? escapeHtml(String(r.description))
+    : r.entityName ? escapeHtml(String(r.entityName))
+    : '<span class="sn-muted">—</span>';
 }
 
 async function snifferStart() {

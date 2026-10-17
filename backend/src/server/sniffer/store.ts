@@ -62,6 +62,14 @@ export interface SnifferStore {
    */
   resetDatabase(timestampSuffix: string): string | undefined
   deleteBus(busId: number): void
+  /**
+   * Removes sniffer register rows that never carried a value (empty words)
+   * and are not backed by a template assignment (spec_key). Such rows were
+   * created by bare read requests (address scans etc.) and are "phantom"
+   * registers that exist only because the master polled the range. Rows with
+   * captured words or a spec_key are kept.
+   */
+  prunePhantomRegisters(busId: number): number
 }
 
 /**
@@ -242,6 +250,25 @@ export class InMemorySnifferStore implements SnifferStore {
     Array.from(this.slaveTemplates.keys())
       .filter((k) => k.startsWith(busId + ':'))
       .forEach((k) => this.slaveTemplates.delete(k))
+  }
+  prunePhantomRegisters(busId: number): number {
+    let n = 0
+    const templateKeys = new Set<string>()
+    Array.from(this.slaveTemplates.entries())
+      .filter(([k]) => k.startsWith(busId + ':'))
+      .forEach(([k]) => templateKeys.add(k))
+    Array.from(this.registers.keys())
+      .filter((k) => k.startsWith(busId + ':'))
+      .forEach((k) => {
+        const row = this.registers.get(k)
+        if (!row) return
+        const hasTemplate = row.specKey || templateKeys.has(busId + ':' + row.slaveId)
+        if (row.words.length === 0 && !hasTemplate) {
+          this.registers.delete(k)
+          n++
+        }
+      })
+    return n
   }
 }
 
@@ -671,6 +698,22 @@ export class SqliteSnifferStore implements SnifferStore {
     this.db.prepare('DELETE FROM sniffer_device WHERE bus_id=?').run(busId)
     this.db.prepare('DELETE FROM sniffer_register WHERE bus_id=?').run(busId)
     this.db.prepare('DELETE FROM sniffer_slave_template WHERE bus_id=?').run(busId)
+  }
+  prunePhantomRegisters(busId: number): number {
+    if (!this.db) return 0
+    // Rows with NO captured words and NO template spec (spec_key IS NULL) are
+    // phantoms from bare read requests (address scans). Annotated rows are
+    // kept too (the user deliberately described them).
+    const res = this.db
+      .prepare(
+        `DELETE FROM sniffer_register
+         WHERE bus_id = ?
+           AND (words IS NULL OR words = '[]' OR words = '')
+           AND spec_key IS NULL
+           AND COALESCE(annotated, 0) = 0`
+      )
+      .run(busId)
+    return res.changes
   }
 }
 

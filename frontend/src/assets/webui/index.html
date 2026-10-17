@@ -498,14 +498,6 @@
         <button type="button" class="sniffer-tab-btn" data-sntab="registers" data-i18n="sniffer_registers" data-i18n-title="sniffer_registers">Registers</button>
       </div>
       <div class="sniffer-tab-panel" id="sntab-telegrams">
-        <div class="sn-telegram-timefilter">
-          <span data-i18n="sniffer_time_from">From</span>
-          <input type="datetime-local" id="sn-tg-from">
-          <span data-i18n="sniffer_time_to">To</span>
-          <input type="datetime-local" id="sn-tg-to">
-          <button type="button" class="btn btn-sm btn-primary" id="sn-tg-apply" data-i18n="sniffer_filter_apply">Apply</button>
-          <button type="button" class="btn btn-sm" id="sn-tg-clear" data-i18n="sniffer_clear_filter">Clear</button>
-        </div>
         <table class="sniffer-table">
           <thead><tr>
             <th><span data-i18n="sniffer_time">Time</span> <span class="sn-filter-ico" data-snf="timestamp" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
@@ -558,6 +550,22 @@
     <span id="sn-filter-popup-field"></span>
     <button type="button" class="sn-filter-popup-clear" id="sn-filter-clear" data-i18n="sniffer_clear_filter">Clear</button>
   </div>
+  <!-- Time-range filter (timestamp column): from/to datetime pickers. Hidden
+       for every other column — those use the value checkboxes below. -->
+  <div class="sn-filter-timerange" id="sn-filter-timerange" hidden>
+    <div class="sn-timerange-row">
+      <span data-i18n="sniffer_time_from">From</span>
+      <input type="datetime-local" id="sn-tg-from">
+    </div>
+    <div class="sn-timerange-row">
+      <span data-i18n="sniffer_time_to">To</span>
+      <input type="datetime-local" id="sn-tg-to">
+    </div>
+    <div class="sn-timerange-actions">
+      <button type="button" class="btn btn-sm btn-primary" id="sn-tg-apply" data-i18n="sniffer_filter_apply">Apply</button>
+      <button type="button" class="btn btn-sm" id="sn-tg-clear" data-i18n="sniffer_clear_filter">Clear</button>
+    </div>
+  </div>
   <div class="sn-filter-values" id="sn-filter-values"></div>
   <div class="sn-filter-custom">
     <input type="text" id="sn-filter-custom" data-i18n-ph="sniffer_filter_placeholder" placeholder="Type a value to match…">
@@ -589,11 +597,11 @@
       <div class="field">
         <label data-i18n="sniffer_annotate_converter">Converter</label>
         <select id="sn-annotate-converter-type">
-          <option value="number">number</option>
-          <option value="text">text</option>
-          <option value="select">select</option>
-          <option value="binary">binary</option>
-          <option value="value">value</option>
+          <option value="number" data-i18n="conv_number">number</option>
+          <option value="text" data-i18n="conv_text">text</option>
+          <option value="select" data-i18n="conv_select">select</option>
+          <option value="binary" data-i18n="conv_binary">binary</option>
+          <option value="value" data-i18n="conv_value">value</option>
         </select>
       </div>
       <div class="sn-annotate-conv-num" id="sn-annotate-conv-num">
