@@ -57,16 +57,37 @@ export function registerSnifferRoutes(r: Registrar): void {
     return ok(state ?? { busId, running: false })
   })
 
-  // GET /api/sniffer/telegrams?busid=1[&slaveid=1][&limit=100][&from=<epochSec>][&to=<epochSec>]
+  // GET /api/sniffer/telegrams?busid=1[&slaveid=1][&limit=100][&offset=0][&from=<epochSec>][&to=<epochSec>]
+  // Returns { rows, total } so the history table can paginate server-side.
   r.get(apiUri.snifferTelegrams, (ctx) => {
     const busId = requireBusId(ctx)
     const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
     const limit = ctx.query['limit'] !== undefined ? parseInt(ctx.query['limit']) : 200
+    const offset = ctx.query['offset'] !== undefined ? parseInt(ctx.query['offset']) : 0
     const from = ctx.query['from'] !== undefined && ctx.query['from'] !== ''
       ? parseFloat(ctx.query['from']) : undefined
     const to = ctx.query['to'] !== undefined && ctx.query['to'] !== ''
       ? parseFloat(ctx.query['to']) : undefined
-    return ok(registry.getTelegrams(busId, slaveId, limit, from, to))
+    const rows = registry.getTelegrams(busId, slaveId, limit, from, to, offset)
+    const total = registry.countTelegrams(busId, slaveId, from, to)
+    return ok({ rows, total })
+  })
+
+  // GET /api/sniffer/registers/history?busid=1&slaveid=5&address=0[&limit=500][&from=<epochSec>][&to=<epochSec>]
+  // Returns response telegrams that carried values for the register (newest
+  // first) - the raw data source for the value trend chart.
+  r.get(apiUri.snifferRegisterHistory, (ctx) => {
+    const busId = requireBusId(ctx)
+    const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
+    const address = ctx.query['address'] !== undefined ? parseInt(ctx.query['address']) : undefined
+    if (slaveId === undefined || address === undefined)
+      throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'slaveid and address are required')
+    const limit = ctx.query['limit'] !== undefined ? parseInt(ctx.query['limit']) : 500
+    const from = ctx.query['from'] !== undefined && ctx.query['from'] !== ''
+      ? parseFloat(ctx.query['from']) : undefined
+    const to = ctx.query['to'] !== undefined && ctx.query['to'] !== ''
+      ? parseFloat(ctx.query['to']) : undefined
+    return ok(registry.getRegisterHistory(busId, slaveId, address, limit, from, to))
   })
 
   // GET /api/sniffer/devices?busid=1

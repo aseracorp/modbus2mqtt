@@ -32,7 +32,11 @@ export interface SnifferStore {
   getConfig(busId: number): SnifferBusConfig | undefined
   getConfigs(): SnifferBusConfig[]
   appendTelegram(busId: number, telegram: ParsedTelegram): void
-  getTelegrams(busId: number, slaveId?: number, limit?: number, from?: number, to?: number): SnifferTelegramRow[]
+  getTelegrams(busId: number, slaveId?: number, limit?: number, from?: number, to?: number, offset?: number): SnifferTelegramRow[]
+  /** Returns the number of telegrams matching the given filters (for pagination). */
+  countTelegrams(busId: number, slaveId?: number, from?: number, to?: number): number
+  /** Returns response telegrams that carried register values for a single address, newest first (for trend charts). */
+  getRegisterHistory(busId: number, slaveId: number, address: number, limit?: number, from?: number, to?: number): SnifferTelegramRow[]
   upsertDevice(busId: number, telegram: ParsedTelegram): void
   getDevices(busId: number): SnifferDeviceRow[]
   upsertRegister(busId: number, telegram: ParsedTelegram, address: number, quantity: number, words: number[]): void
@@ -112,13 +116,29 @@ export class InMemorySnifferStore implements SnifferStore {
       exceptionCode: telegram.decoded?.exceptionCode,
     })
   }
-  getTelegrams(busId: number, slaveId?: number, limit = 200, from?: number, to?: number): SnifferTelegramRow[] {
+  getTelegrams(busId: number, slaveId?: number, limit = 200, from?: number, to?: number, offset?: number): SnifferTelegramRow[] {
     let rows = this.telegrams.filter((t) => t.busId === busId)
     if (slaveId !== undefined) rows = rows.filter((t) => t.slaveId === slaveId)
     if (from !== undefined) rows = rows.filter((t) => t.timestamp >= from)
     if (to !== undefined) rows = rows.filter((t) => t.timestamp <= to)
     // Newest first, like the SQLite store (ORDER BY id DESC).
-    return rows.slice(-limit).reverse()
+    const ordered = rows.slice().reverse()
+    return ordered.slice(offset ?? 0, (offset ?? 0) + limit)
+  }
+  countTelegrams(busId: number, slaveId?: number, from?: number, to?: number): number {
+    let rows = this.telegrams.filter((t) => t.busId === busId)
+    if (slaveId !== undefined) rows = rows.filter((t) => t.slaveId === slaveId)
+    if (from !== undefined) rows = rows.filter((t) => t.timestamp >= from)
+    if (to !== undefined) rows = rows.filter((t) => t.timestamp <= to)
+    return rows.length
+  }
+  getRegisterHistory(busId: number, slaveId: number, address: number, limit = 500, from?: number, to?: number): SnifferTelegramRow[] {
+    let rows = this.telegrams.filter(
+      (t) => t.busId === busId && t.slaveId === slaveId && t.direction === 'response' && t.address === address && t.values && t.values.length > 0
+    )
+    if (from !== undefined) rows = rows.filter((t) => t.timestamp >= from)
+    if (to !== undefined) rows = rows.filter((t) => t.timestamp <= to)
+    return rows.slice().reverse().slice(0, limit)
   }
   upsertDevice(busId: number, telegram: ParsedTelegram): void {
     const key = busId + ':' + telegram.slaveId
@@ -443,7 +463,78 @@ export class SqliteSnifferStore implements SnifferStore {
       )
   }
 
-  getTelegrams(busId: number, slaveId?: number, limit = 200, from?: number, to?: number): SnifferTelegramRow[] {
+  getTelegrams(busId: number, slaveId?: number, limit = 200, from?: number, to?: number, offset?: number): SnifferTelegramRow[] {
+    if (!this.db) return []
+    return this.queryTelegrams(busId, slaveId, from, to, limit, offset)
+  }
+
+  countTelegrams(busId: number, slaveId?: number, from?: number, to?: number): number {
+    if (!this.db) return 0
+    const params: unknown[] = [busId]
+    let sql = 'SELECT COUNT(*) as cnt FROM sniffer_telegram WHERE bus_id = ?'
+    if (slaveId !== undefined) {
+      sql += ' AND slave_id = ?'
+      params.push(slaveId)
+    }
+    if (from !== undefined) {
+      sql += ' AND timestamp >= ?'
+      params.push(from)
+    }
+    if (to !== undefined) {
+      sql += ' AND timestamp <= ?'
+      params.push(to)
+    }
+    const row = this.db.prepare(sql).get(...params) as { cnt: number }
+    return row?.cnt ?? 0
+  }
+
+  getRegisterHistory(busId: number, slaveId: number, address: number, limit = 500, from?: number, to?: number): SnifferTelegramRow[] {
+    if (!this.db) return []
+    // Only response telegrams that carried register values for the address.
+    // register_values is a JSON array; we filter on address and non-null values.
+    const params: unknown[] = [busId, slaveId, address]
+    let sql =
+      `SELECT id, bus_id as busId, direction, timestamp, slave_id as slaveId, function_code as functionCode,
+              raw_hex as rawHex, crc_ok as crcOk, function_name as functionName, address, length,
+              register_values as registerValue, exception_code as exceptionCode
+       FROM sniffer_telegram
+       WHERE bus_id = ? AND slave_id = ? AND address = ? AND direction = 'response' AND register_values IS NOT NULL`
+    if (from !== undefined) {
+      sql += ' AND timestamp >= ?'
+      params.push(from)
+    }
+    if (to !== undefined) {
+      sql += ' AND timestamp <= ?'
+      params.push(to)
+    }
+    sql += ' ORDER BY id DESC LIMIT ?'
+    params.push(limit)
+    const rows = this.db.prepare(sql).all(...params) as SnifferTelegramRow[]
+    return rows
+      .map((r) => this.mapTelegramRow(r))
+      .filter((r) => r.values && r.values.length > 0)
+  }
+
+  /** Shared SELECT mapper for telegram rows (used by getTelegrams + getRegisterHistory). */
+  private mapTelegramRow(r: SnifferTelegramRow): SnifferTelegramRow {
+    return {
+      ...r,
+      crcOk: !!r.crcOk,
+      values: (r as unknown as { registerValue?: string }).registerValue
+        ? (JSON.parse((r as unknown as { registerValue: string }).registerValue) as number[])
+        : undefined,
+    }
+  }
+
+  /** Builds + runs the shared telegram SELECT with filters (used by getTelegrams). */
+  private queryTelegrams(
+    busId: number,
+    slaveId?: number,
+    from?: number,
+    to?: number,
+    limit = 200,
+    offset?: number
+  ): SnifferTelegramRow[] {
     if (!this.db) return []
     const params: unknown[] = [busId]
     let sql =
@@ -465,14 +556,12 @@ export class SqliteSnifferStore implements SnifferStore {
     }
     sql += ' ORDER BY id DESC LIMIT ?'
     params.push(limit)
+    if (offset !== undefined && offset > 0) {
+      sql += ' OFFSET ?'
+      params.push(offset)
+    }
     const rows = this.db.prepare(sql).all(...params) as SnifferTelegramRow[]
-    return rows.map((r) => ({
-      ...r,
-      crcOk: !!r.crcOk,
-      values: (r as unknown as { registerValue?: string }).registerValue
-        ? (JSON.parse((r as unknown as { registerValue: string }).registerValue) as number[])
-        : undefined,
-    }))
+    return rows.map((r) => this.mapTelegramRow(r))
   }
 
   upsertDevice(busId: number, telegram: ParsedTelegram): void {
