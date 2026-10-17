@@ -217,8 +217,8 @@ export class ModbusSnifferRegistry {
     }
   }
 
-  getTelegrams(busId: number, slaveId?: number, limit?: number) {
-    return this.store.getTelegrams(busId, slaveId, limit)
+  getTelegrams(busId: number, slaveId?: number, limit?: number, from?: number, to?: number) {
+    return this.store.getTelegrams(busId, slaveId, limit, from, to)
   }
   getDevices(busId: number) {
     return this.store.getDevices(busId)

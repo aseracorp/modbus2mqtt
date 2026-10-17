@@ -96,6 +96,9 @@ export interface SnifferRegisterRow {
   description?: string
   lastSeen: number
   specKey?: string
+  /** Structured converter parameters (multiplier/offset/decimals) from the
+   *  template entity, surfaced for the edit dialog. */
+  converterParameters?: { multiplier?: number; offset?: number; decimals?: number; [key: string]: unknown }
 }
 
 export interface SnifferRegisterAnnotation {

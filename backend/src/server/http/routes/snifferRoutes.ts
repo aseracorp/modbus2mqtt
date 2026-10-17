@@ -57,12 +57,16 @@ export function registerSnifferRoutes(r: Registrar): void {
     return ok(state ?? { busId, running: false })
   })
 
-  // GET /api/sniffer/telegrams?busid=1[&slaveid=1][&limit=100]
+  // GET /api/sniffer/telegrams?busid=1[&slaveid=1][&limit=100][&from=<epochSec>][&to=<epochSec>]
   r.get(apiUri.snifferTelegrams, (ctx) => {
     const busId = requireBusId(ctx)
     const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
     const limit = ctx.query['limit'] !== undefined ? parseInt(ctx.query['limit']) : 200
-    return ok(registry.getTelegrams(busId, slaveId, limit))
+    const from = ctx.query['from'] !== undefined && ctx.query['from'] !== ''
+      ? parseFloat(ctx.query['from']) : undefined
+    const to = ctx.query['to'] !== undefined && ctx.query['to'] !== ''
+      ? parseFloat(ctx.query['to']) : undefined
+    return ok(registry.getTelegrams(busId, slaveId, limit, from, to))
   })
 
   // GET /api/sniffer/devices?busid=1

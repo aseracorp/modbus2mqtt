@@ -643,7 +643,7 @@ it('getRegisters interprets values via the slave template (number converter + uo
     // 487 * 0.1 = 48.7
     expect(regs[0].value).toBe('48.7')
     expect(regs[0].uom).toBe('°C')
-    expect(regs[0].converter).toBe('number')
+    expect(regs[0].converter).toBe('number * 0.1')
     expect(regs[0].entityName).toBe('Temperature')
     expect(regs[0].specKey).toBe('test-spec')
   } finally {
@@ -1027,4 +1027,51 @@ it('onChangePersistent fires on every change with the bus id (not one-shot)', as
 
   await svc.stop()
   store.close()
+})
+
+// --- Write request value capture (regression: FC6/FC16 values were dropped) ---
+it('write requests (FC6/FC16) update the register values', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+
+  // writeSingleRegister 0x0064 (100) = 0x02A3 (675)
+  svc.feed('request', frame(5, 0x06, [0x00, 0x64, 0x02, 0xa3]))
+  let regs = store.getRegisters(1, 5)
+  expect(regs).toHaveLength(1)
+  expect(regs[0].address).toBe(0x64)
+  expect(regs[0].words).toEqual([0x02a3])
+  expect(regs[0].rawValue).toBe('675')
+
+  // writeMultipleRegisters 0x00C8 (200), quantity 2, byteCount 4: 0x0001, 0x0002
+  svc.feed('request', frame(5, 0x10, [0x00, 0xc8, 0x00, 0x02, 0x04, 0x00, 0x01, 0x00, 0x02]))
+  regs = store.getRegisters(1, 5)
+  const byAddr = new Map(regs.map((r) => [r.address, r.words]))
+  expect(byAddr.get(0xc8)).toEqual([0x0001])
+  expect(byAddr.get(0xc9)).toEqual([0x0002])
+  // The earlier write at 0x64 must still be present.
+  expect(byAddr.get(0x64)).toEqual([0x02a3])
+
+  // The write response (echo) must not create duplicate rows with empty values.
+  svc.feed('response', frame(5, 0x06, [0x00, 0x64, 0x02, 0xa3]))
+  regs = store.getRegisters(1, 5)
+  const afterResp = new Map(regs.map((r) => [r.address, r.words]))
+  expect(afterResp.get(0x64)).toEqual([0x02a3])
+
+  await svc.stop()
+})
+
+it('getTelegrams supports the from/to time-range filter', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  const base = Math.floor(Date.now() / 1000)
+  const t0 = { busId: 1, direction: TelegramDirection.request, timestamp: base, slaveId: 5, functionCode: 3, raw: [0x01, 0x03, 0x00, 0x00, 0x00, 0x01], crcOk: true }
+  const t1 = { busId: 1, direction: TelegramDirection.response, timestamp: base + 61, slaveId: 5, functionCode: 3, raw: [0x01, 0x03, 0x02, 0x00, 0x2a], crcOk: true }
+  store.appendTelegram(1, t0)
+  store.appendTelegram(1, t1)
+  const all = store.getTelegrams(1)
+  expect(all).toHaveLength(2)
+  const filtered = store.getTelegrams(1, undefined, 200, base + 30, base + 90)
+  expect(filtered).toHaveLength(1)
+  expect(filtered[0].timestamp).toBe(base + 61)
+  await svc.stop()
 })

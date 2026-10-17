@@ -428,6 +428,21 @@ export class SnifferService implements SnifferTransport {
         return
       }
     }
+    // WRITE requests (0x05/0x06 single, 0x0f/0x10 multiple) carry the written
+    // value(s) directly in the request (address + values). They must update
+    // the register inventory with the NEW value - the master just wrote it, so
+    // the sniffer knows the register content even without a read response.
+    // Until now these frames fell into the "bare read request" branch below,
+    // which created inventory rows with EMPTY words, so a written value never
+    // showed up in the register table.
+    if (telegram.direction === 'request' && telegram.decoded?.values && telegram.decoded.address !== undefined) {
+      const entries = valueAddresses(telegram, telegram.decoded.address, telegram.decoded.values)
+      entries.forEach((e) => {
+        this.store.upsertRegister(this.config.busId, telegram, e.address, 1, [e.value])
+      })
+      this.parser?.consumeRequest(req)
+      return
+    }
     // A read request alone (e.g. scan probe with no responding slave, or a
     // master that polls while we only hear the request side) still reveals the
     // register range the master is interested in. Create the inventory entry
@@ -586,7 +601,8 @@ export class SnifferService implements SnifferTransport {
       return {
         ...row,
         value: String(decoded),
-        converter: entity.converter ?? row.converter,
+        converter: entityConverterLabel(entity) ?? row.converter,
+        converterParameters: entityConverterParams(entity),
         uom: uom ?? row.uom,
         // A template always wins the description; a manual annotation would
         // have set `annotated` without a specKey, so it is kept over this.
@@ -661,6 +677,47 @@ export function entityLength(entity: Ientity): number {
   const converter = ConverterMap.getConverter(entity)
   if (converter) return Math.max(1, converter.getModbusLength(entity))
   return 1
+}
+
+/**
+ * Builds a human-readable converter string for the sniffer register table +
+ * edit dialog from a template entity, e.g. "number * 0.1" for a number
+ * converter with multiplier 0.1, or just "text"/"select". The raw converter
+ * name alone ("number") hides the resolution the user configured in the
+ * template, so the multiplier/divisor/offset are appended.
+ */
+function entityConverterLabel(entity: Ientity): string {
+  const c = entity.converter
+  if (!c) return ''
+  const cp = (entity.converterParameters ?? {}) as {
+    multiplier?: number
+    offset?: number
+    divisor?: number
+    decimals?: number
+    [key: string]: unknown
+  }
+  if (c === 'number') {
+    let label = c
+    if (typeof cp.multiplier === 'number' && cp.multiplier !== 0) label += ' * ' + cp.multiplier
+    else if (typeof cp.decimals === 'number' && cp.decimals > 0 && (cp.multiplier === undefined || !cp.multiplier)) {
+      // 1/decimals is the resolution (e.g. decimals=1 -> * 0.1).
+      label += ' * ' + (1 / cp.decimals)
+    }
+    if (typeof cp.offset === 'number' && cp.offset !== 0) label += (cp.offset > 0 ? ' + ' : ' - ') + Math.abs(cp.offset)
+    return label
+  }
+  return c
+}
+
+/** Structured converter parameters for the edit dialog (from the template). */
+function entityConverterParams(entity: Ientity): { multiplier?: number; offset?: number; decimals?: number } | undefined {
+  const cp = entity.converterParameters as { multiplier?: number; offset?: number; decimals?: number } | undefined
+  if (!cp) return undefined
+  return {
+    multiplier: cp.multiplier,
+    offset: cp.offset,
+    decimals: cp.decimals,
+  }
 }
 
 /** Unit of measurement from the entity's converter parameters (Inumber.uom). */

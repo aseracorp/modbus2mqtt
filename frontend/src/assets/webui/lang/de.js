@@ -200,6 +200,8 @@ window.LANG_de = {
   sniffer_devices: "Geräte",
   sniffer_registers: "Register",
   sniffer_time: "Zeit",
+  sniffer_time_from: "Von",
+  sniffer_time_to: "Bis",
   sniffer_dir: "Richtung",
   sniffer_slave: "Slave",
   sniffer_func: "Funktion",

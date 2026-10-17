@@ -199,6 +199,8 @@ window.LANG_fr = {
   sniffer_devices: "Appareils",
   sniffer_registers: "Registres",
   sniffer_time: "Heure",
+  sniffer_time_from: "De",
+  sniffer_time_to: "À",
   sniffer_dir: "Dir.",
   sniffer_slave: "Esclave",
   sniffer_func: "Fonction",
