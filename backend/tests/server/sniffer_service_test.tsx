@@ -131,6 +131,46 @@ it('SqliteSnifferStore persists config, telegrams, devices and registers', () =>
   store.close()
 })
 
+// --- Phantom register pruning ---
+it('prunes phantom register rows (empty words, no template) but keeps real ones', () => {
+  // In-memory store: bare request rows (empty words) get pruned; rows with
+  // captured words survive; template-backed rows survive even without words.
+  const mem = new InMemorySnifferStore()
+  const cfg: SnifferBusConfig = { busId: 4, mode: 'stack', enabled: true }
+  mem.upsertConfig(cfg)
+  const req = { direction: 'request', slaveId: 5, address: 4097, length: 1 } as never
+  mem.upsertRegister(4, req as never, 4097, 1, [])                    // phantom
+  mem.upsertRegister(4, req as never, 7680, 1, [])                    // phantom
+  mem.upsertRegister(4, { ...req, slaveId: 6 } as never, 0, 1, [0x27]) // real value
+  expect(mem.prunePhantomRegisters(4)).toBe(2)
+  expect(mem.getRegisters(4).map((r) => r.address)).toEqual([0])
+  // Template-backed empty rows survive the prune.
+  const mem2 = new InMemorySnifferStore()
+  mem2.upsertConfig(cfg)
+  mem2.upsertRegister(4, req as never, 4097, 1, [])
+  mem2.setSlaveTemplate(4, 5, 'thermokon-wrf06.yaml')
+  mem2.upsertRegisterDirect({ busId: 4, slaveId: 5, address: 4097, quantity: 1, specKey: 'thermokon-wrf06.yaml' })
+  expect(mem2.prunePhantomRegisters(4)).toBe(0)
+
+  // SQLite: same semantics.
+  const db = new SqliteSnifferStore(':memory:')
+  db.init()
+  const p = new RtuFrameParser((t) => {
+    if (t.direction === 'request') {
+      db.upsertRegister(4, t, t.decoded?.address ?? 0, t.decoded?.length ?? 1, t.decoded?.values ?? [])
+    }
+  }, 20)
+  p.feed(frame(5, 0x03, [0x10, 0x01, 0x00, 0x01]).map((b) => [b]), 1000)
+  p.feed([], 1100)
+  // A real captured response row (with words) must survive:
+  db.upsertRegister(4, { direction: 'response', slaveId: 5, functionCode: 3, timestamp: 1, payload: [], raw: [], crcOk: true, decoded: { address: 0, length: 1 } } as never, 0, 1, [0x27])
+  // A second bare-request phantom at 7680:
+  db.upsertRegister(4, { direction: 'request', slaveId: 5, functionCode: 3, timestamp: 1, payload: [], raw: [], crcOk: true, decoded: { address: 7680, length: 1 } } as never, 7680, 1, [])
+  expect(db.prunePhantomRegisters(4)).toBe(2)
+  expect(db.getRegisters(4).map((r) => r.address)).toEqual([0])
+  db.close()
+})
+
 // --- Per-slave template assignment (sniffer-discovered slaves) ---
 it('stores per-slave template assignments (InMemory + SQLite) and restores them after reset', () => {
   // In-memory
@@ -344,11 +384,14 @@ it('classifies back-to-back scan requests as requests, not responses (regression
     expect(t.length).toBe(1)
   }
 
-  // Inventory: every probe revealed holding register 0 of its slave.
+  // Inventory: an unanswered scan probe reveals the slave, but NOT the
+  // register it probed — only answered reads/writes create register rows.
+  // Otherwise an address scan would litter the register table with phantom
+  // rows (e.g. 0..7680) for addresses no slave ever answered.
   const registers = store.getRegisters(1)
-  expect(registers).toHaveLength(5)
+  expect(registers).toHaveLength(0)
   const slaves = new Set(registers.map((r) => r.slaveId))
-  expect(slaves).toEqual(new Set([1, 2, 3, 4, 5]))
+  expect(slaves).toEqual(new Set([]))
 
   const devices = store.getDevices(1)
   expect(devices).toHaveLength(5)
@@ -943,10 +986,12 @@ it('pairs a response with the pending request of the SAME length (no phantom reg
   )
 
   const addrs = store.getRegisters(1).map((r) => r.address)
-  // Register 0..7 got the values (the real read). Register 400 exists merely as
-  // an inventory row from its own request - but the phantom registers 401..407
-  // must NOT appear (the 8-word answer no longer latches onto the read(400,1)).
+  // Register 0..7 got the values (the real read). The request at 400 was
+  // never answered, so NOTHING exists at 400..407 — bare read requests no
+  // longer create phantom inventory rows (an address scan would otherwise
+  // fill the table with addresses no slave ever answered).
   for (let a = 0; a <= 7; a++) expect(addrs).toContain(a)
+  expect(addrs).not.toContain(400)
   expect(addrs).not.toContain(401)
   expect(addrs).not.toContain(407)
   // The value at 0..7 comes from the 8-word response (0x00fd = 253), NOT from
@@ -954,7 +999,7 @@ it('pairs a response with the pending request of the SAME length (no phantom reg
   const r0 = store.getRegisters(1).find((r) => r.address === 0)
   expect(r0?.words).toEqual([0x00fd])
   const r400 = store.getRegisters(1).find((r) => r.address === 400)
-  expect(r400?.words).toEqual([])
+  expect(r400).toBeUndefined()
   await svc.stop()
 })
 

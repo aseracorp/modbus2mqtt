@@ -92,6 +92,8 @@ export interface SnifferRegisterRow {
   annotated?: boolean
   /** The specification entity whose converter decoded the value. */
   entityName?: string
+  /** The specification entity id (for i18n lookup: "e" + entityId in the spec). */
+  entityId?: string | number
   /** Human-readable register description (from the template entity, or manual). */
   description?: string
   lastSeen: number
