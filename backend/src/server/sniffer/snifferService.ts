@@ -604,6 +604,13 @@ export class SnifferService implements SnifferTransport {
       return conds.every((c) => conditionMatches(c, readConditionValue(values, c)))
     })
     entity = active[0] ?? pool.find((e) => entityConditions(e).length === 0)
+    // Fallback: when no active entity emerges (gated entities whose conditions
+    // reference registers the sniffer has not captured yet, or a registry that
+    // evaluates every candidate as conditional), pool[0] is already filtered by
+    // spec + address range + register type and is the best template identity
+    // for this row. Without this, template rows would lose entityId and appear
+    // as unannotated raw rows.
+    if (!entity && pool.length > 0) entity = pool[0]
     if (!entity || entity.id === undefined) return row
 
     const entityDesc = entity.name ?? entity.mqttname ?? entity.converter ?? ''
