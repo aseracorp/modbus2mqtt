@@ -1000,3 +1000,31 @@ it('a bare request does not wipe previously captured values (SQLite store)', asy
     }
   }
 })
+
+it('onChangePersistent fires on every change with the bus id (not one-shot)', async () => {
+  const { svc, store } = makeService(7)
+  const fired: number[] = []
+  const unsub = svc.onChangePersistent((busId) => fired.push(busId))
+
+  await svc.start()
+  // start() itself notifies (state transition)
+  expect(fired.length).toBeGreaterThanOrEqual(1)
+  expect(fired[fired.length - 1]).toBe(7)
+  const firedAfterStart = fired.length
+
+  // One telegram cycle -> several notifyChange() calls (telegram, device, regs)
+  svc.feed('request', frame(1, 0x03, [0x00, 0x6b, 0x00, 0x02]))
+  svc.feed('response', frame(1, 0x03, [0x04, 0x12, 0x34, 0x56, 0x78]))
+  expect(fired.length).toBeGreaterThan(firedAfterStart)
+  expect(fired.every((b) => b === 7)).toBe(true)
+
+  // Unsubscribe stops delivery
+  unsub()
+  const after = fired.length
+  svc.feed('request', frame(1, 0x03, [0x00, 0x00, 0x00, 0x01]))
+  svc.feed('response', frame(1, 0x03, [0x02, 0x00, 0x2a]))
+  expect(fired.length).toBe(after)
+
+  await svc.stop()
+  store.close()
+})

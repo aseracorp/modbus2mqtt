@@ -847,7 +847,7 @@ function populateTemplateList() {
   const ul = $('se-template-list');
   if (!ul) return;
   // Don't clobber an open dropdown while the user is interacting with it:
-  // loadAll() re-runs every 5s and would rebuild the list, losing the filter
+  // loadAll() re-runs every 30s and would rebuild the list, losing the filter
   // and scroll position (observed as "dropdown resets after a few seconds").
   const drop = $('se-template-drop');
   const input = $('se-template-search');
@@ -2498,8 +2498,8 @@ function initCustomSelect(selectId) {
 /* ---------------- RTU sniffer ---------------- */
 let snifferBusId = null;
 let snifferPollTimer = null;          // fallback polling (SSE unavailable)
-let snifferSseSource = null;          // EventSource for live updates
-let snifferSseSupported = true;       // becomes false after the first failed connect
+let snifferGlobalSse = null;          // EventSource for global (all-bus) sniffer changes
+let snifferGlobalSseSupported = true; // becomes false after the first failed connect
 let snifferState = null;
 let snifferFilters = {};   // { table: { field: filterValues[] } } — array = multi-select (OR)
 let snifferAnnotateTarget = null; // { busId, slaveId, address, converter?, uom? }
@@ -2544,10 +2544,41 @@ function snifferEyeTitle(busId) {
 function startSnifferEyeRefresh() {
   stopSnifferEyeRefresh();
   refreshSnifferEyeStates();
-  snifferEyeRefreshTimer = setInterval(refreshSnifferEyeStates, 5000);
+  // Push-based: a single global SSE stream reports any sniffer change across
+  // all buses. On each event we refresh only the eye states (cheap) and, if
+  // the sniffer dialog is open, the table for the active bus. Falls back to a
+  // 2s poll when SSE is unavailable.
+  if (typeof EventSource !== 'undefined' && snifferGlobalSseSupported) {
+    try {
+      const es = new EventSource('/api/sniffer/events');
+      snifferGlobalSse = es;
+      es.addEventListener('change', (ev) => {
+        // Bus list is already rendered; just refresh the eye badges + (if the
+        // dialog is open) the active bus's tables.
+        refreshSnifferEyeStates();
+        if (snifferBusId != null && typeof snifferRefresh === 'function') snifferRefresh();
+      });
+      es.onerror = () => {
+        if (es.readyState === EventSource.CLOSED) {
+          snifferGlobalSseSupported = false;
+          if (snifferGlobalSse === es) snifferGlobalSse = null;
+          snifferEyeRefreshTimer = setInterval(() => {
+            refreshSnifferEyeStates();
+            if (snifferBusId != null) snifferRefresh();
+          }, 2000);
+        }
+      };
+      return;
+    } catch (e) { /* EventSource failed - fall back to polling */ }
+  }
+  snifferEyeRefreshTimer = setInterval(() => {
+    refreshSnifferEyeStates();
+    if (snifferBusId != null) snifferRefresh();
+  }, 2000);
 }
 function stopSnifferEyeRefresh() {
   if (snifferEyeRefreshTimer) { clearInterval(snifferEyeRefreshTimer); snifferEyeRefreshTimer = null; }
+  if (snifferGlobalSse) { try { snifferGlobalSse.close(); } catch (e) { /* ignore */ } snifferGlobalSse = null; }
 }
 
 async function openSniffer(busid) {
@@ -2570,32 +2601,24 @@ function closeSniffer() {
   snifferBusId = null;
 }
 
-/* ---------------- live updates (SSE with polling fallback) ---------------- */
+/* ---------------- live updates (global SSE + polling fallback) ----------------
+ * The bus list keeps ONE global SSE stream open (/api/sniffer/events without
+ * busid). It refreshes the eye badges on every change AND refreshes the open
+ * sniffer dialog's tables for the active bus. This dialog-local section only
+ * manages the fallback 2s poll used when SSE is unavailable.
+ */
 function startSnifferLiveUpdates() {
   stopSnifferLiveUpdates();
   if (snifferBusId == null) return;
-  if (typeof EventSource !== 'undefined' && snifferSseSupported) {
-    try {
-      const es = new EventSource('/api/sniffer/events?busid=' + snifferBusId);
-      snifferSseSource = es;
-      es.addEventListener('change', () => snifferRefresh());
-      es.onerror = () => {
-        // Transient network errors are normal (e.g. proxy timeouts); after
-        // repeated failures fall back to polling so the UI stays live.
-        if (es.readyState === EventSource.CLOSED) {
-          snifferSseSupported = false;
-          if (snifferSseSource === es) snifferSseSource = null;
-          startSnifferPolling();
-        }
-      };
-      return;
-    } catch (e) { /* EventSource failed - fall through to polling */ }
+  // The global stream (started with the eye refresh) already re-fetches the
+  // active bus's tables on every change. Only fall back to polling here when
+  // the global SSE is unsupported/dead.
+  if (typeof EventSource === 'undefined' || !snifferGlobalSseSupported || !snifferGlobalSse) {
+    startSnifferPolling();
   }
-  startSnifferPolling();
 }
 function stopSnifferLiveUpdates() {
-  if (snifferSseSource) { try { snifferSseSource.close(); } catch (e) { /* ignore */ } snifferSseSource = null; }
-  stopSnifferPolling();
+  if (snifferPollTimer) { clearInterval(snifferPollTimer); snifferPollTimer = null; }
 }
 function startSnifferPolling() {
   stopSnifferPolling();
@@ -3194,5 +3217,8 @@ startSnifferEyeRefresh();
   applyTranslations();
   loadAll();
   maybeAutoOpenMqtt();
-  setInterval(loadAll, 5000);
+  // Background safety-net refresh. Live updates (bus/slave/spec/sniffer) are
+  // pushed via SSE/CRUD calls; this slow timer only covers external changes
+  // (e.g. QoS warnings, auth status) that have no event yet.
+  setInterval(loadAll, 30000);
 })();

@@ -48,6 +48,11 @@ export class ModbusSnifferRegistry {
     return this.services.get(busId)
   }
 
+  /** Ids of all registered sniffer services (buses with a config). */
+  getServiceIds(): number[] {
+    return Array.from(this.services.keys())
+  }
+
   /** The RTU serial device the given bus is configured with (if any). */
   private busSerialport(busId: number): string | undefined {
     const bus = Bus.getBus(busId)
@@ -73,7 +78,9 @@ export class ModbusSnifferRegistry {
 
   deleteConfig(busId: number): void {
     this.stop(busId)
+    const svc = this.services.get(busId)
     this.services.delete(busId)
+    if (svc) this.fanoutAttached.delete(svc)
     this.store.deleteBus(busId)
     debug('deleted sniffer data for bus ' + busId)
   }
@@ -88,7 +95,11 @@ export class ModbusSnifferRegistry {
     if (!svc) {
       svc = new SnifferService(enriched, this.store)
       this.services.set(busId, svc)
-    } else svc.setConfig(enriched)
+      this.attachServiceFanout(svc)
+    } else {
+      svc.setConfig(enriched)
+      this.attachServiceFanout(svc)
+    }
     return svc
   }
 
@@ -171,6 +182,41 @@ export class ModbusSnifferRegistry {
     return svc.onChange(cb)
   }
 
+  // Persistent multi-bus change subscribers (busId -> callback list entry).
+  // Registered via onAnyChange(); notified from serviceForBus() (which sees
+  // every service, existing or newly created) whenever that service reports a
+  // change. Kept separate from the one-shot onChange() path.
+  private anyChangeSubs = new Set<(busId: number) => void>()
+  /** Services that already have the persistent fan-out listener attached. */
+  private fanoutAttached = new Set<SnifferService>()
+
+  /** Fired by serviceForBus() on every new/updated service instance. */
+  private attachServiceFanout(svc: SnifferService): void {
+    if (this.fanoutAttached.has(svc)) return
+    this.fanoutAttached.add(svc)
+    svc.onChangePersistent((busId) => {
+      this.anyChangeSubs.forEach((cb) => {
+        try { cb(busId) } catch { /* subscriber errors must not break capture */ }
+      })
+    })
+  }
+
+  /**
+   * Persistent multi-bus data-change subscription. Fires (with the affected
+   * bus id) whenever ANY sniffer service reports a change (new telegram /
+   * register / device or state transition), including services created after
+   * the subscription. Used by the global SSE endpoint so a single long-lived
+   * stream can push per-bus updates to all clients. Returns an unsubscribe
+   * function. Unlike onChange() this is NOT one-shot: the callback fires
+   * repeatedly until unsubscribed.
+   */
+  onAnyChange(cb: (busId: number) => void): () => void {
+    this.anyChangeSubs.add(cb)
+    return () => {
+      this.anyChangeSubs.delete(cb)
+    }
+  }
+
   getTelegrams(busId: number, slaveId?: number, limit?: number) {
     return this.store.getTelegrams(busId, slaveId, limit)
   }
@@ -230,10 +276,13 @@ export class ModbusSnifferRegistry {
     // Stop whatever is running (per bus, or all) so no writer keeps the file open.
     if (busId !== undefined) {
       await this.stop(busId)
+      const svc = this.services.get(busId)
       this.services.delete(busId)
+      if (svc) this.fanoutAttached.delete(svc)
     } else {
       await this.stopAll()
       this.services.clear()
+      this.fanoutAttached.clear()
     }
     const ts = new Date().toISOString().replace(/[:.]/g, '-')
     const renamed = this.store.resetDatabase(ts)

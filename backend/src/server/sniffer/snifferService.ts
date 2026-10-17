@@ -71,6 +71,8 @@ export class SnifferService implements SnifferTransport {
   private changeCounter = 0
   /** One-shot subscribers notified on the next data change (SSE fan-out). */
   private changeWaiters: Array<() => void> = []
+  /** Persistent subscribers notified on EVERY data change (global SSE fan-out). */
+  private changeListeners: Array<(busId: number) => void> = []
 
   constructor(
     private config: SnifferBusConfig,
@@ -187,6 +189,20 @@ export class SnifferService implements SnifferTransport {
     }
   }
 
+  /**
+   * Registers a persistent callback that fires on EVERY data change (new
+   * telegram/device/register or state transition). Unlike onChange() the
+   * callback keeps firing until unsubscribed; it receives the bus id. Used by
+   * the global (multi-bus) SSE endpoint. Returns an unsubscribe fn.
+   */
+  onChangePersistent(cb: (busId: number) => void): () => void {
+    if (this.changeListeners.indexOf(cb) < 0) this.changeListeners.push(cb)
+    return () => {
+      const i = this.changeListeners.indexOf(cb)
+      if (i >= 0) this.changeListeners.splice(i, 1)
+    }
+  }
+
   /** Notifies all one-shot waiters that captured data changed. */
   private notifyChange(): void {
     this.changeCounter++
@@ -195,6 +211,14 @@ export class SnifferService implements SnifferTransport {
     waiters.forEach((cb) => {
       try {
         cb()
+      } catch {
+        /* subscriber errors must not break the capture loop */
+      }
+    })
+    const busId = this.config.busId
+    this.changeListeners.forEach((cb) => {
+      try {
+        cb(busId)
       } catch {
         /* subscriber errors must not break the capture loop */
       }
