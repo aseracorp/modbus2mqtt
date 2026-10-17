@@ -536,7 +536,21 @@ export class SnifferService implements SnifferTransport {
     // can still get a template via the pencil dialog; the assignment lives in
     // the sniffer store. Prefer the bus config, fall back to the store.
     const storeSpecId = slave ? undefined : this.store.getSlaveTemplate(row.busId, row.slaveId)
-    const spec = slave ? undefined : storeSpecId ? ConfigSpecification.getSpecificationByFilename(storeSpecId) : undefined
+    let spec = slave ? undefined : storeSpecId ? ConfigSpecification.getSpecificationByFilename(storeSpecId) : undefined
+    // The specification registry is lazily (re-)loaded on config/sync events.
+    // If the template's spec is not in the in-memory registry yet (e.g. a
+    // freshly assigned template on a node whose registry predates the file, or
+    // a public spec that only lives in the public dir), refresh once from the
+    // filesystem. This guarantees the interpret-register row always resolves
+    // its entity when the spec file exists.
+    if (!spec && storeSpecId) {
+      try {
+        new ConfigSpecification().readYaml()
+        spec = ConfigSpecification.getSpecificationByFilename(storeSpecId)
+      } catch {
+        spec = undefined
+      }
+    }
     if (slave) {
       // Resolve reference slaves: the actual spec lives on the root slave.
       let specSlave = slave
