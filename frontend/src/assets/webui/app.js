@@ -2499,11 +2499,13 @@ function initCustomSelect(selectId) {
 let snifferBusId = null;
 let snifferPollTimer = null;          // fallback polling (SSE unavailable)
 let snifferGlobalSse = null;          // EventSource for global (all-bus) sniffer changes
-let snifferGlobalSseSupported = true; // becomes false after the first failed connect
+let snifferGlobalSseDisabled = false; // permanently give up on SSE after repeated hard failures
 let snifferState = null;
 let snifferFilters = {};   // { table: { field: filterValues[] } } — array = multi-select (OR)
 let snifferAnnotateTarget = null; // { busId, slaveId, address, converter?, uom? }
 let snifferTableData = { telegrams: [], devices: [], registers: [] };
+// Time-range filter for the telegram table (epoch seconds; null = no bound).
+let snifferTelegramTimeFilter = { from: null, to: null };
 
 /* ---------------- eye icon / bus list status ---------------- */
 // The sniffer eye-icon lives in the bus list (renderBusses). We refresh its
@@ -2548,7 +2550,17 @@ function startSnifferEyeRefresh() {
   // all buses. On each event we refresh only the eye states (cheap) and, if
   // the sniffer dialog is open, the table for the active bus. Falls back to a
   // 2s poll when SSE is unavailable.
-  if (typeof EventSource !== 'undefined' && snifferGlobalSseSupported) {
+  const startFallbackPoll = () => {
+    if (snifferEyeRefreshTimer) return;
+    snifferEyeRefreshTimer = setInterval(() => {
+      refreshSnifferEyeStates();
+      if (snifferBusId != null) snifferRefresh();
+    }, 2000);
+  };
+  const stopFallbackPoll = () => {
+    if (snifferEyeRefreshTimer) { clearInterval(snifferEyeRefreshTimer); snifferEyeRefreshTimer = null; }
+  };
+  if (typeof EventSource !== 'undefined' && !snifferGlobalSseDisabled) {
     try {
       const es = new EventSource('/api/sniffer/events');
       snifferGlobalSse = es;
@@ -2558,23 +2570,22 @@ function startSnifferEyeRefresh() {
         refreshSnifferEyeStates();
         if (snifferBusId != null && typeof snifferRefresh === 'function') snifferRefresh();
       });
+      es.onopen = () => { stopFallbackPoll(); };
       es.onerror = () => {
+        // A transient error (proxy reconnect) leaves the EventSource in
+        // CONNECTING and it will resume by itself. Bridge that gap with the
+        // poll so the eye state never goes stale for minutes. Only give up on
+        // the SSE (permanently) after repeated hard failures.
         if (es.readyState === EventSource.CLOSED) {
-          snifferGlobalSseSupported = false;
-          if (snifferGlobalSse === es) snifferGlobalSse = null;
-          snifferEyeRefreshTimer = setInterval(() => {
-            refreshSnifferEyeStates();
-            if (snifferBusId != null) snifferRefresh();
-          }, 2000);
+          snifferGlobalSseDisabled = true;
+          if (snifferGlobalSse === es) { try { es.close(); } catch (e) { /* ignore */ } snifferGlobalSse = null; }
         }
+        startFallbackPoll();
       };
       return;
     } catch (e) { /* EventSource failed - fall back to polling */ }
   }
-  snifferEyeRefreshTimer = setInterval(() => {
-    refreshSnifferEyeStates();
-    if (snifferBusId != null) snifferRefresh();
-  }, 2000);
+  startFallbackPoll();
 }
 function stopSnifferEyeRefresh() {
   if (snifferEyeRefreshTimer) { clearInterval(snifferEyeRefreshTimer); snifferEyeRefreshTimer = null; }
@@ -2613,7 +2624,7 @@ function startSnifferLiveUpdates() {
   // The global stream (started with the eye refresh) already re-fetches the
   // active bus's tables on every change. Only fall back to polling here when
   // the global SSE is unsupported/dead.
-  if (typeof EventSource === 'undefined' || !snifferGlobalSseSupported || !snifferGlobalSse) {
+  if (typeof EventSource === 'undefined' || snifferGlobalSseDisabled || !snifferGlobalSse) {
     startSnifferPolling();
   }
 }
@@ -2858,6 +2869,40 @@ function getSlaveTemplateId(slaveId) {
   }
   return (snifferSlaveTemplateCache[snifferBusId] && snifferSlaveTemplateCache[snifferBusId][slaveId]) || '';
 }
+function snifferAnnotateConverterFromText(text) {
+  // Parses the legacy free-text converter ("0.1", "number * 0.1", "value / 10",
+  // "number * 2 + 5") back into structured fields for the editor.
+  const out = { type: 'number', multiplier: '', offset: '', decimals: '', raw: text || '' };
+  if (!text) return out;
+  // "text" / "value" / "select" keywords survive as the converter type.
+  const m = /^(text|value|select|binary)\b/i.exec(text);
+  if (m) out.type = m[1].toLowerCase();
+  const low = text.toLowerCase().replace(/,/g, '.');
+  const mult = /\*\s*([0-9]+(?:\.[0-9]+)?)/.exec(low) || /^([0-9]+(?:\.[0-9]+)?)\s*\*?\s*$/.exec(low);
+  if (mult) out.multiplier = mult[1];
+  const div = /(\/|:)\s*([0-9]+(?:\.[0-9]+)?)/.exec(low);
+  if (div) { out.multiplier = ''; out.divisor = div[2]; }
+  const off = /([+-])\s*([0-9]+(?:\.[0-9]+)?)\s*$/.exec(low);
+  if (off && !/(\*|\/|:)\s*[0-9.]+\s*$/.test(low)) out.offset = (off[1] === '-' ? '-' : '') + off[2];
+  const dec = /decimals?\s*[:=]\s*([0-9]+)/.exec(text);
+  if (dec) out.decimals = dec[1];
+  return out;
+}
+function snifferAnnotateConverterToText(f) {
+  // Structured editor fields -> legacy free-text converter string understood by
+  // the backend parser (multiplier/divisor/offset). Returns '' when nothing
+  // meaningful was configured.
+  const type = (f.type || 'number').toLowerCase();
+  if (type !== 'number') return type;
+  const mult = parseFloat(f.multiplier);
+  const off = parseFloat(f.offset);
+  const dec = parseFloat(f.decimals);
+  let s = '';
+  if (!Number.isNaN(mult) && mult !== 0 && mult !== 1) s = 'number * ' + mult;
+  else if (!Number.isNaN(dec) && dec > 0) s = 'number * ' + (1 / dec);
+  if (s && !Number.isNaN(off) && off !== 0) s += (off > 0 ? ' + ' : ' - ') + Math.abs(off);
+  return s;
+}
 function openSnifferAnnotate(target) {
   snifferAnnotateTarget = target;
   $('sn-annotate-slave').value = '#' + target.slaveId;
@@ -2868,9 +2913,38 @@ function openSnifferAnnotate(target) {
   tpl.value = current ? getSlaveTemplateName(current) : '';
   $('sn-annotate-template-drop').hidden = true;
   $('sn-annotate-description').value = target.description || '';
-  $('sn-annotate-converter').value = target.converter || '';
+  // Converter fields: prefer the template's structured parameters when the
+  // row came from a template (so e.g. multiplier 0.1 shows up instead of
+  // just "number"). Manual rows fall back to parsing the free-text converter.
+  let cf;
+  if (target.converterParameters && (target.converterParameters.multiplier != null || target.converterParameters.offset != null || target.converterParameters.decimals != null)) {
+    const cp = target.converterParameters;
+    cf = {
+      type: /^text$/i.test(target.converter || '') ? 'text'
+        : /^select$/i.test(target.converter || '') ? 'select'
+        : /^binary$/i.test(target.converter || '') ? 'binary'
+        : /^value$/i.test(target.converter || '') ? 'value'
+        : 'number',
+      multiplier: cp.multiplier != null ? String(cp.multiplier) : '',
+      offset: cp.offset != null ? String(cp.offset) : '',
+      decimals: cp.decimals != null ? String(cp.decimals) : '',
+    };
+  } else {
+    cf = snifferAnnotateConverterFromText(target.converter);
+  }
+  const typeSel = $('sn-annotate-converter-type');
+  typeSel.value = cf.type;
+  $('sn-annotate-multiplier').value = cf.multiplier || '';
+  $('sn-annotate-offset').value = cf.offset || '';
+  $('sn-annotate-decimals').value = cf.decimals || '';
+  snifferAnnotateConvShown();
   $('sn-annotate-uom').value = target.uom || '';
   $('sn-annotate-overlay').hidden = false;
+}
+function snifferAnnotateConvShown() {
+  const num = $('sn-annotate-conv-num');
+  if (!num) return;
+  num.hidden = ($('sn-annotate-converter-type').value !== 'number');
 }
 function closeSnifferAnnotate() {
   snifferAnnotateTarget = null;
@@ -2938,7 +3012,12 @@ async function saveSnifferAnnotate() {
   if (!snifferAnnotateTarget) return;
   const tgt = snifferAnnotateTarget;
   const description = $('sn-annotate-description').value.trim();
-  const converter = $('sn-annotate-converter').value.trim();
+  const converter = snifferAnnotateConverterToText({
+    type: $('sn-annotate-converter-type').value,
+    multiplier: $('sn-annotate-multiplier').value.trim(),
+    offset: $('sn-annotate-offset').value.trim(),
+    decimals: $('sn-annotate-decimals').value.trim(),
+  });
   const uom = $('sn-annotate-uom').value.trim();
   // Resolve the search input (name / model / filename) back to the spec.
   const templateResolved = resolveTemplate($('sn-annotate-template-search').value);
@@ -2986,17 +3065,46 @@ function bindSnifferPencils() {
     if (btn.dataset.bound) return;
     btn.dataset.bound = '1';
     btn.addEventListener('click', () => {
+      const cpm = btn.getAttribute('data-cp-multiplier');
+      const cpo = btn.getAttribute('data-cp-offset');
+      const cpd = btn.getAttribute('data-cp-decimals');
       const target = {
         busId: Number(btn.getAttribute('data-busid')),
         slaveId: Number(btn.getAttribute('data-slaveid')),
         address: Number(btn.getAttribute('data-address')),
         converter: btn.getAttribute('data-converter') || '',
         uom: btn.getAttribute('data-uom') || '',
-        description: btn.getAttribute('data-description') || ''
+        description: btn.getAttribute('data-description') || '',
+        converterParameters: (cpm !== null || cpo !== null || cpd !== null)
+          ? { multiplier: cpm !== '' ? Number(cpm) : undefined, offset: cpo !== '' ? Number(cpo) : undefined, decimals: cpd !== '' ? Number(cpd) : undefined }
+          : undefined
       };
       openSnifferAnnotate(target);
     });
   });
+}
+
+/* ---------------- telegram time-range filter ---------------- */
+function snifferTgDatetimeToEpoch(v) {
+  // datetime-local "YYYY-MM-DDTHH:mm" -> epoch seconds (local time).
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : Math.floor(d.getTime() / 1000);
+}
+function applySnifferTelegramTimeFilter() {
+  snifferTelegramTimeFilter.from = snifferTgDatetimeToEpoch($('sn-tg-from').value);
+  snifferTelegramTimeFilter.to = snifferTgDatetimeToEpoch($('sn-tg-to').value);
+  snifferRefresh();
+}
+function clearSnifferTelegramTimeFilter() {
+  snifferTelegramTimeFilter = { from: null, to: null };
+  $('sn-tg-from').value = '';
+  $('sn-tg-to').value = '';
+  snifferRefresh();
+}
+function bindSnifferTelegramTimeFilter() {
+  $('sn-tg-apply')?.addEventListener('click', applySnifferTelegramTimeFilter);
+  $('sn-tg-clear')?.addEventListener('click', clearSnifferTelegramTimeFilter);
 }
 
 async function loadSnifferSlaveTemplates() {
@@ -3044,9 +3152,15 @@ async function snifferRefresh() {
     $('sn-start').hidden = running;
     $('sn-stop').hidden = !running;
 
-    // Always load from the database, running or not.
+    // Always load from the database, running or not. Optional time-range
+    // filter (from/to as epoch seconds) narrows the telegram history.
+    const tgFrom = snifferTelegramTimeFilter.from;
+    const tgTo = snifferTelegramTimeFilter.to;
+    let tgUrl = '/api/sniffer/telegrams?busid=' + bid + '&limit=2000';
+    if (tgFrom != null) tgUrl += '&from=' + tgFrom;
+    if (tgTo != null) tgUrl += '&to=' + tgTo;
     const [tgs, devs, regs] = await Promise.all([
-      api('/api/sniffer/telegrams?busid=' + bid + '&limit=2000'),
+      api(tgUrl),
       api('/api/sniffer/devices?busid=' + bid),
       api('/api/sniffer/registers?busid=' + bid)
     ]);
@@ -3110,17 +3224,21 @@ function renderSnifferRegisters(regs) {
     const uom = r.uom ? escapeHtml(String(r.uom)) : '';
     const desc = r.description ? escapeHtml(String(r.description)) : '<span class="sn-muted">—</span>';
     const annotated = r.annotated ? ' <span class="sn-annotated-badge">' + t('sniffer_annotated') + '</span>' : '';
-    const pencilTitle = t('sniffer_annotate');
+    const editTitle = t('sniffer_annotate');
     return '<tr>' +
       '<td>' + r.slaveId + '</td>' +
       '<td>' + r.address + '</td>' +
       '<td class="sniffer-mono">' + raw + '</td>' +
-      '<td class="sniff-interp">' + interp + annotated + '</td>' +
       '<td>' + conv + '</td>' +
+      '<td class="sniff-interp">' + interp + annotated + '</td>' +
       '<td>' + uom + '</td>' +
       '<td>' + desc + '</td>' +
       '<td><button class="icon-btn sn-pencil" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
-        '" data-address="' + r.address + '" data-converter="' + escapeHtml(r.converter || '') + '" data-uom="' + escapeHtml(r.uom || '') + '" data-description="' + escapeHtml(r.description || '') + '" title="' + pencilTitle + '">✎</button></td>' +
+        '" data-address="' + r.address + '" data-converter="' + escapeHtml(r.converter || '') + '" data-uom="' + escapeHtml(r.uom || '') + '" data-description="' + escapeHtml(r.description || '') +
+        '" data-cp-multiplier="' + escapeHtml(r.converterParameters && r.converterParameters.multiplier != null ? String(r.converterParameters.multiplier) : '') +
+        '" data-cp-offset="' + escapeHtml(r.converterParameters && r.converterParameters.offset != null ? String(r.converterParameters.offset) : '') +
+        '" data-cp-decimals="' + escapeHtml(r.converterParameters && r.converterParameters.decimals != null ? String(r.converterParameters.decimals) : '') +
+        '" title="' + editTitle + '">⚙</button></td>' +
       '</tr>';
   }).join('');
 }
@@ -3168,6 +3286,8 @@ async function snifferSaveConfig() {
   $('sn-clear')?.addEventListener('click', snifferClearDatabase);
   $('sn-annotate-save')?.addEventListener('click', saveSnifferAnnotate);
   $('sn-annotate-cancel')?.addEventListener('click', closeSnifferAnnotate);
+  $('sn-annotate-converter-type')?.addEventListener('change', snifferAnnotateConvShown);
+  bindSnifferTelegramTimeFilter();
   initSnifferAnnotateTemplateCombo();
   $('sn-filter-apply')?.addEventListener('click', applySnifferCustomFilter);
   $('sn-filter-clear')?.addEventListener('click', clearSnifferFilter);

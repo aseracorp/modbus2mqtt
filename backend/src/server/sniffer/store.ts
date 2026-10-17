@@ -32,7 +32,7 @@ export interface SnifferStore {
   getConfig(busId: number): SnifferBusConfig | undefined
   getConfigs(): SnifferBusConfig[]
   appendTelegram(busId: number, telegram: ParsedTelegram): void
-  getTelegrams(busId: number, slaveId?: number, limit?: number): SnifferTelegramRow[]
+  getTelegrams(busId: number, slaveId?: number, limit?: number, from?: number, to?: number): SnifferTelegramRow[]
   upsertDevice(busId: number, telegram: ParsedTelegram): void
   getDevices(busId: number): SnifferDeviceRow[]
   upsertRegister(busId: number, telegram: ParsedTelegram, address: number, quantity: number, words: number[]): void
@@ -104,9 +104,11 @@ export class InMemorySnifferStore implements SnifferStore {
       exceptionCode: telegram.decoded?.exceptionCode,
     })
   }
-  getTelegrams(busId: number, slaveId?: number, limit = 200): SnifferTelegramRow[] {
+  getTelegrams(busId: number, slaveId?: number, limit = 200, from?: number, to?: number): SnifferTelegramRow[] {
     let rows = this.telegrams.filter((t) => t.busId === busId)
     if (slaveId !== undefined) rows = rows.filter((t) => t.slaveId === slaveId)
+    if (from !== undefined) rows = rows.filter((t) => t.timestamp >= from)
+    if (to !== undefined) rows = rows.filter((t) => t.timestamp <= to)
     // Newest first, like the SQLite store (ORDER BY id DESC).
     return rows.slice(-limit).reverse()
   }
@@ -414,7 +416,7 @@ export class SqliteSnifferStore implements SnifferStore {
       )
   }
 
-  getTelegrams(busId: number, slaveId?: number, limit = 200): SnifferTelegramRow[] {
+  getTelegrams(busId: number, slaveId?: number, limit = 200, from?: number, to?: number): SnifferTelegramRow[] {
     if (!this.db) return []
     const params: unknown[] = [busId]
     let sql =
@@ -425,6 +427,14 @@ export class SqliteSnifferStore implements SnifferStore {
     if (slaveId !== undefined) {
       sql += ' AND slave_id = ?'
       params.push(slaveId)
+    }
+    if (from !== undefined) {
+      sql += ' AND timestamp >= ?'
+      params.push(from)
+    }
+    if (to !== undefined) {
+      sql += ' AND timestamp <= ?'
+      params.push(to)
     }
     sql += ' ORDER BY id DESC LIMIT ?'
     params.push(limit)
