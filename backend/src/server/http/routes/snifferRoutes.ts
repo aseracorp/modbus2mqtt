@@ -113,19 +113,19 @@ export function registerSnifferRoutes(r: Registrar): void {
     return ok(await registry.resetDatabase(busId))
   })
 
-  // GET /api/sniffer/events?busid=1  (Server-Sent Events)
+  // GET /api/sniffer/events[?busid=1]  (Server-Sent Events)
   // Long-lived stream: the server writes a "change" event whenever captured
-  // data (telegrams/devices/registers/state) changes for the bus. The client
+  // data (telegrams/devices/registers/state) changes. With a busid only that
+  // bus's events are pushed; without a busid a single global stream pushes
+  // events for ALL buses (payload carries the affected busIds). The client
   // re-fetches the tables on each event instead of polling every 2s. A
   // keep-alive comment is written periodically so proxies don't drop the idle
   // connection.
   r.raw.get(apiUri.snifferEvents, (req, res) => {
     const busIdRaw = req.query['busid']
     const busId = busIdRaw !== undefined && busIdRaw !== '' ? parseInt(String(busIdRaw)) : NaN
-    if (Number.isNaN(busId)) {
-      res.status(400).setHeader('Content-Type', 'text/plain').send('busid was not passed')
-      return
-    }
+    const global = Number.isNaN(busId)
+
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
@@ -133,21 +133,46 @@ export function registerSnifferRoutes(r: Registrar): void {
     res.write(': connected\n\n')
 
     let unsub: () => void = () => undefined
-    const seen = registry.getChangeCounter(busId)
-    const send = () => {
-      res.write('event: change\n')
-      res.write('data: ' + JSON.stringify({ busId, counter: registry.getChangeCounter(busId) }) + '\n\n')
-    }
-    // Subscribe after the initial state check so a change between the two is
-    // caught by the counter comparison below.
-    unsub = registry.onChange(busId, () => {
+    const send = (payload: unknown) => {
       try {
-        send()
+        res.write('event: change\n')
+        res.write('data: ' + JSON.stringify(payload) + '\n\n')
       } catch {
         try { unsub() } catch { /* already gone */ }
       }
-    })
-    if (registry.getChangeCounter(busId) !== seen) send()
+    }
+
+    if (global) {
+      // Global stream: one subscriber that re-fans per-bus changes to this
+      // client. Payload = the buses that changed since the last event (with
+      // their current change counters).
+      let lastCounters = new Map<number, number>()
+      unsub = registry.onAnyChange((changedBusId) => {
+        const prev = lastCounters.get(changedBusId) ?? 0
+        lastCounters.set(changedBusId, registry.getChangeCounter(changedBusId))
+        // Only fire when the counter actually advanced (protects against
+        // duplicate fan-out when a service is re-attached).
+        if (registry.getChangeCounter(changedBusId) !== prev) {
+          send({
+            busIds: [changedBusId],
+            counters: { [changedBusId]: registry.getChangeCounter(changedBusId) },
+          })
+        }
+      })
+      // Seed counters so the next change (even of a bus that never fired
+      // before) produces an event. Do it AFTER subscribing.
+      for (const busId of registry.getServiceIds()) {
+        lastCounters.set(busId, registry.getChangeCounter(busId))
+      }
+    } else {
+      // Per-bus stream (legacy).
+      const seen = registry.getChangeCounter(busId)
+      const sendBus = () => send({ busId, counter: registry.getChangeCounter(busId) })
+      // Subscribe after the initial state check so a change between the two is
+      // caught by the counter comparison below.
+      unsub = registry.onChange(busId, sendBus)
+      if (registry.getChangeCounter(busId) !== seen) sendBus()
+    }
 
     const keepAlive = setInterval(() => {
       try {
