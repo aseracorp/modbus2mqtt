@@ -2835,6 +2835,14 @@ function openSnifferFilterPopup(icon) {
         snifferFilters[table][field] = vals;
         setSnifferFilterIndicator(icon);
         snifferRefreshRender();
+        // History filters a server-side window (large limit when active) — a
+        // checkbox toggle must trigger a fresh load too, otherwise the first
+        // filter application shows only the already-loaded page and the next
+        // live refresh suddenly adds many more lines.
+        if (table === 'history') {
+          snifferHistoryPage = 1;
+          snifferLoadHistory();
+        }
       });
       const span = document.createElement('span');
       span.className = 'snfv-label';
@@ -2865,6 +2873,15 @@ function applySnifferCustomFilter() {
   setSnifferFilterIndicator(snFilterPopupIcon);
   snifferRefreshRender();
   hideSnifferFilterPopup();
+  // The History tab filters server-side windows (large limit with active
+  // filter) — the current rows are only a small already-loaded page, so the
+  // filter must trigger a FRESH server load, not just a client-side re-filter
+  // of the old data. Otherwise the first filter application shows far fewer
+  // lines than the next live refresh (which loads the full 20000-window).
+  if (table === 'history') {
+    snifferHistoryPage = 1;
+    snifferLoadHistory();
+  }
 }
 function clearSnifferFilter() {
   if (!snFilterPopupIcon) return;
@@ -2882,6 +2899,11 @@ function clearSnifferFilter() {
   setSnifferFilterIndicator(snFilterPopupIcon);
   snifferRefreshRender();
   hideSnifferFilterPopup();
+  // Same as applySnifferCustomFilter: history must re-fetch from the server.
+  if (table === 'history') {
+    snifferHistoryPage = 1;
+    snifferLoadHistory();
+  }
 }
 // Human-readable (translated) label for a filter field: maps the raw column
 // key to its i18n key; falls back to the raw key when unknown.
