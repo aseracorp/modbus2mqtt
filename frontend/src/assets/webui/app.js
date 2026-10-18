@@ -3566,8 +3566,11 @@ async function snifferRefresh() {
     renderSnifferPager('telegram', tgs.length, tgTotal, snifferTelegramPage, snifferTelegramPageSize);
     // Live updates for the History tab too: it is server-side paged and its
     // own endpoint, so it refreshes separately (only when the tab is active).
+    // Debounced: SSE can fire several times per second on a busy bus, and each
+    // history load re-fetches a large window — firing one per event would
+    // race and flicker the table. We coalesce them (trailing edge).
     if (document.getElementById('sntab-history') && !document.getElementById('sntab-history').hidden) {
-      snifferLoadHistory();
+      snifferScheduleHistoryLoad();
     }
     bindSnifferPencils();
     bindSnifferTrendButtons();
@@ -3779,11 +3782,30 @@ function openSnifferExportMenu(btn, kind) {
 }
 
 /* ---------------- sniffer history (server-side paged) ---------------- */
+let snifferHistoryLoadSeq = 0;
+let snifferHistoryLoadTimer = null;
+// Coalesces rapid history reloads (SSE bursts / poll ticks) into at most one
+// in-flight request, with a trailing flush so the freshest data still lands.
+function snifferScheduleHistoryLoad() {
+  if (snifferHistoryLoadTimer) return;
+  snifferHistoryLoadTimer = setTimeout(() => {
+    snifferHistoryLoadTimer = null;
+    snifferLoadHistory();
+  }, 250);
+}
 async function snifferLoadHistory() {
   if (snifferBusId == null) return;
+  // A direct (user-driven) load supersedes any scheduled debounce.
+  if (snifferHistoryLoadTimer) { clearTimeout(snifferHistoryLoadTimer); snifferHistoryLoadTimer = null; }
   const bid = snifferBusId;
+  const mySeq = ++snifferHistoryLoadSeq;
   const body = $('sn-history-body');
-  if (body) body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('sniffer_loading') + '</td></tr>';
+  // Only flash the loading placeholder when there is nothing to show yet —
+  // for live updates we keep the current rows visible until the fresh data
+  // arrives, otherwise every SSE tick would blank the table (flicker).
+  if (body && !body.querySelector('tr[data-slaveid]')) {
+    body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('sniffer_loading') + '</td></tr>';
+  }
   try {
     // Flat value history: the backend returns every response telegram carrying
     // register values as its own row (registers-table columns + timestamp),
@@ -3813,7 +3835,9 @@ async function snifferLoadHistory() {
       url += '&limit=2000';
     }
     const res = await api(url);
-    if (snifferBusId !== bid) return;
+    // Only the LATEST request may render — stale responses (older request
+    // finishing after a newer one) would blank/rewind the table.
+    if (snifferBusId !== bid || mySeq !== snifferHistoryLoadSeq) return;
     const rows = Array.isArray(res) ? res : ((res && res.rows) || []);
     const total = Array.isArray(res) ? rows.length : ((res && res.total) || rows.length);
     // Active column filter → client-side pagination (server cannot express the
@@ -3823,6 +3847,7 @@ async function snifferLoadHistory() {
     snifferHistoryServerTotal = total;
     renderSnifferHistory(snifferHistoryData, haveFilter ? rows.length : total);
   } catch (e) {
+    if (mySeq !== snifferHistoryLoadSeq) return;
     if (body) body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('err_load') + '</td></tr>';
   }
 }
