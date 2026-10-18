@@ -493,16 +493,15 @@
     </div>
     <div class="sniffer-tabs">
       <div class="sniffer-tab-head">
-        <button type="button" class="sniffer-tab-btn active" data-sntab="telegrams" data-i18n="sniffer_telegrams" data-i18n-title="sniffer_telegrams">Telegrams</button>
-        <button type="button" class="sniffer-tab-btn" data-sntab="devices" data-i18n="sniffer_devices" data-i18n-title="sniffer_devices">Devices</button>
-        <button type="button" class="sniffer-tab-btn" data-sntab="registers" data-i18n="sniffer_registers" data-i18n-title="sniffer_registers">Registers</button>
-        <button type="button" class="sniffer-tab-btn" data-sntab="history" data-i18n="sniffer_history" data-i18n-title="sniffer_history">History</button>
+        <div class="sniffer-tab-btns">
+          <button type="button" class="sniffer-tab-btn active" data-sntab="telegrams" data-i18n="sniffer_telegrams" data-i18n-title="sniffer_telegrams">Telegrams</button>
+          <button type="button" class="sniffer-tab-btn" data-sntab="devices" data-i18n="sniffer_devices" data-i18n-title="sniffer_devices">Devices</button>
+          <button type="button" class="sniffer-tab-btn" data-sntab="registers" data-i18n="sniffer_registers" data-i18n-title="sniffer_registers">Registers</button>
+          <button type="button" class="sniffer-tab-btn" data-sntab="history" data-i18n="sniffer_history" data-i18n-title="sniffer_history">History</button>
+        </div>
+        <button type="button" class="btn btn-sm sniffer-head-export" id="sn-export-btn" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
       </div>
       <div class="sniffer-tab-panel" id="sntab-telegrams">
-        <div class="sniffer-toolbar">
-          <span class="sniffer-spacer"></span>
-          <button type="button" class="btn btn-sm" id="sn-tg-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
-        </div>
         <div class="sniffer-table-wrap">
           <table class="sniffer-table">
             <thead><tr>
@@ -530,10 +529,6 @@
         </div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-devices" hidden>
-        <div class="sniffer-toolbar">
-          <span class="sniffer-spacer"></span>
-          <button type="button" class="btn btn-sm" id="sn-dev-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
-        </div>
         <div class="sniffer-table-wrap">
         <table class="sniffer-table">
           <thead><tr>
@@ -560,10 +555,6 @@
         </div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-registers" hidden>
-        <div class="sniffer-toolbar">
-          <span class="sniffer-spacer"></span>
-          <button type="button" class="btn btn-sm" id="sn-reg-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
-        </div>
         <div class="sniffer-table-wrap">
         <table class="sniffer-table">
           <thead><tr>
@@ -590,10 +581,6 @@
         </div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-history" hidden>
-        <div class="sniffer-toolbar">
-          <span class="sniffer-spacer"></span>
-          <button type="button" class="btn btn-sm" id="sn-his-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
-        </div>
         <div class="sniffer-table-wrap">
           <table class="sniffer-table">
             <thead><tr>
