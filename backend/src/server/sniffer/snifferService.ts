@@ -528,7 +528,11 @@ export class SnifferService implements SnifferTransport {
         rawValue: t.values?.join(' '),
         lastSeen: t.timestamp,
       }
-      const enriched = this.enrichRegister(row, snifferValuesFromRows([row]))
+      // Interpret against the FULL current register state of this slave so
+      // gating conditions (e.g. device-type select at 400) resolve — the raw
+      // telegram alone would leave the row uninterpreted.
+      const fullRows = this.store.getRegisters(t.busId, t.slaveId)
+      const enriched = this.enrichRegister(row, snifferValuesFromRows(fullRows.length > 0 ? fullRows : [row]))
       return { ...t, convertedValue: enriched.value, rawAddressWord }
     })
   }
@@ -579,7 +583,10 @@ export class SnifferService implements SnifferTransport {
           id: t.id, busId, slaveId: sid, address: addr, quantity: t.length ?? 1,
           functionCode: t.functionCode, words: t.values, rawValue: t.values.join(' '), lastSeen: t.timestamp,
         }
-        const enriched = this.enrichRegister(row, snifferValuesFromRows([row]))
+        // Interpret against the current full register state of the slave so
+        // gating conditions (device-type select) resolve their entity.
+        const fullRows = this.store.getRegisters(busId, sid)
+        const enriched = this.enrichRegister(row, snifferValuesFromRows(fullRows.length > 0 ? fullRows : [row]))
         const entry = {
           busId, slaveId: sid, address: addr, functionCode: t.functionCode,
           samples: 1, lastTimestamp: t.timestamp, lastRaw: t.values[0],
