@@ -265,4 +265,14 @@ window.LANG_de = {
   sniffer_filter_field: "Filter: {field}",
   sniffer_filter_placeholder: "Wert eingeben, nach dem gefiltert werden soll…",
   sniffer_filter_active: "{n} Filter aktiv",
+
+  sniffer_history: "Verlauf",
+  sniffer_timestamp: "Zeitstempel",
+  sniffer_page_size: "Seitengröße",
+  sniffer_loading: "Lädt…",
+  sniffer_trend: "Werteverlauf",
+  sniffer_trend_fit: "Einpassen",
+  sniffer_trend_loading: "Lade Verlauf…",
+  sniffer_trend_no_data: "Noch kein Werteverlauf für dieses Register",
+  sniffer_trend_points: "Punkte",
 };

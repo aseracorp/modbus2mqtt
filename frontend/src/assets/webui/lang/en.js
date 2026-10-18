@@ -265,4 +265,14 @@ window.LANG_en = {
   sniffer_filter_field: "Filter: {field}",
   sniffer_filter_placeholder: "Type a value to match…",
   sniffer_filter_active: "{n} filters active",
+
+  sniffer_history: "History",
+  sniffer_timestamp: "Timestamp",
+  sniffer_page_size: "Page size",
+  sniffer_loading: "Loading…",
+  sniffer_trend: "Value trend",
+  sniffer_trend_fit: "Fit",
+  sniffer_trend_loading: "Loading trend…",
+  sniffer_trend_no_data: "No value history for this register yet",
+  sniffer_trend_points: "points",
 };

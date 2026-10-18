@@ -496,6 +496,7 @@
         <button type="button" class="sniffer-tab-btn active" data-sntab="telegrams" data-i18n="sniffer_telegrams" data-i18n-title="sniffer_telegrams">Telegrams</button>
         <button type="button" class="sniffer-tab-btn" data-sntab="devices" data-i18n="sniffer_devices" data-i18n-title="sniffer_devices">Devices</button>
         <button type="button" class="sniffer-tab-btn" data-sntab="registers" data-i18n="sniffer_registers" data-i18n-title="sniffer_registers">Registers</button>
+        <button type="button" class="sniffer-tab-btn" data-sntab="history" data-i18n="sniffer_history" data-i18n-title="sniffer_history">History</button>
       </div>
       <div class="sniffer-tab-panel" id="sntab-telegrams">
         <table class="sniffer-table">
@@ -511,6 +512,7 @@
           </tr></thead>
           <tbody id="sn-telegram-body"><tr><td colspan="8" class="sniffer-empty" data-i18n="sniffer_no_telegrams">No telegrams yet.</td></tr></tbody>
         </table>
+        <div class="sniffer-pager" id="sn-telegram-pager" hidden></div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-devices" hidden>
         <table class="sniffer-table">
@@ -525,6 +527,7 @@
           </tr></thead>
           <tbody id="sn-device-body"><tr><td colspan="7" class="sniffer-empty" data-i18n="sniffer_no_devices">No devices seen yet.</td></tr></tbody>
         </table>
+        <div class="sniffer-pager" id="sn-device-pager" hidden></div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-registers" hidden>
         <table class="sniffer-table">
@@ -539,6 +542,37 @@
           </tr></thead>
           <tbody id="sn-register-body"><tr><td colspan="8" class="sniffer-empty" data-i18n="sniffer_no_registers">No registers decoded yet.</td></tr></tbody>
         </table>
+        <div class="sniffer-pager" id="sn-register-pager" hidden></div>
+      </div>
+      <div class="sniffer-tab-panel" id="sntab-history" hidden>
+        <div class="sniffer-history-bar">
+          <label><span data-i18n="sniffer_time_from">From</span> <input type="datetime-local" id="sn-his-from"></label>
+          <label><span data-i18n="sniffer_time_to">To</span> <input type="datetime-local" id="sn-his-to"></label>
+          <button type="button" class="btn btn-sm btn-primary" id="sn-his-apply" data-i18n="sniffer_filter_apply">Apply</button>
+          <button type="button" class="btn btn-sm" id="sn-his-clear" data-i18n="sniffer_clear_filter">Clear</button>
+          <span class="sniffer-spacer"></span>
+          <span class="sniffer-page-size">
+            <label for="sn-his-size" data-i18n="sniffer_page_size">Page size</label>
+            <select id="sn-his-size">
+              <option value="50">50</option><option value="100" selected>100</option>
+              <option value="200">200</option><option value="500">500</option>
+            </select>
+          </span>
+        </div>
+        <table class="sniffer-table">
+          <thead><tr>
+            <th><span data-i18n="sniffer_timestamp">Timestamp</span></th>
+            <th><span data-i18n="sniffer_dir">Dir</span></th>
+            <th><span data-i18n="sniffer_slave">Slave</span></th>
+            <th><span data-i18n="sniffer_func">Function</span></th>
+            <th><span data-i18n="sniffer_addr">Addr</span></th>
+            <th><span data-i18n="sniffer_len">Len</span></th>
+            <th><span data-i18n="sniffer_data">Data</span></th>
+            <th><span data-i18n="sniffer_crc">CRC</span></th>
+          </tr></thead>
+          <tbody id="sn-history-body"><tr><td colspan="8" class="sniffer-empty" data-i18n="sniffer_no_telegrams">No telegrams yet.</td></tr></tbody>
+        </table>
+        <div class="sniffer-pager" id="sn-history-pager" hidden></div>
       </div>
     </div>
   </div>
@@ -570,6 +604,26 @@
   <div class="sn-filter-custom">
     <input type="text" id="sn-filter-custom" data-i18n-ph="sniffer_filter_placeholder" placeholder="Type a value to match…">
     <button type="button" class="btn btn-sm btn-primary" id="sn-filter-apply" data-i18n="sniffer_filter_apply">Apply</button>
+  </div>
+</div>
+
+<!-- Register value trend popup: SVG line chart of the response history of a
+     single register. Wheel zooms, drag pans, preset buttons bound the window. -->
+<div class="modal-overlay" id="sn-trend-overlay" hidden>
+  <div class="modal modal-xlg">
+    <h3 id="sn-trend-title">Register trend</h3>
+    <div class="sn-trend-actions">
+      <button type="button" class="btn btn-sm" id="sn-trend-fit" data-i18n="sniffer_trend_fit">Fit</button>
+      <button type="button" class="btn btn-sm" id="sn-trend-1h">1h</button>
+      <button type="button" class="btn btn-sm" id="sn-trend-6h">6h</button>
+      <button type="button" class="btn btn-sm" id="sn-trend-24h">24h</button>
+      <span class="sniffer-spacer"></span>
+      <button type="button" class="btn" id="sn-trend-close" data-i18n="close">Close</button>
+    </div>
+    <div class="sn-trend-body" id="sn-trend-body">
+      <svg id="sn-trend-svg" viewBox="0 0 860 340" class="sn-trend-svg" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="sn-trend-range" id="sn-trend-range"></div>
+    </div>
   </div>
 </div>
 

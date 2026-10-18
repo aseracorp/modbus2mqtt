@@ -58,17 +58,22 @@ export function registerSnifferRoutes(r: Registrar): void {
   })
 
   // GET /api/sniffer/telegrams?busid=1[&slaveid=1][&limit=100][&offset=0][&from=<epochSec>][&to=<epochSec>]
-  // Returns { rows, total } so the history table can paginate server-side.
+  // Without an offset the response stays a plain array (legacy consumers like
+  // the classic webui expect that). With an explicit offset it returns
+  // { rows, total } so paged tables can show totals + navigate.
   r.get(apiUri.snifferTelegrams, (ctx) => {
     const busId = requireBusId(ctx)
     const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
     const limit = ctx.query['limit'] !== undefined ? parseInt(ctx.query['limit']) : 200
-    const offset = ctx.query['offset'] !== undefined ? parseInt(ctx.query['offset']) : 0
+    const offsetRaw = ctx.query['offset']
+    const hasOffset = offsetRaw !== undefined && offsetRaw !== ''
+    const offset = hasOffset ? parseInt(String(offsetRaw)) : 0
     const from = ctx.query['from'] !== undefined && ctx.query['from'] !== ''
       ? parseFloat(ctx.query['from']) : undefined
     const to = ctx.query['to'] !== undefined && ctx.query['to'] !== ''
       ? parseFloat(ctx.query['to']) : undefined
     const rows = registry.getTelegrams(busId, slaveId, limit, from, to, offset)
+    if (!hasOffset) return ok(rows)
     const total = registry.countTelegrams(busId, slaveId, from, to)
     return ok({ rows, total })
   })
