@@ -2713,16 +2713,18 @@ function setSnifferFilterIndicator(icon) {
   const field = icon ? icon.getAttribute('data-snf') : null;
   const table = icon ? tableNameFor(icon) : null;
   // The timestamp funnel indicates the ACTIVE TIME RANGE (server-side from/to),
-  // not a multi-select list.
+  // not a multi-select list. Which filter applies depends on the table:
+  // telegrams -> snifferTelegramTimeFilter, history -> snifferHistoryFilter.
   if (field === 'timestamp') {
-    const active = snifferTelegramTimeFilter.from != null || snifferTelegramTimeFilter.to != null;
+    const tf = table === 'history' ? snifferHistoryFilter : snifferTelegramTimeFilter;
+    const active = tf.from != null || tf.to != null;
     if (icon) {
       icon.classList.toggle('active', active);
       let badge = icon.querySelector('.sn-filter-badge');
       if (active) {
-        const label = (snifferTelegramTimeFilter.from
-          ? snifferTime(snifferTelegramTimeFilter.from) : '…') + ' – ' +
-          (snifferTelegramTimeFilter.to ? snifferTime(snifferTelegramTimeFilter.to) : '…');
+        const label = (tf.from
+          ? snifferTime(tf.from) : '…') + ' – ' +
+          (tf.to ? snifferTime(tf.to) : '…');
         icon.setAttribute('aria-label', t('sniffer_filter_active') + ' ' + label);
         if (!badge) {
           badge = document.createElement('span');
@@ -2788,11 +2790,12 @@ function openSnifferFilterPopup(icon) {
   const valueWrap = $('sn-filter-values');
   const customWrap = $('sn-filter-custom');
   if (isTime) {
+    const tf = table === 'history' ? snifferHistoryFilter : snifferTelegramTimeFilter;
     timeRange.hidden = false;
     valueWrap.hidden = true;
     customWrap.hidden = true;
-    $('sn-tg-from').value = snifferTelegramTimeFilter.from ? snifferEpochToDatetimeLocal(snifferTelegramTimeFilter.from) : '';
-    $('sn-tg-to').value = snifferTelegramTimeFilter.to ? snifferEpochToDatetimeLocal(snifferTelegramTimeFilter.to) : '';
+    $('sn-tg-from').value = tf.from ? snifferEpochToDatetimeLocal(tf.from) : '';
+    $('sn-tg-to').value = tf.to ? snifferEpochToDatetimeLocal(tf.to) : '';
     // Reflect an active range on the funnel icon (badge with "from..to").
     setSnifferFilterIndicator(icon);
     return;
@@ -3183,29 +3186,6 @@ async function saveSnifferAnnotate() {
   }
 }
 
-function snifferToggleHistoryDetail(busId, slaveId, address, cell) {
-  const open = cell.dataset.open === '1';
-  cell.dataset.open = open ? '0' : '1';
-  if (open) {
-    cell.innerHTML = '';
-    const row = cell.closest('tr');
-    if (row) row.hidden = true;
-    return;
-  }
-  cell.innerHTML = '<span class="sniffer-empty">' + t('sniffer_loading') + '</span>';
-  const row = cell.closest('tr');
-  if (row) row.hidden = false;
-  api('/api/sniffer/registers/history?busid=' + busId + '&slaveid=' + slaveId + '&address=' + address + '&limit=100000')
-    .then((rows) => {
-      const all = Array.isArray(rows) ? rows : [];
-      if (cell.dataset.open !== '1') return; // closed while loading
-      cell.innerHTML = snifferRenderHistoryDetail(all);
-    })
-    .catch(() => {
-      if (cell.dataset.open !== '1') return;
-      cell.innerHTML = '<span class="sniffer-empty">' + t('err_load') + '</span>';
-    });
-}
 function snifferRenderHistoryDetail(rows) {
   const rev = (rows || []).slice().reverse(); // newest first
   if (!rev.length) {
@@ -3226,25 +3206,6 @@ function snifferRenderHistoryDetail(rows) {
   }).join('');
   return head + rowsHtml + '</tbody></table></div>' +
     '<div class="sn-his-detail-count">' + rev.length + ' ' + t('sniffer_trend_points') + '</div>';
-}
-function bindSnifferHistoryDetailButtons() {
-  const body = $('sn-history-body');
-  if (!body) return;
-  if (body.dataset.detailBound) return;
-  body.dataset.detailBound = '1';
-  body.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('.sn-his-detail-btn');
-    if (!btn) return;
-    ev.stopPropagation();
-    ev.preventDefault();
-    const busId = Number(btn.getAttribute('data-busid'));
-    const slaveId = Number(btn.getAttribute('data-slaveid'));
-    const address = Number(btn.getAttribute('data-address'));
-    const row = btn.closest('tr');
-    const next = row ? row.nextElementSibling : null;
-    const cell = next && next.classList.contains('sn-his-detail-row') ? next.querySelector('.sn-his-detail-cell') : null;
-    if (cell) snifferToggleHistoryDetail(busId, slaveId, address, cell);
-  });
 }
 function bindSnifferTrendButtons() {
   document.querySelectorAll('.sn-trend-btn').forEach((btn) => {
@@ -3313,6 +3274,7 @@ async function snifferLoadTrend() {
     }
     snifferTrendView = { from: pts[0].t, to: pts[pts.length - 1].t };
     snifferRenderTrend();
+    snifferTrendSyncInputs();
   } catch (e) {
     body.innerHTML = '<div class="sn-trend-empty">' + t('err_load') + '</div>';
   }
@@ -3454,6 +3416,34 @@ function snifferTrendPreset(sec) {
   snifferTrendView = { from: Math.max(minT, maxT - sec), to: maxT };
   snifferRenderTrend();
 }
+// Fills the From/To datetime inputs in the trend overlay with the current view
+// range (or the full data range when the chart just loaded).
+function snifferTrendSyncInputs() {
+  const fromInput = $('sn-trend-from');
+  const toInput = $('sn-trend-to');
+  if (!fromInput || !toInput || !snifferTrendData.length) return;
+  fromInput.value = snifferEpochToDatetimeLocal(snifferTrendView ? snifferTrendView.from : snifferTrendData[0].t);
+  toInput.value = snifferEpochToDatetimeLocal(snifferTrendView ? snifferTrendView.to : snifferTrendData[snifferTrendData.length - 1].t);
+}
+// Applies the custom From/To range typed into the trend overlay.
+function snifferTrendApplyRange() {
+  if (!snifferTrendView || !snifferTrendData.length) return;
+  const from = snifferTgDatetimeToEpoch($('sn-trend-from').value);
+  const to = snifferTgDatetimeToEpoch($('sn-trend-to').value);
+  if (from == null && to == null) return; // nothing typed
+  const minT = snifferTrendData[0].t;
+  const maxT = snifferTrendData[snifferTrendData.length - 1].t;
+  let nf = from != null ? Math.max(minT, Math.min(maxT, from)) : minT;
+  let nt = to != null ? Math.max(minT, Math.min(maxT, to)) : maxT;
+  if (nf >= nt) { // invalid range -> clamp to a minimal sliver around the point
+    const c = nf;
+    nf = Math.max(minT, c - 60);
+    nt = Math.min(maxT, c + 60);
+  }
+  snifferTrendView = { from: nf, to: nt };
+  snifferRenderTrend();
+  snifferTrendSyncInputs();
+}
 
 function bindSnifferPencils() {
   document.querySelectorAll('.sn-pencil').forEach((btn) => {
@@ -3497,18 +3487,26 @@ function snifferEpochToDatetimeLocal(epoch) {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 function applySnifferTelegramTimeFilter() {
-  snifferTelegramTimeFilter.from = snifferTgDatetimeToEpoch($('sn-tg-from').value);
-  snifferTelegramTimeFilter.to = snifferTgDatetimeToEpoch($('sn-tg-to').value);
+  // Applies to whichever table opened the time-range popup: telegrams or history.
+  const table = snFilterPopupIcon ? tableNameFor(snFilterPopupIcon) : 'telegrams';
+  const tf = table === 'history' ? snifferHistoryFilter : snifferTelegramTimeFilter;
+  tf.from = snifferTgDatetimeToEpoch($('sn-tg-from').value);
+  tf.to = snifferTgDatetimeToEpoch($('sn-tg-to').value);
   // Update the funnel icon in the Time column header (badge with active range).
   document.querySelectorAll('.sn-filter-ico[data-snf="timestamp"]').forEach((ico) => setSnifferFilterIndicator(ico));
-  snifferRefresh();
+  if (table === 'history') { snifferHistoryPage = 1; snifferLoadHistory(); }
+  else snifferRefresh();
 }
 function clearSnifferTelegramTimeFilter() {
-  snifferTelegramTimeFilter = { from: null, to: null };
+  const table = snFilterPopupIcon ? tableNameFor(snFilterPopupIcon) : 'telegrams';
+  const tf = table === 'history' ? snifferHistoryFilter : snifferTelegramTimeFilter;
+  tf.from = null;
+  tf.to = null;
   $('sn-tg-from').value = '';
   $('sn-tg-to').value = '';
   document.querySelectorAll('.sn-filter-ico[data-snf="timestamp"]').forEach((ico) => setSnifferFilterIndicator(ico));
-  snifferRefresh();
+  if (table === 'history') { snifferHistoryPage = 1; snifferLoadHistory(); }
+  else snifferRefresh();
 }
 function bindSnifferTelegramTimeFilter() {
   $('sn-tg-apply')?.addEventListener('click', () => { applySnifferTelegramTimeFilter(); hideSnifferFilterPopup(); });
@@ -3673,6 +3671,10 @@ function snifferExportHistory(format) {
   const rows = applySnifferFilters(snifferHistoryData, 'history');
   snifferDownloadExport(rows, format, 'history');
 }
+function snifferExportDevices(format) {
+  const rows = applySnifferFilters(snifferTableData.devices || [], 'devices');
+  snifferDownloadExport(rows, format, 'devices');
+}
 // Serializes rows to CSV/JSON and triggers a browser download.
 function snifferDownloadExport(rows, format, base) {
   if (!rows.length) {
@@ -3726,6 +3728,14 @@ function bindSnifferExportButtons() {
       openSnifferExportMenu(hisBtn, 'history');
     });
   }
+  const devBtn = $('sn-dev-export');
+  if (devBtn && !devBtn.dataset.bound) {
+    devBtn.dataset.bound = '1';
+    devBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openSnifferExportMenu(devBtn, 'devices');
+    });
+  }
   // close on outside click (ignores clicks on the export button itself;
   // the button's own handler re-opens the menu, so just close any other)
   if (!window._snExportCloseBound) {
@@ -3746,14 +3756,18 @@ function openSnifferExportMenu(btn, kind) {
   csv.textContent = 'CSV';
   csv.addEventListener('click', () => {
     menu.remove();
-    if (kind === 'telegrams') snifferExportTelegrams('csv'); else snifferExportHistory('csv');
+    if (kind === 'telegrams') snifferExportTelegrams('csv');
+    else if (kind === 'devices') snifferExportDevices('csv');
+    else snifferExportHistory('csv');
   });
   const json = document.createElement('button');
   json.type = 'button';
   json.textContent = 'JSON';
   json.addEventListener('click', () => {
     menu.remove();
-    if (kind === 'telegrams') snifferExportTelegrams('json'); else snifferExportHistory('json');
+    if (kind === 'telegrams') snifferExportTelegrams('json');
+    else if (kind === 'devices') snifferExportDevices('json');
+    else snifferExportHistory('json');
   });
   menu.appendChild(csv); menu.appendChild(json);
   const rect = btn.getBoundingClientRect();
@@ -3819,15 +3833,35 @@ function renderSnifferHistory(rows) {
       '<td>' + snifferFullTime(r.lastTimestamp) + '</td>' +
       '<td class="sn-his-actions"><button class="icon-btn sn-trend-btn" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
         '" data-address="' + r.address + '" data-title="' + escapeHtml(r.description || r.entityName || ('Register ' + r.address)) +
-        '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + t('sniffer_trend') + '"><svg class="sn-trend-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 13.5h12M3.5 10.5l3-3.2 2.2 2 3.8-4.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
-      '<button class="icon-btn sn-his-detail-btn" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId + '" data-address="' + r.address +
-        '" title="' + t('sniffer_history_detail') + '"><svg class="sn-detail-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 3l4.5 5L5 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>' +
+        '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + t('sniffer_trend') + '"><svg class="sn-trend-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 13.5h12M3.5 10.5l3-3.2 2.2 2 3.8-4.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>' +
       '</tr>' +
-      '<tr class="sn-his-detail-row" data-slaveid="' + r.slaveId + '" data-address="' + r.address + '" hidden><td colspan="9" class="sn-his-detail-cell"></td></tr>';
+      '<tr class="sn-his-detail-row" data-slaveid="' + r.slaveId + '" data-address="' + r.address + '" data-busid="' + r.busId +
+        '"><td colspan="9" class="sn-his-detail-cell"><div class="sn-his-detail-loading">' + t('sniffer_loading') + '</div></td></tr>';
   }).join('');
   renderSnifferPager('history', slice.length, filtered.length, snifferHistoryPage, snifferHistoryPageSize);
   bindSnifferTrendButtons();
-  bindSnifferHistoryDetailButtons();
+  snifferLoadHistoryDetails();
+}
+// Loads the full value history (every telegram) for each register row currently
+// visible on the history page, filling the always-open detail rows underneath.
+function snifferLoadHistoryDetails() {
+  document.querySelectorAll('#sn-history-body .sn-his-detail-row[data-busid]').forEach((row) => {
+    const busId = Number(row.getAttribute('data-busid'));
+    const slaveId = Number(row.getAttribute('data-slaveid'));
+    const address = Number(row.getAttribute('data-address'));
+    const cell = row.querySelector('.sn-his-detail-cell');
+    if (!cell || cell.dataset.open === '1') return;
+    cell.dataset.open = '1';
+    api('/api/sniffer/registers/history?busid=' + busId + '&slaveid=' + slaveId + '&address=' + address + '&limit=100000')
+      .then((rows) => {
+        if (cell.dataset.open !== '1') return;
+        cell.innerHTML = snifferRenderHistoryDetail(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        if (cell.dataset.open !== '1') return;
+        cell.innerHTML = '<span class="sniffer-empty">' + t('err_load') + '</span>';
+      });
+  });
 }
 function snifferFullTime(ts) {
   if (!ts) return '-';
@@ -3836,20 +3870,6 @@ function snifferFullTime(ts) {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
     p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
-function applySnifferHistoryFilter() {
-  snifferHistoryFilter.from = snifferTgDatetimeToEpoch($('sn-his-from').value);
-  snifferHistoryFilter.to = snifferTgDatetimeToEpoch($('sn-his-to').value);
-  snifferHistoryPage = 1;
-  snifferLoadHistory();
-}
-function clearSnifferHistoryFilter() {
-  snifferHistoryFilter = { from: null, to: null };
-  $('sn-his-from').value = '';
-  $('sn-his-to').value = '';
-  snifferHistoryPage = 1;
-  snifferLoadHistory();
-}
-
 function renderSnifferTelegrams(tgs) {
   const body = $('sn-telegram-body');
   if (!body) return;
@@ -4022,9 +4042,8 @@ async function snifferSaveConfig() {
       if (tab === 'telegrams') snifferRefresh();
     });
   });
-  // History view: time filter.
-  $('sn-his-apply')?.addEventListener('click', applySnifferHistoryFilter);
-  $('sn-his-clear')?.addEventListener('click', clearSnifferHistoryFilter);
+  // History view: time filter (popup via funnel icon, handled by the shared
+  // apply/clear above — sn-his-apply/sn-his-clear no longer exist).
   // Page-size selects in every tab footer (bottom-left).
   $('sn-tg-size')?.addEventListener('change', (e) => {
     snifferTelegramPageSize = Number(e.target.value) || 200;
@@ -4053,6 +4072,7 @@ async function snifferSaveConfig() {
   $('sn-trend-1h')?.addEventListener('click', () => snifferTrendPreset(3600));
   $('sn-trend-6h')?.addEventListener('click', () => snifferTrendPreset(6 * 3600));
   $('sn-trend-24h')?.addEventListener('click', () => snifferTrendPreset(24 * 3600));
+  $('sn-trend-apply')?.addEventListener('click', snifferTrendApplyRange);
   document.querySelectorAll('#sn-trend-overlay').forEach((ov) => {
     ov.addEventListener('click', (e) => { if (e.target === ov) closeSnifferTrend(); });
   });
