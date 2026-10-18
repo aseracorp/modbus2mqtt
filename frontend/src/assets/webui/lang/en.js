@@ -275,6 +275,7 @@ window.LANG_en = {
   sniffer_trend_loading: "Loading trend…",
   sniffer_trend_no_data: "No value history for this register yet",
   sniffer_trend_points: "points",
+  sniffer_history_detail: "Show all values",
   sniffer_page: "Page",
   sniffer_page_goto: "Go to page",
   sniffer_export: "Export",

@@ -3183,6 +3183,69 @@ async function saveSnifferAnnotate() {
   }
 }
 
+function snifferToggleHistoryDetail(busId, slaveId, address, cell) {
+  const open = cell.dataset.open === '1';
+  cell.dataset.open = open ? '0' : '1';
+  if (open) {
+    cell.innerHTML = '';
+    const row = cell.closest('tr');
+    if (row) row.hidden = true;
+    return;
+  }
+  cell.innerHTML = '<span class="sniffer-empty">' + t('sniffer_loading') + '</span>';
+  const row = cell.closest('tr');
+  if (row) row.hidden = false;
+  api('/api/sniffer/registers/history?busid=' + busId + '&slaveid=' + slaveId + '&address=' + address + '&limit=100000')
+    .then((rows) => {
+      const all = Array.isArray(rows) ? rows : [];
+      if (cell.dataset.open !== '1') return; // closed while loading
+      cell.innerHTML = snifferRenderHistoryDetail(all);
+    })
+    .catch(() => {
+      if (cell.dataset.open !== '1') return;
+      cell.innerHTML = '<span class="sniffer-empty">' + t('err_load') + '</span>';
+    });
+}
+function snifferRenderHistoryDetail(rows) {
+  const rev = (rows || []).slice().reverse(); // newest first
+  if (!rev.length) {
+    return '<span class="sniffer-empty">' + t('sniffer_no_telegrams') + '</span>';
+  }
+  const head = '<div class="sn-his-detail-wrap"><table class="sniffer-table sn-his-detail-table"><thead><tr>' +
+    '<th>' + t('sniffer_time') + '</th><th>' + t('sniffer_dir') + '</th><th>' + t('sniffer_raw_value') + '</th>' +
+    '<th>' + t('sniffer_interp_value') + '</th><th>' + t('sniffer_uom') + '</th><th>' + t('sniffer_crc') + '</th></tr></thead><tbody>';
+  const rowsHtml = rev.map((r) => {
+    const raw = r.values && r.values.length ? escapeHtml(String(r.values[0])) : '<span class="sn-muted">—</span>';
+    const interp = r.convertedValue !== undefined && r.convertedValue !== null && r.convertedValue !== ''
+      ? escapeHtml(String(r.convertedValue)) : '<span class="sn-muted">—</span>';
+    const uom = r.uom ? escapeHtml(String(r.uom)) : '';
+    const crc = r.crcOk === undefined ? '' : (r.crcOk ? '✓' : '✗');
+    const dir = r.direction === 'request' ? '→' : '←';
+    return '<tr><td>' + snifferFullTime(r.timestamp) + '</td><td>' + dir + '</td><td class="sniffer-mono">' + raw + '</td>' +
+      '<td class="sniff-interp">' + interp + '</td><td>' + uom + '</td><td>' + crc + '</td></tr>';
+  }).join('');
+  return head + rowsHtml + '</tbody></table></div>' +
+    '<div class="sn-his-detail-count">' + rev.length + ' ' + t('sniffer_trend_points') + '</div>';
+}
+function bindSnifferHistoryDetailButtons() {
+  const body = $('sn-history-body');
+  if (!body) return;
+  if (body.dataset.detailBound) return;
+  body.dataset.detailBound = '1';
+  body.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.sn-his-detail-btn');
+    if (!btn) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    const busId = Number(btn.getAttribute('data-busid'));
+    const slaveId = Number(btn.getAttribute('data-slaveid'));
+    const address = Number(btn.getAttribute('data-address'));
+    const row = btn.closest('tr');
+    const next = row ? row.nextElementSibling : null;
+    const cell = next && next.classList.contains('sn-his-detail-row') ? next.querySelector('.sn-his-detail-cell') : null;
+    if (cell) snifferToggleHistoryDetail(busId, slaveId, address, cell);
+  });
+}
 function bindSnifferTrendButtons() {
   document.querySelectorAll('.sn-trend-btn').forEach((btn) => {
     if (btn.dataset.bound) return;
@@ -3315,6 +3378,8 @@ function snifferTrendFmtX(t) {
 function bindSnifferTrendSvg() {
   const svg = $('sn-trend-svg');
   if (!svg) return;
+  if (svg.dataset.bound) return; // bind listeners once, not on every render
+  svg.dataset.bound = '1';
   const W = 860, H = 340, padL = 56, padR = 16;
   const tFromX = (px) => {
     const v = snifferTrendView;
@@ -3323,6 +3388,7 @@ function bindSnifferTrendSvg() {
   };
   svg.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (snifferTrendView == null) return;
     const rect = svg.getBoundingClientRect();
     const px = (e.clientX - rect.left) * (W / rect.width);
     const t0 = tFromX(px);
@@ -3340,24 +3406,39 @@ function bindSnifferTrendSvg() {
     snifferRenderTrend();
   }, { passive: false });
   svg.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
     snifferTrendDrag = { startX: e.clientX, from: snifferTrendView.from, to: snifferTrendView.to };
     svg.classList.add('sn-dragging');
   });
-  window.addEventListener('mousemove', (e) => {
-    if (!snifferTrendDrag) return;
-    const rect = svg.getBoundingClientRect();
-    const spanT = snifferTrendView.to - snifferTrendView.from;
-    const pxSpan = W - padL - padR;
-    const dt = ((e.clientX - snifferTrendDrag.startX) * spanT) / pxSpan;
-    snifferTrendView = { from: snifferTrendDrag.from - dt, to: snifferTrendDrag.to - dt };
-    snifferRenderTrend();
-  });
-  window.addEventListener('mouseup', () => {
-    if (snifferTrendDrag) {
-      snifferTrendDrag = null;
-      svg.classList.remove('sn-dragging');
-    }
-  });
+  // Global drag listeners bound ONCE; they act on whatever svg is current.
+  if (!window._snTrendDragBound) {
+    window._snTrendDragBound = true;
+    let dragFrame = false;
+    window.addEventListener('mousemove', (e) => {
+      if (!snifferTrendDrag) return;
+      if (dragFrame) return; // throttle re-render to one per frame
+      dragFrame = true;
+      requestAnimationFrame(() => {
+        dragFrame = false;
+        const svgCur = $('sn-trend-svg');
+        if (!svgCur || !snifferTrendDrag) return;
+        const rect = svgCur.getBoundingClientRect();
+        const spanT = snifferTrendView.to - snifferTrendView.from;
+        const pxSpan = W - padL - padR;
+        const dt = ((e.clientX - snifferTrendDrag.startX) * spanT) / pxSpan;
+        const nf = snifferTrendDrag.from - dt;
+        snifferTrendView = { from: nf, to: snifferTrendDrag.to - dt };
+        snifferRenderTrend();
+      });
+    });
+    window.addEventListener('mouseup', () => {
+      if (snifferTrendDrag) {
+        snifferTrendDrag = null;
+        const svgCur = $('sn-trend-svg');
+        if (svgCur) svgCur.classList.remove('sn-dragging');
+      }
+    });
+  }
 }
 function snifferTrendResize() {
   if (!snifferTrendView) return;
@@ -3528,9 +3609,8 @@ function renderSnifferPager(key, onPage, total, page, pageSize) {
   el.innerHTML =
     '<button data-act="first" ' + (page <= 1 ? 'disabled' : '') + '>«</button>' +
     '<button data-act="prev" ' + (page <= 1 ? 'disabled' : '') + '>‹</button>' +
-    '<span class="sn-pager-page">' + t('sniffer_page') + ' ' + page + '</span>' +
-    '<span class="sn-pager-total">/ ' + pages + '</span>' +
     '<input class="sn-pager-goto" type="number" min="1" max="' + pages + '" value="' + page + '" data-i18n-title="sniffer_page_goto" title="" aria-label="' + t('sniffer_page_goto') + '">' +
+    '<span class="sn-pager-total">/ ' + pages + '</span>' +
     '<button data-act="next" ' + (page >= pages ? 'disabled' : '') + '>›</button>' +
     '<button data-act="last" ' + (page >= pages ? 'disabled' : '') + '>»</button>';
   el.querySelectorAll('button').forEach((b) => {
@@ -3633,14 +3713,21 @@ function bindSnifferExportButtons() {
   const tgBtn = $('sn-tg-export');
   if (tgBtn && !tgBtn.dataset.bound) {
     tgBtn.dataset.bound = '1';
-    tgBtn.addEventListener('click', () => openSnifferExportMenu(tgBtn, 'telegrams'));
+    tgBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openSnifferExportMenu(tgBtn, 'telegrams');
+    });
   }
   const hisBtn = $('sn-his-export');
   if (hisBtn && !hisBtn.dataset.bound) {
     hisBtn.dataset.bound = '1';
-    hisBtn.addEventListener('click', () => openSnifferExportMenu(hisBtn, 'history'));
+    hisBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openSnifferExportMenu(hisBtn, 'history');
+    });
   }
-  // close on outside click
+  // close on outside click (ignores clicks on the export button itself;
+  // the button's own handler re-opens the menu, so just close any other)
   if (!window._snExportCloseBound) {
     window._snExportCloseBound = true;
     document.addEventListener('click', (ev) => {
@@ -3686,7 +3773,8 @@ async function snifferLoadHistory() {
     // Register-centric history: the backend aggregates the distinct registers
     // that carried values in the selected period (with sample counts + latest
     // interpreted value). Client-side column filters (slave/address) apply on
-    // top; the pager slices the filtered set.
+    // top; the pager slices the filtered set. Clicking a row drills down into
+    // EVERY telegram value for that register (see snifferToggleHistoryDetail).
     let url = '/api/sniffer/history/summary?busid=' + bid;
     if (snifferHistoryFilter.from != null) url += '&from=' + snifferHistoryFilter.from;
     if (snifferHistoryFilter.to != null) url += '&to=' + snifferHistoryFilter.to;
@@ -3720,7 +3808,7 @@ function renderSnifferHistory(rows) {
     const desc = snifferRegisterDescription({
       description: r.description, entityName: r.entityName, specKey: r.specKey, entityId: r.entityId,
     });
-    return '<tr>' +
+    return '<tr class="sn-his-summary" data-slaveid="' + r.slaveId + '" data-address="' + r.address + '" data-busid="' + r.busId + '">' +
       '<td>' + r.slaveId + '</td>' +
       '<td>' + r.address + '</td>' +
       '<td>' + r.samples + '</td>' +
@@ -3729,13 +3817,17 @@ function renderSnifferHistory(rows) {
       '<td>' + uom + '</td>' +
       '<td>' + desc + '</td>' +
       '<td>' + snifferFullTime(r.lastTimestamp) + '</td>' +
-      '<td><button class="icon-btn sn-trend-btn" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
+      '<td class="sn-his-actions"><button class="icon-btn sn-trend-btn" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
         '" data-address="' + r.address + '" data-title="' + escapeHtml(r.description || r.entityName || ('Register ' + r.address)) +
-        '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + t('sniffer_trend') + '"><svg class="sn-trend-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 13.5h12M3.5 10.5l3-3.2 2.2 2 3.8-4.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>' +
-      '</tr>';
+        '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + t('sniffer_trend') + '"><svg class="sn-trend-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 13.5h12M3.5 10.5l3-3.2 2.2 2 3.8-4.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
+      '<button class="icon-btn sn-his-detail-btn" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId + '" data-address="' + r.address +
+        '" title="' + t('sniffer_history_detail') + '"><svg class="sn-detail-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 3l4.5 5L5 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>' +
+      '</tr>' +
+      '<tr class="sn-his-detail-row" data-slaveid="' + r.slaveId + '" data-address="' + r.address + '" hidden><td colspan="9" class="sn-his-detail-cell"></td></tr>';
   }).join('');
   renderSnifferPager('history', slice.length, filtered.length, snifferHistoryPage, snifferHistoryPageSize);
   bindSnifferTrendButtons();
+  bindSnifferHistoryDetailButtons();
 }
 function snifferFullTime(ts) {
   if (!ts) return '-';
