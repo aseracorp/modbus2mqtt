@@ -278,6 +278,8 @@ window.LANG_de = {
   sniffer_history_detail: "Alle Werte anzeigen",
   sniffer_page: "Seite",
   sniffer_page_goto: "Gehe zu Seite",
+  sniffer_page_up: "Seite vor",
+  sniffer_page_down: "Seite zurück",
   sniffer_export: "Export",
   sniffer_export_hint: "Mit aktiven Filtern exportieren (CSV oder JSON)",
   sniffer_export_error: "Export fehlgeschlagen: ",

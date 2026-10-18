@@ -276,6 +276,8 @@ window.LANG_fr = {
   sniffer_trend_points: "points",
   sniffer_page: "Page",
   sniffer_page_goto: "Aller à la page",
+  sniffer_page_up: "Page suivante",
+  sniffer_page_down: "Page précédente",
   sniffer_export: "Exporter",
   sniffer_export_hint: "Exporter avec les filtres actifs (CSV ou JSON)",
   sniffer_export_error: "Échec de l'export : ",

@@ -1244,10 +1244,43 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .sniffer-pager .sn-pager-total { color: var(--text-muted); }
 .sniffer-pager select { background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 2px 4px; font-size: 12px; }
 .sniffer-pager .sn-pager-goto {
-  width: 52px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong);
+  width: 44px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong);
   border-radius: 6px; padding: 2px 4px; font-size: 12.5px; text-align: center;
+  -moz-appearance: textfield; appearance: textfield;
 }
+.sniffer-pager .sn-pager-goto::-webkit-outer-spin-button,
+.sniffer-pager .sn-pager-goto::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .sniffer-pager .sn-pager-goto:focus { outline: none; border-color: var(--primary); }
+
+/* Page-goto with themed up/down arrows. We replace the native number-input
+   spinners (untameable across browsers, always light-grey) with our own
+   chevron buttons that follow the active theme via currentColor. */
+.sniffer-pager .sn-pager-goto-wrap { position: relative; display: inline-flex; flex-direction: column; vertical-align: middle; }
+.sniffer-pager .sn-pager-goto-wrap .sn-pager-goto { width: 44px; padding-right: 14px; }
+.sniffer-pager .sn-pager-spin {
+  position: absolute; right: 1px; width: 13px; min-width: 13px; padding: 0;
+  border: 0; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); line-height: 0;
+}
+.sniffer-pager .sn-pager-spin[data-spin="up"] { top: 1px; height: 10px; }
+.sniffer-pager .sn-pager-spin[data-spin="down"] { bottom: 1px; height: 10px; }
+.sniffer-pager .sn-pager-spin:hover { color: var(--primary); }
+.sniffer-pager .sn-pager-spin .sn-spin-ico { display: block; }
+.sniffer-pager .sn-pager-goto:focus ~ .sn-pager-spin { color: var(--primary); }
+
+/* Page-size dropdown: hide the native arrow and draw the themed chevron,
+   consistent with the other form selects. The footer rule uses the
+   `background` shorthand, so we need extra specificity to win. */
+.sniffer-footer .sniffer-page-size select.sn-page-size-select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  padding-right: 26px !important;
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath fill='%23888' d='M1 0l5 6 5-6z'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 8px center !important;
+  background-color: var(--bg) !important;
+}
+.sniffer-footer .sniffer-page-size select:hover { border-color: var(--primary); }
 
 /* Trend button: outline chart icon, uncolored like the other icon buttons. */
 .icon-btn .sn-trend-ico { display: inline-block; vertical-align: middle; color: inherit; stroke: currentColor; }
