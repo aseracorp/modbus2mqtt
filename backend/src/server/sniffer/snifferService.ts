@@ -669,8 +669,9 @@ export class SnifferService implements SnifferTransport {
         })
       }
     }
-    // Chronological, then page.
-    collected.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id)
+    // Newest first, then page (descending timestamp — the History view shows
+    // the newest telegram on top).
+    collected.sort((a, b) => b.timestamp - a.timestamp || b.id - a.id)
     return collected.slice(offset, offset + limit)
   }
 

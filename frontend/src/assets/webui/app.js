@@ -3563,6 +3563,11 @@ async function snifferRefresh() {
     snifferTableData = { telegrams: tgs, telegramsTotal: tgTotal, devices: devs || [], registers: regs || [] };
     snifferRefreshRender();
     renderSnifferPager('telegram', tgs.length, tgTotal, snifferTelegramPage, snifferTelegramPageSize);
+    // Live updates for the History tab too: it is server-side paged and its
+    // own endpoint, so it refreshes separately (only when the tab is active).
+    if (document.getElementById('sntab-history') && !document.getElementById('sntab-history').hidden) {
+      snifferLoadHistory();
+    }
     bindSnifferPencils();
     bindSnifferTrendButtons();
   } catch (e) {
@@ -3695,36 +3700,16 @@ function snifferDownloadExport(rows, format, base) {
 }
 // Small dropdown menu next to the Export button: CSV | JSON.
 function bindSnifferExportButtons() {
-  const tgBtn = $('sn-tg-export');
-  if (tgBtn && !tgBtn.dataset.bound) {
-    tgBtn.dataset.bound = '1';
-    tgBtn.addEventListener('click', (ev) => {
+  const headBtn = $('sn-export-btn');
+  if (headBtn && !headBtn.dataset.bound) {
+    headBtn.dataset.bound = '1';
+    headBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      openSnifferExportMenu(tgBtn, 'telegrams');
-    });
-  }
-  const hisBtn = $('sn-his-export');
-  if (hisBtn && !hisBtn.dataset.bound) {
-    hisBtn.dataset.bound = '1';
-    hisBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openSnifferExportMenu(hisBtn, 'history');
-    });
-  }
-  const devBtn = $('sn-dev-export');
-  if (devBtn && !devBtn.dataset.bound) {
-    devBtn.dataset.bound = '1';
-    devBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openSnifferExportMenu(devBtn, 'devices');
-    });
-  }
-  const regBtn = $('sn-reg-export');
-  if (regBtn && !regBtn.dataset.bound) {
-    regBtn.dataset.bound = '1';
-    regBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openSnifferExportMenu(regBtn, 'registers');
+      // Export the ACTIVE tab. The button lives in the tab head, so it always
+      // refers to whichever table is currently visible.
+      const active = document.querySelector('.sniffer-tab-btn.active');
+      const tab = active ? active.getAttribute('data-sntab') : 'telegrams';
+      openSnifferExportMenu(headBtn, tab);
     });
   }
   // close on outside click (ignores clicks on the export button itself;
@@ -4032,7 +4017,7 @@ async function snifferSaveConfig() {
   $('sn-his-size')?.addEventListener('change', (e) => {
     snifferHistoryPageSize = Number(e.target.value) || 100;
     snifferHistoryPage = 1;
-    renderSnifferHistory(snifferHistoryData);
+    snifferLoadHistory();
   });
   bindSnifferExportButtons();
   // Trend popup.
