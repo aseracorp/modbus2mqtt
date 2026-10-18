@@ -3768,6 +3768,17 @@ async function snifferLoadHistory() {
     let url = '/api/sniffer/history/flat?busid=' + bid;
     if (snifferHistoryFilter.from != null) url += '&from=' + snifferHistoryFilter.from;
     if (snifferHistoryFilter.to != null) url += '&to=' + snifferHistoryFilter.to;
+    // Push active column filters that map 1:1 to server parameters down to
+    // the server. This way the server fetches ONLY rows matching the filter
+    // and new matching telegrams are not displaced by non-matching ones in
+    // the limited (paged) window — the "new line doesn't show up with a
+    // filter active" problem. Multi-value filters can't be expressed as a
+    // single slaveid/address, so they stay client-side.
+    const histF = snifferFilters.history || {};
+    const slaveVals = Array.isArray(histF.slaveId) ? histF.slaveId : [];
+    const addrVals = Array.isArray(histF.address) ? histF.address : [];
+    if (slaveVals.length === 1) url += '&slaveid=' + encodeURIComponent(String(slaveVals[0]));
+    if (addrVals.length === 1) url += '&address=' + encodeURIComponent(String(addrVals[0]));
     if (snifferHistoryPageSize > 0) url += '&limit=' + snifferHistoryPageSize + '&offset=' + ((snifferHistoryPage - 1) * snifferHistoryPageSize);
     else url += '&limit=2000';
     const res = await api(url);
