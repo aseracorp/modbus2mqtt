@@ -274,4 +274,12 @@ window.LANG_fr = {
   sniffer_trend_loading: "Chargement de la tendance…",
   sniffer_trend_no_data: "Aucun historique de valeurs pour ce registre",
   sniffer_trend_points: "points",
+  sniffer_page: "Page",
+  sniffer_page_goto: "Aller à la page",
+  sniffer_export: "Exporter",
+  sniffer_export_hint: "Exporter avec les filtres actifs (CSV ou JSON)",
+  sniffer_export_error: "Échec de l'export : ",
+  sniffer_export_empty: "Rien à exporter - aucune ligne ne correspond aux filtres actifs.",
+  sniffer_export_done: "Exporté",
+  sniffer_samples: "Échantillons",
 };

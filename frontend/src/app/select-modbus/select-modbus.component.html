@@ -182,9 +182,6 @@
                 </div>
               </mat-tab>
             </mat-tab-group>
-            @if (bus != null && isRTU(i)) {
-              <app-sniffer [busId]="bus.busId" [busName]="getBusName(bus)" />
-            }
           </mat-card-content>
         </mat-card>
       }

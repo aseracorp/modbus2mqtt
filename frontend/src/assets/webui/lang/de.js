@@ -275,4 +275,12 @@ window.LANG_de = {
   sniffer_trend_loading: "Lade Verlauf…",
   sniffer_trend_no_data: "Noch kein Werteverlauf für dieses Register",
   sniffer_trend_points: "Punkte",
+  sniffer_page: "Seite",
+  sniffer_page_goto: "Gehe zu Seite",
+  sniffer_export: "Export",
+  sniffer_export_hint: "Mit aktiven Filtern exportieren (CSV oder JSON)",
+  sniffer_export_error: "Export fehlgeschlagen: ",
+  sniffer_export_empty: "Nichts zu exportieren - keine Zeilen entsprechen den aktiven Filtern.",
+  sniffer_export_done: "Exportiert",
+  sniffer_samples: "Stichproben",
 };

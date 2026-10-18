@@ -40,7 +40,6 @@ import { MatIcon } from '@angular/material/icon'
 import { MatIconButton } from '@angular/material/button'
 import { MatTooltip } from '@angular/material/tooltip'
 import { MatCard, MatCardHeader, MatCardTitle, MatCardContent } from '@angular/material/card'
-import { SnifferComponent } from '../sniffer/sniffer.component'
 import { filterSerialDevices } from './serial-devices'
 
 @Component({
@@ -64,7 +63,6 @@ import { filterSerialDevices } from './serial-devices'
     MatInput,
     MatSelect,
     MatOption,
-    SnifferComponent,
   ],
 })
 export class SelectModbusComponent implements AfterViewInit, OnDestroy {

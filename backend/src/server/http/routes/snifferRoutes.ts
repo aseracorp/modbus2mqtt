@@ -80,7 +80,9 @@ export function registerSnifferRoutes(r: Registrar): void {
 
   // GET /api/sniffer/registers/history?busid=1&slaveid=5&address=0[&limit=500][&from=<epochSec>][&to=<epochSec>]
   // Returns response telegrams that carried values for the register (newest
-  // first) - the raw data source for the value trend chart.
+  // first). Each point includes `convertedValue` (interpreted via the template
+  // entity, when decodable) and `rawAddressWord` (the raw register word) - the
+  // data source for the value trend chart.
   r.get(apiUri.snifferRegisterHistory, (ctx) => {
     const busId = requireBusId(ctx)
     const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
@@ -92,7 +94,24 @@ export function registerSnifferRoutes(r: Registrar): void {
       ? parseFloat(ctx.query['from']) : undefined
     const to = ctx.query['to'] !== undefined && ctx.query['to'] !== ''
       ? parseFloat(ctx.query['to']) : undefined
-    return ok(registry.getRegisterHistory(busId, slaveId, address, limit, from, to))
+    const service = registry.getService(busId)
+    if (!service) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'no sniffer service for bus ' + busId)
+    return ok(service.getRegisterHistoryConverted(busId, slaveId, address, limit, from, to))
+  })
+
+  // GET /api/sniffer/history/summary?busid=1[&slaveid=5][&from=..][&to=..][&address=0]
+  // Register-centric history: distinct registers that carried values in the
+  // period, with sample count, latest raw + interpreted value. Drives the
+  // History view (lists registers, not telegrams).
+  r.get(apiUri.snifferHistorySummary, (ctx) => {
+    const busId = requireBusId(ctx)
+    const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
+    const address = ctx.query['address'] !== undefined ? parseInt(ctx.query['address']) : undefined
+    const from = ctx.query['from'] !== undefined && ctx.query['from'] !== '' ? parseFloat(ctx.query['from']) : undefined
+    const to = ctx.query['to'] !== undefined && ctx.query['to'] !== '' ? parseFloat(ctx.query['to']) : undefined
+    const service = registry.getService(busId)
+    if (!service) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'no sniffer service for bus ' + busId)
+    return ok(service.getRegisterHistorySummary(busId, slaveId, from, to, address))
   })
 
   // GET /api/sniffer/devices?busid=1

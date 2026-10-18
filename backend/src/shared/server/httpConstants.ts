@@ -51,4 +51,5 @@ export enum apiUri {
   snifferRegisterTemplate = '/api/sniffer/registers/template',
   snifferSlaveTemplates = '/api/sniffer/slave-templates',
   snifferRegisterHistory = '/api/sniffer/registers/history',
+  snifferHistorySummary = '/api/sniffer/history/summary',
 }

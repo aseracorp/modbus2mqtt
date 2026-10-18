@@ -1120,3 +1120,42 @@ it('getTelegrams supports the from/to time-range filter', async () => {
   expect(filtered[0].timestamp).toBe(base + 61)
   await svc.stop()
 })
+
+it('getRegisterHistoryConverted returns converted values from the history', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  const base = Math.floor(Date.now() / 1000)
+  // Slave 5 reads register 0; the first response carries raw 486.
+  store.appendTelegram(1, { busId: 1, direction: TelegramDirection.response, timestamp: base, slaveId: 5, functionCode: 3, payload: [0x02, 0x01, 0xe6], raw: [0x05, 0x03, 0x02, 0x01, 0xe6], crcOk: true, decoded: { address: 0, length: 1, values: [486], functionName: 'readHoldingRegisters' } })
+  store.appendTelegram(1, { busId: 1, direction: TelegramDirection.response, timestamp: base + 60, slaveId: 5, functionCode: 3, payload: [0x02, 0x01, 0xf4], raw: [0x05, 0x03, 0x02, 0x01, 0xf4], crcOk: true, decoded: { address: 0, length: 1, values: [500], functionName: 'readHoldingRegisters' } })
+  // Without a spec the converted value falls back to the raw word (enrich returns the row as-is).
+  const rows = svc.getRegisterHistoryConverted(1, 5, 0, 100)
+  expect(rows.length).toBeGreaterThanOrEqual(2)
+  expect(rows[0].address).toBe(0)
+  expect(rows[0].rawAddressWord).toBe(500) // newest first
+  await svc.stop()
+})
+
+it('getRegisterHistorySummary aggregates distinct registers in the period', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  const base = Math.floor(Date.now() / 1000)
+  const tg = (ts, addr, val) => ({ busId: 1, direction: TelegramDirection.response, timestamp: ts, slaveId: 5, functionCode: 3, payload: [0x02, (val >> 8) & 0xff, val & 0xff], raw: [0x05, 0x03, 0x02, (val >> 8) & 0xff, val & 0xff], crcOk: true, decoded: { address: addr, length: 1, values: [val], functionName: 'readHoldingRegisters' } })
+  store.appendTelegram(1, tg(base, 0, 100))
+  store.appendTelegram(1, tg(base + 10, 0, 200))
+  store.appendTelegram(1, tg(base + 20, 400, 2))
+  const summary = svc.getRegisterHistorySummary(1)
+  expect(summary).toHaveLength(2)
+  const a0 = summary.find((r) => r.address === 0)
+  expect(a0?.samples).toBe(2)
+  expect(a0?.lastRaw).toBe(200)
+  const a400 = summary.find((r) => r.address === 400)
+  expect(a400?.samples).toBe(1)
+  expect(a400?.lastRaw).toBe(2)
+  // Time-bounded query only sees the later sample of register 0 (base+10) and
+  // register 400 (base+20); the base sample (base+0) is before the window.
+  const bounded = svc.getRegisterHistorySummary(1, undefined, base + 5, base + 30)
+  expect(bounded.find((r) => r.address === 0)?.samples).toBe(1)
+  expect(bounded.find((r) => r.address === 400)?.samples).toBe(1)
+  await svc.stop()
+})
