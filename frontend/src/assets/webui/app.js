@@ -3186,27 +3186,6 @@ async function saveSnifferAnnotate() {
   }
 }
 
-function snifferRenderHistoryDetail(rows) {
-  const rev = (rows || []).slice().reverse(); // newest first
-  if (!rev.length) {
-    return '<span class="sniffer-empty">' + t('sniffer_no_telegrams') + '</span>';
-  }
-  const head = '<div class="sn-his-detail-wrap"><table class="sniffer-table sn-his-detail-table"><thead><tr>' +
-    '<th>' + t('sniffer_time') + '</th><th>' + t('sniffer_dir') + '</th><th>' + t('sniffer_raw_value') + '</th>' +
-    '<th>' + t('sniffer_interp_value') + '</th><th>' + t('sniffer_uom') + '</th><th>' + t('sniffer_crc') + '</th></tr></thead><tbody>';
-  const rowsHtml = rev.map((r) => {
-    const raw = r.values && r.values.length ? escapeHtml(String(r.values[0])) : '<span class="sn-muted">—</span>';
-    const interp = r.convertedValue !== undefined && r.convertedValue !== null && r.convertedValue !== ''
-      ? escapeHtml(String(r.convertedValue)) : '<span class="sn-muted">—</span>';
-    const uom = r.uom ? escapeHtml(String(r.uom)) : '';
-    const crc = r.crcOk === undefined ? '' : (r.crcOk ? '✓' : '✗');
-    const dir = r.direction === 'request' ? '→' : '←';
-    return '<tr><td>' + snifferFullTime(r.timestamp) + '</td><td>' + dir + '</td><td class="sniffer-mono">' + raw + '</td>' +
-      '<td class="sniff-interp">' + interp + '</td><td>' + uom + '</td><td>' + crc + '</td></tr>';
-  }).join('');
-  return head + rowsHtml + '</tbody></table></div>' +
-    '<div class="sn-his-detail-count">' + rev.length + ' ' + t('sniffer_trend_points') + '</div>';
-}
 function bindSnifferTrendButtons() {
   document.querySelectorAll('.sn-trend-btn').forEach((btn) => {
     if (btn.dataset.bound) return;
@@ -3675,6 +3654,10 @@ function snifferExportDevices(format) {
   const rows = applySnifferFilters(snifferTableData.devices || [], 'devices');
   snifferDownloadExport(rows, format, 'devices');
 }
+function snifferExportRegisters(format) {
+  const rows = applySnifferFilters(snifferTableData.registers || [], 'registers');
+  snifferDownloadExport(rows, format, 'registers');
+}
 // Serializes rows to CSV/JSON and triggers a browser download.
 function snifferDownloadExport(rows, format, base) {
   if (!rows.length) {
@@ -3736,6 +3719,14 @@ function bindSnifferExportButtons() {
       openSnifferExportMenu(devBtn, 'devices');
     });
   }
+  const regBtn = $('sn-reg-export');
+  if (regBtn && !regBtn.dataset.bound) {
+    regBtn.dataset.bound = '1';
+    regBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openSnifferExportMenu(regBtn, 'registers');
+    });
+  }
   // close on outside click (ignores clicks on the export button itself;
   // the button's own handler re-opens the menu, so just close any other)
   if (!window._snExportCloseBound) {
@@ -3758,6 +3749,7 @@ function openSnifferExportMenu(btn, kind) {
     menu.remove();
     if (kind === 'telegrams') snifferExportTelegrams('csv');
     else if (kind === 'devices') snifferExportDevices('csv');
+    else if (kind === 'registers') snifferExportRegisters('csv');
     else snifferExportHistory('csv');
   });
   const json = document.createElement('button');
@@ -3767,6 +3759,7 @@ function openSnifferExportMenu(btn, kind) {
     menu.remove();
     if (kind === 'telegrams') snifferExportTelegrams('json');
     else if (kind === 'devices') snifferExportDevices('json');
+    else if (kind === 'registers') snifferExportRegisters('json');
     else snifferExportHistory('json');
   });
   menu.appendChild(csv); menu.appendChild(json);
@@ -3784,84 +3777,60 @@ async function snifferLoadHistory() {
   const body = $('sn-history-body');
   if (body) body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('sniffer_loading') + '</td></tr>';
   try {
-    // Register-centric history: the backend aggregates the distinct registers
-    // that carried values in the selected period (with sample counts + latest
-    // interpreted value). Client-side column filters (slave/address) apply on
-    // top; the pager slices the filtered set. Clicking a row drills down into
-    // EVERY telegram value for that register (see snifferToggleHistoryDetail).
-    let url = '/api/sniffer/history/summary?busid=' + bid;
+    // Flat value history: the backend returns every response telegram carrying
+    // register values as its own row (registers-table columns + timestamp),
+    // sorted by timestamp. Server-side paged; column filters apply on top.
+    let url = '/api/sniffer/history/flat?busid=' + bid;
     if (snifferHistoryFilter.from != null) url += '&from=' + snifferHistoryFilter.from;
     if (snifferHistoryFilter.to != null) url += '&to=' + snifferHistoryFilter.to;
-    const rows = await api(url);
+    if (snifferHistoryPageSize > 0) url += '&limit=' + snifferHistoryPageSize + '&offset=' + ((snifferHistoryPage - 1) * snifferHistoryPageSize);
+    else url += '&limit=2000';
+    const res = await api(url);
     if (snifferBusId !== bid) return;
-    snifferHistoryData = Array.isArray(rows) ? rows : [];
-    renderSnifferHistory(snifferHistoryData);
-    renderSnifferPager('history', Math.min(snifferHistoryPageSize, snifferHistoryData.length), snifferHistoryData.length, snifferHistoryPage, snifferHistoryPageSize);
+    const rows = Array.isArray(res) ? res : ((res && res.rows) || []);
+    const total = Array.isArray(res) ? rows.length : ((res && res.total) || rows.length);
+    snifferHistoryData = rows;
+    renderSnifferHistory(snifferHistoryData, total);
   } catch (e) {
     if (body) body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('err_load') + '</td></tr>';
   }
 }
-function renderSnifferHistory(rows) {
+function renderSnifferHistory(rows, total) {
   const body = $('sn-history-body');
   if (!body) return;
-  // Column filters (slave/address) via the shared filter system, table 'history'.
+  // Column filters (timestamp/slave/address/raw/...) via the shared filter
+  // system, table 'history'. Rows arrive already sorted by timestamp.
   const filtered = applySnifferFilters(rows, 'history');
   if (!filtered.length) {
-    body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('sniffer_no_registers') + '</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('sniffer_no_telegrams') + '</td></tr>';
     renderSnifferPager('history', 0, 0, 1, snifferHistoryPageSize);
     return;
   }
-  const pages = Math.max(1, Math.ceil(filtered.length / snifferHistoryPageSize));
-  if (snifferHistoryPage > pages) snifferHistoryPage = pages;
-  const start = (snifferHistoryPage - 1) * snifferHistoryPageSize;
-  const slice = filtered.slice(start, start + snifferHistoryPageSize);
-  body.innerHTML = slice.map((r) => {
-    const raw = r.lastRaw != null ? escapeHtml(String(r.lastRaw)) : '<span class="sn-muted">—</span>';
-    const interp = r.lastValue != null && r.lastValue !== '' ? escapeHtml(String(r.lastValue)) : '<span class="sn-muted">—</span>';
+  body.innerHTML = filtered.map((r) => {
+    const raw = r.rawValue != null ? escapeHtml(String(r.rawValue)) : '<span class="sn-muted">—</span>';
+    const interp = r.value != null && r.value !== '' ? escapeHtml(String(r.value)) : '<span class="sn-muted">—</span>';
+    const conv = r.converter ? escapeHtml(snifferConverterLabel(r.converter)) : '<span class="sn-muted">' + t('sniffer_no_template') + '</span>';
     const uom = r.uom ? escapeHtml(String(r.uom)) : '';
     const desc = snifferRegisterDescription({
       description: r.description, entityName: r.entityName, specKey: r.specKey, entityId: r.entityId,
     });
-    return '<tr class="sn-his-summary" data-slaveid="' + r.slaveId + '" data-address="' + r.address + '" data-busid="' + r.busId + '">' +
+    return '<tr data-slaveid="' + r.slaveId + '" data-address="' + r.address + '" data-busid="' + (r.busId ?? 0) + '">' +
+      '<td>' + snifferFullTime(r.timestamp) + '</td>' +
       '<td>' + r.slaveId + '</td>' +
       '<td>' + r.address + '</td>' +
-      '<td>' + r.samples + '</td>' +
       '<td class="sniffer-mono">' + raw + '</td>' +
+      '<td class="sniff-conv">' + conv + '</td>' +
       '<td class="sniff-interp">' + interp + '</td>' +
       '<td>' + uom + '</td>' +
       '<td>' + desc + '</td>' +
-      '<td>' + snifferFullTime(r.lastTimestamp) + '</td>' +
-      '<td class="sn-his-actions"><button class="icon-btn sn-trend-btn" data-busid="' + r.busId + '" data-slaveid="' + r.slaveId +
+      '<td class="sn-his-actions"><button class="icon-btn sn-trend-btn" data-busid="' + (r.busId ?? 0) + '" data-slaveid="' + r.slaveId +
         '" data-address="' + r.address + '" data-title="' + escapeHtml(r.description || r.entityName || ('Register ' + r.address)) +
         '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + t('sniffer_trend') + '"><svg class="sn-trend-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 13.5h12M3.5 10.5l3-3.2 2.2 2 3.8-4.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>' +
-      '</tr>' +
-      '<tr class="sn-his-detail-row" data-slaveid="' + r.slaveId + '" data-address="' + r.address + '" data-busid="' + r.busId +
-        '"><td colspan="9" class="sn-his-detail-cell"><div class="sn-his-detail-loading">' + t('sniffer_loading') + '</div></td></tr>';
+      '</tr>';
   }).join('');
-  renderSnifferPager('history', slice.length, filtered.length, snifferHistoryPage, snifferHistoryPageSize);
+  const shown = filtered.length;
+  renderSnifferPager('history', shown, typeof total === 'number' ? total : shown, snifferHistoryPage, snifferHistoryPageSize);
   bindSnifferTrendButtons();
-  snifferLoadHistoryDetails();
-}
-// Loads the full value history (every telegram) for each register row currently
-// visible on the history page, filling the always-open detail rows underneath.
-function snifferLoadHistoryDetails() {
-  document.querySelectorAll('#sn-history-body .sn-his-detail-row[data-busid]').forEach((row) => {
-    const busId = Number(row.getAttribute('data-busid'));
-    const slaveId = Number(row.getAttribute('data-slaveid'));
-    const address = Number(row.getAttribute('data-address'));
-    const cell = row.querySelector('.sn-his-detail-cell');
-    if (!cell || cell.dataset.open === '1') return;
-    cell.dataset.open = '1';
-    api('/api/sniffer/registers/history?busid=' + busId + '&slaveid=' + slaveId + '&address=' + address + '&limit=100000')
-      .then((rows) => {
-        if (cell.dataset.open !== '1') return;
-        cell.innerHTML = snifferRenderHistoryDetail(Array.isArray(rows) ? rows : []);
-      })
-      .catch(() => {
-        if (cell.dataset.open !== '1') return;
-        cell.innerHTML = '<span class="sniffer-empty">' + t('err_load') + '</span>';
-      });
-  });
 }
 function snifferFullTime(ts) {
   if (!ts) return '-';
