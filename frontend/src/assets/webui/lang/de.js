@@ -275,6 +275,7 @@ window.LANG_de = {
   sniffer_trend_loading: "Lade Verlauf…",
   sniffer_trend_no_data: "Noch kein Werteverlauf für dieses Register",
   sniffer_trend_points: "Punkte",
+  sniffer_history_detail: "Alle Werte anzeigen",
   sniffer_page: "Seite",
   sniffer_page_goto: "Gehe zu Seite",
   sniffer_export: "Export",

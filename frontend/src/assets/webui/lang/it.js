@@ -272,6 +272,7 @@ window.LANG_it = {
   sniffer_trend_loading: "Caricamento andamento…",
   sniffer_trend_no_data: "Nessuna cronologia valori per questo registro",
   sniffer_trend_points: "punti",
+  sniffer_history_detail: "Mostra tutti i valori",
   sniffer_page: "Pagina",
   sniffer_page_goto: "Vai alla pagina",
   sniffer_export: "Esporta",
