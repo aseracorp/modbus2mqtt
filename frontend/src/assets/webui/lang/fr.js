@@ -264,4 +264,14 @@ window.LANG_fr = {
   sniffer_filter_field: "Filtrer : {field}",
   sniffer_filter_placeholder: "Saisissez une valeur à filtrer…",
   sniffer_filter_active: "{n} filtres actifs",
+
+  sniffer_history: "Historique",
+  sniffer_timestamp: "Horodatage",
+  sniffer_page_size: "Taille de page",
+  sniffer_loading: "Chargement…",
+  sniffer_trend: "Tendance des valeurs",
+  sniffer_trend_fit: "Ajuster",
+  sniffer_trend_loading: "Chargement de la tendance…",
+  sniffer_trend_no_data: "Aucun historique de valeurs pour ce registre",
+  sniffer_trend_points: "points",
 };

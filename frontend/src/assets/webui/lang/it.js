@@ -262,4 +262,14 @@ window.LANG_it = {
   sniffer_filter_field: "Filtro: {field}",
   sniffer_filter_placeholder: "Digita un valore da filtrare…",
   sniffer_filter_active: "{n} filtri attivi",
+
+  sniffer_history: "Cronologia",
+  sniffer_timestamp: "Timestamp",
+  sniffer_page_size: "Dimensione pagina",
+  sniffer_loading: "Caricamento…",
+  sniffer_trend: "Andamento valori",
+  sniffer_trend_fit: "Adatta",
+  sniffer_trend_loading: "Caricamento andamento…",
+  sniffer_trend_no_data: "Nessuna cronologia valori per questo registro",
+  sniffer_trend_points: "punti",
 };
