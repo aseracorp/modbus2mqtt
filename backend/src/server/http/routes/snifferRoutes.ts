@@ -114,6 +114,24 @@ export function registerSnifferRoutes(r: Registrar): void {
     return ok(service.getRegisterHistorySummary(busId, slaveId, from, to, address))
   })
 
+  // GET /api/sniffer/history/flat?busid=1[&slaveid=][&from=][&to=][&address=][&limit=][&offset=]
+  // Flat value history: every response telegram carrying register values as a
+  // single row (registers-table columns + timestamp), sorted by timestamp.
+  r.get(apiUri.snifferHistoryFlat, (ctx) => {
+    const busId = requireBusId(ctx)
+    const slaveId = ctx.query['slaveid'] !== undefined ? parseInt(ctx.query['slaveid']) : undefined
+    const address = ctx.query['address'] !== undefined ? parseInt(ctx.query['address']) : undefined
+    const from = ctx.query['from'] !== undefined && ctx.query['from'] !== '' ? parseFloat(ctx.query['from']) : undefined
+    const to = ctx.query['to'] !== undefined && ctx.query['to'] !== '' ? parseFloat(ctx.query['to']) : undefined
+    const limit = ctx.query['limit'] !== undefined ? parseInt(ctx.query['limit']) : 500
+    const offset = ctx.query['offset'] !== undefined ? parseInt(ctx.query['offset']) : 0
+    const service = registry.getService(busId)
+    if (!service) throw new ApiError(HttpErrorsEnum.ErrBadRequest, 'no sniffer service for bus ' + busId)
+    const rows = service.getRegisterHistoryFlat(busId, slaveId, from, to, address, limit, offset)
+    const total = registry.countTelegrams(busId, slaveId, from, to)
+    return ok({ rows, total })
+  })
+
   // GET /api/sniffer/devices?busid=1
   r.get(apiUri.snifferDevices, (ctx) => {
     const busId = requireBusId(ctx)

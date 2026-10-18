@@ -601,6 +601,80 @@ export class SnifferService implements SnifferTransport {
   }
 
   /**
+   * Flat value history: one row per response telegram that carried register
+   * values, in the requested window, each enriched with the same register
+   * columns as the registers table (slave, address, raw, converter, value,
+   * unit, description) plus the telegram timestamp. Sorted by timestamp
+   * ascending — the History view prints every captured value line by line.
+   */
+  getRegisterHistoryFlat(
+    busId: number,
+    slaveId?: number,
+    from?: number,
+    to?: number,
+    address?: number,
+    limit = 500,
+    offset = 0
+  ): Array<SnifferTelegramRow & {
+    rawValue: string
+    converter?: string
+    value?: string
+    uom?: string
+    description?: string
+    entityName?: string
+    entityId?: string | number
+    specKey?: string
+  }> {
+    // No slave filter: collect the distinct slaves of the bus (like the
+    // summary does) so every register is covered. A slave filter narrows
+    // to that slave only.
+    const slaveIds = slaveId !== undefined ? [slaveId] : Array.from(new Set(this.store.getTelegrams(busId).map((t) => t.slaveId)))
+    // Pull the recent telegrams per slave (bounded by limit, newest first in
+    // the store; we re-sort chronologically below). The limit is distributed
+    // across slaves so a single chatty slave cannot starve the view.
+    const per = Math.max(50, Math.ceil(limit / Math.max(1, slaveIds.length)))
+    const collected: Array<SnifferTelegramRow & {
+      rawValue: string
+      converter?: string
+      value?: string
+      uom?: string
+      description?: string
+      entityName?: string
+      entityId?: string | number
+      specKey?: string
+    }> = []
+    for (const sid of slaveIds) {
+      const rows = this.store.getTelegrams(busId, sid, per, from, to)
+      for (const t of rows) {
+        if (t.direction !== 'response' || t.address === undefined || !t.values || t.values.length === 0) continue
+        if (address !== undefined && t.address !== address) continue
+        const row: SnifferRegisterRow = {
+          id: t.id, busId, slaveId: sid, address: t.address, quantity: t.length ?? 1,
+          functionCode: t.functionCode, words: t.values, rawValue: t.values.join(' '), lastSeen: t.timestamp,
+        }
+        // Interpret against the current full register state of the slave so
+        // gating conditions (device-type select) resolve their entity.
+        const fullRows = this.store.getRegisters(busId, sid)
+        const enriched = this.enrichRegister(row, snifferValuesFromRows(fullRows.length > 0 ? fullRows : [row]))
+        collected.push({
+          ...t,
+          rawValue: row.rawValue ?? '',
+          converter: enriched.converter,
+          value: enriched.value,
+          uom: enriched.uom,
+          description: enriched.description,
+          entityName: enriched.entityName,
+          entityId: enriched.entityId,
+          specKey: enriched.specKey,
+        })
+      }
+    }
+    // Chronological, then page.
+    collected.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id)
+    return collected.slice(offset, offset + limit)
+  }
+
+  /**
    * Groups consecutive rows of the same slave that belong to one entity (e.g. a
    * 32 bit float read as two holding registers) so the converter receives the
    * full word array. Rows are merged by (slaveId, matching entity range from a

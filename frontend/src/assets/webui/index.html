@@ -499,6 +499,10 @@
         <button type="button" class="sniffer-tab-btn" data-sntab="history" data-i18n="sniffer_history" data-i18n-title="sniffer_history">History</button>
       </div>
       <div class="sniffer-tab-panel" id="sntab-telegrams">
+        <div class="sniffer-toolbar">
+          <span class="sniffer-spacer"></span>
+          <button type="button" class="btn btn-sm" id="sn-tg-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
+        </div>
         <div class="sniffer-table-wrap">
           <table class="sniffer-table">
             <thead><tr>
@@ -523,11 +527,13 @@
             </select>
           </span>
           <div class="sniffer-pager" id="sn-telegram-pager" hidden></div>
-          <span class="sniffer-spacer"></span>
-          <button type="button" class="btn btn-sm" id="sn-tg-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
         </div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-devices" hidden>
+        <div class="sniffer-toolbar">
+          <span class="sniffer-spacer"></span>
+          <button type="button" class="btn btn-sm" id="sn-dev-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
+        </div>
         <div class="sniffer-table-wrap">
         <table class="sniffer-table">
           <thead><tr>
@@ -551,11 +557,13 @@
             </select>
           </span>
           <div class="sniffer-pager" id="sn-device-pager" hidden></div>
-          <span class="sniffer-spacer"></span>
-          <button type="button" class="btn btn-sm" id="sn-dev-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
         </div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-registers" hidden>
+        <div class="sniffer-toolbar">
+          <span class="sniffer-spacer"></span>
+          <button type="button" class="btn btn-sm" id="sn-reg-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
+        </div>
         <div class="sniffer-table-wrap">
         <table class="sniffer-table">
           <thead><tr>
@@ -582,17 +590,21 @@
         </div>
       </div>
       <div class="sniffer-tab-panel" id="sntab-history" hidden>
+        <div class="sniffer-toolbar">
+          <span class="sniffer-spacer"></span>
+          <button type="button" class="btn btn-sm" id="sn-his-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
+        </div>
         <div class="sniffer-table-wrap">
           <table class="sniffer-table">
             <thead><tr>
+              <th><span data-i18n="sniffer_time">Time</span> <span class="sn-filter-ico" data-snf="timestamp" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
               <th><span data-i18n="sniffer_slave">Slave</span> <span class="sn-filter-ico" data-snf="slaveId" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
               <th><span data-i18n="sniffer_addr">Addr</span> <span class="sn-filter-ico" data-snf="address" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
-              <th><span data-i18n="sniffer_samples">Samples</span> <span class="sn-filter-ico" data-snf="samples" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
-              <th><span data-i18n="sniffer_raw_value">Raw</span> <span class="sn-filter-ico" data-snf="lastRaw" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
-              <th><span data-i18n="sniffer_interp_value">Value</span> <span class="sn-filter-ico" data-snf="lastValue" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
+              <th><span data-i18n="sniffer_raw_value">Raw</span> <span class="sn-filter-ico" data-snf="rawValue" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
+              <th><span data-i18n="sniffer_converter">Converter</span> <span class="sn-filter-ico" data-snf="converter" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
+              <th><span data-i18n="sniffer_interp_value">Value</span> <span class="sn-filter-ico" data-snf="value" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
               <th><span data-i18n="sniffer_uom">Unit</span> <span class="sn-filter-ico" data-snf="uom" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
               <th><span data-i18n="sniffer_desc">Description</span> <span class="sn-filter-ico" data-snf="description" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
-              <th><span data-i18n="sniffer_last_seen">Last seen</span> <span class="sn-filter-ico" data-snf="timestamp" data-i18n-title="sniffer_filter_tooltip" title="" tabindex="0"><svg class="sn-funnel" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 3h12l-4.5 5.2v4.3L6.5 14V8.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span></th>
               <th></th>
             </tr></thead>
             <tbody id="sn-history-body"><tr><td colspan="9" class="sniffer-empty" data-i18n="sniffer_no_registers">No registers in range.</td></tr></tbody>
@@ -608,8 +620,6 @@
             </select>
           </span>
           <div class="sniffer-pager" id="sn-history-pager" hidden></div>
-          <span class="sniffer-spacer"></span>
-          <button type="button" class="btn btn-sm" id="sn-his-export" data-i18n="sniffer_export" data-i18n-title="sniffer_export_hint">Export</button>
         </div>
       </div>
     </div>
