@@ -2515,6 +2515,7 @@ let snifferHistoryPage = 1;
 let snifferHistoryPageSize = 100;
 let snifferHistoryFilter = { from: null, to: null };
 let snifferHistoryData = [];
+let snifferHistoryServerTotal = 0;
 let snifferDevicePage = 1;
 let snifferDevicePageSize = 50;
 let snifferRegisterPage = 1;
@@ -2939,7 +2940,7 @@ function snifferRefreshRender() {
   renderSnifferTelegrams(snifferTableData.telegrams);
   renderSnifferDevices(snifferTableData.devices);
   renderSnifferRegisters(snifferTableData.registers);
-  if (snifferHistoryData.length) renderSnifferHistory(snifferHistoryData);
+  if (snifferHistoryData.length) renderSnifferHistory(snifferHistoryData, snifferHistoryServerTotal);
 }
 
 /* ---------------- sniffer clear database ---------------- */
@@ -3591,11 +3592,15 @@ function renderSnifferPager(key, onPage, total, page, pageSize) {
   el.innerHTML =
     '<button data-act="first" ' + (page <= 1 ? 'disabled' : '') + '>«</button>' +
     '<button data-act="prev" ' + (page <= 1 ? 'disabled' : '') + '>‹</button>' +
-    '<input class="sn-pager-goto" type="number" min="1" max="' + pages + '" value="' + page + '" data-i18n-title="sniffer_page_goto" title="" aria-label="' + t('sniffer_page_goto') + '">' +
+    '<span class="sn-pager-goto-wrap">' +
+      '<button type="button" class="sn-pager-spin" data-spin="up" tabindex="-1" title="' + t('sniffer_page_up') + '" aria-label="' + t('sniffer_page_up') + '"><svg class="sn-spin-ico" viewBox="0 0 10 6" width="9" height="6" aria-hidden="true"><path d="M1 5l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
+      '<input class="sn-pager-goto" type="text" inputmode="numeric" maxlength="6" value="' + page + '" data-i18n-title="sniffer_page_goto" title="" aria-label="' + t('sniffer_page_goto') + '">' +
+      '<button type="button" class="sn-pager-spin" data-spin="down" tabindex="-1" title="' + t('sniffer_page_down') + '" aria-label="' + t('sniffer_page_down') + '"><svg class="sn-spin-ico" viewBox="0 0 10 6" width="9" height="6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
+    '</span>' +
     '<span class="sn-pager-total">/ ' + pages + '</span>' +
     '<button data-act="next" ' + (page >= pages ? 'disabled' : '') + '>›</button>' +
     '<button data-act="last" ' + (page >= pages ? 'disabled' : '') + '>»</button>';
-  el.querySelectorAll('button').forEach((b) => {
+  el.querySelectorAll('button[data-act]').forEach((b) => {
     b.addEventListener('click', () => {
       const act = b.getAttribute('data-act');
       let np = page;
@@ -3608,6 +3613,18 @@ function renderSnifferPager(key, onPage, total, page, pageSize) {
       snifferPagerGo(key, np);
     });
   });
+  const wrap = el.querySelector('.sn-pager-goto-wrap');
+  if (wrap) {
+    wrap.querySelectorAll('button[data-spin]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const dir = b.getAttribute('data-spin');
+        let np = dir === 'up' ? page + 1 : page - 1;
+        np = Math.min(Math.max(1, np), pages);
+        if (np === page) return;
+        snifferPagerGo(key, np);
+      });
+    });
+  }
   const goto = el.querySelector('.sn-pager-goto');
   if (goto) {
     goto.addEventListener('keydown', (ev) => {
@@ -3617,6 +3634,12 @@ function renderSnifferPager(key, onPage, total, page, pageSize) {
         snifferPagerGo(key, np);
       } else if (ev.key === 'Escape') {
         goto.value = page;
+      } else if (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') {
+        ev.preventDefault();
+        const dir = ev.key === 'ArrowUp' ? 1 : -1;
+        const np = Math.min(Math.max(1, page + dir), pages);
+        if (np !== page) snifferPagerGo(key, np);
+        else goto.value = page;
       }
     });
     goto.addEventListener('blur', () => { goto.value = page; });
@@ -3764,32 +3787,54 @@ async function snifferLoadHistory() {
   try {
     // Flat value history: the backend returns every response telegram carrying
     // register values as its own row (registers-table columns + timestamp),
-    // sorted by timestamp. Server-side paged; column filters apply on top.
+    // sorted by timestamp (newest first).
     let url = '/api/sniffer/history/flat?busid=' + bid;
     if (snifferHistoryFilter.from != null) url += '&from=' + snifferHistoryFilter.from;
     if (snifferHistoryFilter.to != null) url += '&to=' + snifferHistoryFilter.to;
-    // Push active column filters that map 1:1 to server parameters down to
-    // the server. This way the server fetches ONLY rows matching the filter
-    // and new matching telegrams are not displaced by non-matching ones in
-    // the limited (paged) window — the "new line doesn't show up with a
-    // filter active" problem. Multi-value filters can't be expressed as a
-    // single slaveid/address, so they stay client-side.
+    // When a column filter is active we CANNOT safely server-page: the server
+    // distributes limit across ALL slaves and a new matching telegram could be
+    // displaced by non-matching ones from other slaves/addresses — the new line
+    // would never show up. Two mitigations:
+    //   1. Push filters that map 1:1 to server params (single slave / single
+    //      address) so the server only fetches matching rows at all.
+    //   2. Load a large window (no offset) and paginate client-side so every
+    //      matching row is present regardless of column filter (value, raw,
+    //      converter, description, …).
     const histF = snifferFilters.history || {};
     const slaveVals = Array.isArray(histF.slaveId) ? histF.slaveId : [];
     const addrVals = Array.isArray(histF.address) ? histF.address : [];
     if (slaveVals.length === 1) url += '&slaveid=' + encodeURIComponent(String(slaveVals[0]));
     if (addrVals.length === 1) url += '&address=' + encodeURIComponent(String(addrVals[0]));
-    if (snifferHistoryPageSize > 0) url += '&limit=' + snifferHistoryPageSize + '&offset=' + ((snifferHistoryPage - 1) * snifferHistoryPageSize);
-    else url += '&limit=2000';
+    if (snifferHistoryFilterActive()) {
+      url += '&limit=20000';
+    } else if (snifferHistoryPageSize > 0) {
+      url += '&limit=' + snifferHistoryPageSize + '&offset=' + ((snifferHistoryPage - 1) * snifferHistoryPageSize);
+    } else {
+      url += '&limit=2000';
+    }
     const res = await api(url);
     if (snifferBusId !== bid) return;
     const rows = Array.isArray(res) ? res : ((res && res.rows) || []);
     const total = Array.isArray(res) ? rows.length : ((res && res.total) || rows.length);
-    snifferHistoryData = rows;
-    renderSnifferHistory(snifferHistoryData, total);
+    // Active column filter → client-side pagination (server cannot express the
+    // filter, so the whole matching window must be present to page through).
+    const haveFilter = snifferHistoryFilterActive();
+    snifferHistoryData = haveFilter ? rows.slice(0, 20000) : rows;
+    snifferHistoryServerTotal = total;
+    renderSnifferHistory(snifferHistoryData, haveFilter ? rows.length : total);
   } catch (e) {
     if (body) body.innerHTML = '<tr><td colspan="9" class="sniffer-empty">' + t('err_load') + '</td></tr>';
   }
+}
+function snifferHistoryFilterActive() {
+  const filters = snifferFilters.history;
+  if (filters && Object.keys(filters).length) {
+    for (const field in filters) {
+      const arr = filters[field];
+      if (Array.isArray(arr) && arr.length > 0) return true;
+    }
+  }
+  return false;
 }
 function renderSnifferHistory(rows, total) {
   const body = $('sn-history-body');
@@ -3802,7 +3847,15 @@ function renderSnifferHistory(rows, total) {
     renderSnifferPager('history', 0, 0, 1, snifferHistoryPageSize);
     return;
   }
-  body.innerHTML = filtered.map((r) => {
+  // Active column filter -> client-side paging (snifferHistoryData holds the
+  // full matching window; slice per page like devices/registers).
+  const haveFilter = snifferHistoryFilterActive();
+  const shown = filtered.length;
+  const pages = Math.max(1, Math.ceil(shown / snifferHistoryPageSize));
+  if (haveFilter && snifferHistoryPage > pages) snifferHistoryPage = pages;
+  const start = haveFilter ? (snifferHistoryPage - 1) * snifferHistoryPageSize : 0;
+  const slice = haveFilter ? filtered.slice(start, start + snifferHistoryPageSize) : filtered;
+  body.innerHTML = slice.map((r) => {
     const raw = r.rawValue != null ? escapeHtml(String(r.rawValue)) : '<span class="sn-muted">—</span>';
     const interp = r.value != null && r.value !== '' ? escapeHtml(String(r.value)) : '<span class="sn-muted">—</span>';
     const conv = r.converter ? escapeHtml(snifferConverterLabel(r.converter)) : '<span class="sn-muted">' + t('sniffer_no_template') + '</span>';
@@ -3824,8 +3877,7 @@ function renderSnifferHistory(rows, total) {
         '" data-uom="' + escapeHtml(r.uom || '') + '" title="' + t('sniffer_trend') + '"><svg class="sn-trend-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 13.5h12M3.5 10.5l3-3.2 2.2 2 3.8-4.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>' +
       '</tr>';
   }).join('');
-  const shown = filtered.length;
-  renderSnifferPager('history', shown, typeof total === 'number' ? total : shown, snifferHistoryPage, snifferHistoryPageSize);
+  renderSnifferPager('history', slice.length, haveFilter ? shown : (typeof total === 'number' ? total : shown), snifferHistoryPage, snifferHistoryPageSize);
   bindSnifferTrendButtons();
 }
 function snifferFullTime(ts) {
