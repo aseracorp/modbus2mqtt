@@ -1130,8 +1130,30 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .sniffer-table .sniffer-empty { text-align: center; color: var(--text-muted); padding: 16px; }
 .sniffer-mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 .sniffer-crc-bad td { background: rgba(220, 53, 69, 0.08); }
-.sniffer-tab-panel { overflow: auto; max-height: 46vh; }
+.sniffer-tab-panel { overflow: auto; max-height: 46vh; display: flex; flex-direction: column; }
+.sniffer-table-wrap { overflow: auto; flex: 1; min-height: 0; }
 .modal-xlg .sniffer-toolbar { max-width: none; }
+
+/* Sticky footer per sniffer tab: page-size (left) + pager (right) stay
+   visible at the bottom of the popup while the table scrolls. */
+.sniffer-footer {
+  display: flex; align-items: center; gap: 10px; padding: 8px 2px 2px;
+  border-top: 1px solid var(--border); background: var(--bg-elevated, var(--bg));
+  position: sticky; bottom: 0; z-index: 5; flex: 0 0 auto;
+}
+.sniffer-footer .sniffer-page-size {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted);
+  margin-right: auto;
+}
+.sniffer-footer .sniffer-page-size select,
+.sniffer-history-bar .sniffer-page-size select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: 3px 6px; font-size: 12.5px; cursor: pointer;
+}
+.sniffer-footer .sniffer-page-size select:hover,
+.sniffer-history-bar .sniffer-page-size select:hover { border-color: var(--primary); }
+.sniffer-footer .sniffer-pager { padding: 0; }
+.sniffer-footer .btn-sm { white-space: nowrap; }
 
 /* Sniffer eye icon in the bus list - live status */
 /* Running: GREEN with a bright "flash" pulse so the active state is obvious. */
@@ -1219,7 +1241,29 @@ select optgroup { background-color: var(--bg-elevated); color: var(--text-second
 .sniffer-pager button:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--primary); color: var(--primary); }
 .sniffer-pager button:disabled { opacity: .4; cursor: default; }
 .sniffer-pager .sn-pager-page { font-weight: 600; color: var(--text); }
+.sniffer-pager .sn-pager-total { color: var(--text-muted); }
 .sniffer-pager select { background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 2px 4px; font-size: 12px; }
+.sniffer-pager .sn-pager-goto {
+  width: 52px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: 2px 4px; font-size: 12.5px; text-align: center;
+}
+.sniffer-pager .sn-pager-goto:focus { outline: none; border-color: var(--primary); }
+
+/* Trend button: outline chart icon, uncolored like the other icon buttons. */
+.icon-btn .sn-trend-ico { display: inline-block; vertical-align: middle; color: inherit; stroke: currentColor; }
+.icon-btn:hover .sn-trend-ico { color: var(--primary); }
+
+/* Export dropdown (CSV / JSON). */
+.sn-export-menu {
+  display: flex; flex-direction: column; gap: 2px; z-index: 1000;
+  background: var(--bg-elevated, var(--bg)); border: 1px solid var(--border-strong);
+  border-radius: 8px; padding: 4px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.sn-export-menu button {
+  background: none; border: none; text-align: left; padding: 6px 14px; border-radius: 6px;
+  color: var(--text); font-size: 13px; cursor: pointer;
+}
+.sn-export-menu button:hover { background: var(--bg-hover); color: var(--primary); }
 
 /* ---- sniffer history bar ---- */
 .sniffer-history-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 2px 8px; font-size: 12.5px; color: var(--text-muted); }

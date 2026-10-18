@@ -495,6 +495,105 @@ export class SnifferService implements SnifferTransport {
   }
 
   /**
+   * Returns the register value history for one address (newest first, limited),
+   * where each point carries BOTH the raw frame values and the interpreted
+   * value (via the template entity, same logic as the registers table). The
+   * converted `value` drives the trend chart axis; fallback to the raw word
+   * when no entity decodes the point (e.g. no spec on a sniffer-only slave).
+   * Each point also keeps the raw word at the exact address for reference.
+   */
+  getRegisterHistoryConverted(
+    busId: number,
+    slaveId: number,
+    address: number,
+    limit?: number,
+    from?: number,
+    to?: number,
+  ): Array<SnifferTelegramRow & { convertedValue?: string; rawAddressWord?: number }> {
+    const rows = this.store.getRegisterHistory(busId, slaveId, address, limit, from, to)
+    // Interpret each historical frame against the CURRENT template (the same
+    // entity selection the registers table would make today). Good enough for
+    // the trend axis; conditional device-type variants resolve via the current
+    // captured values too.
+    return rows.map((t) => {
+      const rawAddressWord = t.values?.[0]
+      const row: SnifferRegisterRow = {
+        id: t.id,
+        busId: t.busId,
+        slaveId: t.slaveId,
+        address: t.address ?? address,
+        quantity: t.length ?? 1,
+        functionCode: t.functionCode,
+        words: t.values ?? [],
+        rawValue: t.values?.join(' '),
+        lastSeen: t.timestamp,
+      }
+      const enriched = this.enrichRegister(row, snifferValuesFromRows([row]))
+      return { ...t, convertedValue: enriched.value, rawAddressWord }
+    })
+  }
+
+  /**
+   * Register-centric history: derives, from the response telegrams in the
+   * period, the distinct registers that carried values. Aggregates per
+   * (slaveId, address, functionCode): how many samples, the latest raw word
+   * and the latest interpreted value (same entity logic as the registers
+   * table). Sorted by slaveId then address - the History view lists REGISTERS
+   * (not telegrams), with a quick value trend per row.
+   */
+  getRegisterHistorySummary(
+    busId: number,
+    slaveId?: number,
+    from?: number,
+    to?: number,
+    address?: number,
+  ): Array<{
+    busId: number; slaveId: number; address: number; functionCode?: number;
+    samples: number; lastTimestamp: number; lastRaw?: number; lastValue?: string; uom?: string;
+    description?: string; entityName?: string; entityId?: string | number; specKey?: string; converter?: string;
+  }> {
+    const agg = new Map<string, {
+      busId: number; slaveId: number; address: number; functionCode?: number;
+      samples: number; lastTimestamp: number; lastRaw?: number; lastValue?: string;
+      uom?: string; description?: string; entityName?: string; entityId?: string | number;
+      specKey?: string; converter?: string;
+    }>()
+    const slaveIds = slaveId !== undefined ? [slaveId] : Array.from(new Set(this.store.getTelegrams(busId).map((t) => t.slaveId)))
+    for (const sid of slaveIds) {
+      const rows = this.store.getTelegrams(busId, sid, 100000, from, to)
+      for (const t of rows) {
+        const addr = t.address
+        if (t.direction !== 'response' || addr === undefined || !t.values || t.values.length === 0) continue
+        if (address !== undefined && addr !== address) continue
+        const key = sid + ':' + addr
+        const cur = agg.get(key)
+        if (cur) {
+          cur.samples += 1
+          if (t.timestamp > cur.lastTimestamp) {
+            cur.lastTimestamp = t.timestamp
+            cur.lastRaw = t.values[0]
+          }
+          continue
+        }
+        const row: SnifferRegisterRow = {
+          id: t.id, busId, slaveId: sid, address: addr, quantity: t.length ?? 1,
+          functionCode: t.functionCode, words: t.values, rawValue: t.values.join(' '), lastSeen: t.timestamp,
+        }
+        const enriched = this.enrichRegister(row, snifferValuesFromRows([row]))
+        const entry = {
+          busId, slaveId: sid, address: addr, functionCode: t.functionCode,
+          samples: 1, lastTimestamp: t.timestamp, lastRaw: t.values[0],
+          lastValue: enriched.value, uom: enriched.uom,
+          description: enriched.description, entityName: enriched.entityName,
+          entityId: enriched.entityId, specKey: enriched.specKey, converter: enriched.converter,
+        }
+        agg.set(key, entry)
+      }
+    }
+    return Array.from(agg.values()).sort((a, b) => a.slaveId - b.slaveId || a.address - b.address)
+  }
+
+  /**
    * Groups consecutive rows of the same slave that belong to one entity (e.g. a
    * 32 bit float read as two holding registers) so the converter receives the
    * full word array. Rows are merged by (slaveId, matching entity range from a
@@ -604,30 +703,36 @@ export class SnifferService implements SnifferTransport {
       return conds.every((c) => conditionMatches(c, readConditionValue(values, c)))
     })
     entity = active[0] ?? pool.find((e) => entityConditions(e).length === 0)
-    // Fallback: when no active entity emerges (gated entities whose conditions
-    // reference registers the sniffer has not captured yet, or a registry that
-    // evaluates every candidate as conditional), pool[0] is already filtered by
-    // spec + address range + register type and is the best template identity
-    // for this row. Without this, template rows would lose entityId and appear
-    // as unannotated raw rows.
-    if (!entity && pool.length > 0) entity = pool[0]
-    if (!entity || entity.id === undefined) return row
+    // Template identity fallback: when no active entity emerges (gated entities
+    // whose conditions reference registers the sniffer has not captured yet,
+    // or a registry that evaluates every candidate as conditional), pool[0] is
+    // already filtered by spec + address range + register type and is the best
+    // template identity for this row. It is used ONLY as a non-interpreted
+    // identity: without an active entity the converter and value must stay raw
+    // (an unknown condition must not fabricate a value).
+    const templateEntity = entity ?? (pool.length > 0 ? pool[0] : undefined)
+    if (!templateEntity || templateEntity.id === undefined) return row
 
-    const entityDesc = entity.name ?? entity.mqttname ?? entity.converter ?? ''
+    const entityDesc = templateEntity.name ?? templateEntity.mqttname ?? templateEntity.converter ?? ''
     // Always surface the template identity (entityId + specKey + template
     // description) even when the value can't be decoded (no data yet, gate
     // conditions inactive, converter error): the UI translates the description
     // from the spec i18n and shows the entity's converter/unit regardless.
     const templateRow: SnifferRegisterRow = {
       ...row,
-      converter: entityConverterLabel(entity) ?? row.converter,
-      converterParameters: entityConverterParams(entity),
-      uom: entityUom(entity) ?? row.uom,
+      converter: entity !== undefined ? entityConverterLabel(entity) ?? row.converter : row.converter,
+      converterParameters: entity !== undefined ? entityConverterParams(entity) : row.converterParameters,
+      uom: entityUom(templateEntity) ?? row.uom,
       description: entityDesc || row.description,
-      entityId: entity.id,
+      entityId: templateEntity.id,
       specKey: spec.filename ?? row.specKey,
       entityName: entityDesc || 'unknown',
     }
+    // No active entity (conditions unknown or inactive): identity only - the
+    // row keeps its raw value/converter until the gating condition can be
+    // evaluated. This is the documented contract: no interpretation without a
+    // matchable condition.
+    if (entity === undefined) return templateRow
 
     const converter = ConverterMap.getConverter(entity)
     if (!converter) return templateRow

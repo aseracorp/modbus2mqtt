@@ -272,4 +272,12 @@ window.LANG_it = {
   sniffer_trend_loading: "Caricamento andamento…",
   sniffer_trend_no_data: "Nessuna cronologia valori per questo registro",
   sniffer_trend_points: "punti",
+  sniffer_page: "Pagina",
+  sniffer_page_goto: "Vai alla pagina",
+  sniffer_export: "Esporta",
+  sniffer_export_hint: "Esporta con i filtri attivi (CSV o JSON)",
+  sniffer_export_error: "Esportazione non riuscita: ",
+  sniffer_export_empty: "Niente da esportare - nessuna riga corrisponde ai filtri attivi.",
+  sniffer_export_done: "Esportato",
+  sniffer_samples: "Campioni",
 };

@@ -275,4 +275,12 @@ window.LANG_en = {
   sniffer_trend_loading: "Loading trend…",
   sniffer_trend_no_data: "No value history for this register yet",
   sniffer_trend_points: "points",
+  sniffer_page: "Page",
+  sniffer_page_goto: "Go to page",
+  sniffer_export: "Export",
+  sniffer_export_hint: "Export with active filters (CSV or JSON)",
+  sniffer_export_error: "Export failed: ",
+  sniffer_export_empty: "Nothing to export - no rows match the active filters.",
+  sniffer_export_done: "Exported",
+  sniffer_samples: "Samples",
 };
