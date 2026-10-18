@@ -1136,6 +1136,57 @@ it('getRegisterHistoryConverted returns converted values from the history', asyn
   await svc.stop()
 })
 
+it('getRegisterHistoryConverted resolves gating conditions from the full register state', async () => {
+  const { svc, store } = makeService()
+  await svc.start()
+  const spec = {
+    filename: 'cond-spec-history',
+    entities: [
+      {
+        id: 1,
+        name: 'Temp type 1',
+        converter: 'number',
+        registerType: 3,
+        modbusAddress: 0,
+        converterParameters: { multiplier: 0.1, uom: '°C' },
+        conditions: [{ register: 400, comparator: 'eq', value: 1 }],
+      },
+      {
+        id: 2,
+        name: 'Temp type 2',
+        converter: 'number',
+        registerType: 3,
+        modbusAddress: 0,
+        converterParameters: { multiplier: 0.1, uom: '°C' },
+        conditions: [{ register: 400, comparator: 'eq', value: 2 }],
+      },
+    ],
+    i18n: [],
+  }
+  const configBusModule = await import('../../src/server/configbus.js')
+  const original = configBusModule.ConfigBus.getSlave
+  configBusModule.ConfigBus.getSlave = () => ({
+    slaveid: 7,
+    name: 'Test',
+    specification: spec,
+  })
+  try {
+    // Feed real cycles: 400 = 2 (device type) and 0 = 486 (temperature).
+    svc.feed('request', frame(7, 0x03, [0x01, 0x90, 0x00, 0x01])) // read 400
+    svc.feed('request', frame(7, 0x03, [0x00, 0x00, 0x00, 0x01])) // read 0
+    svc.feed('response', frame(7, 0x03, [0x02, 0x00, 0x02])) // 400 = 2
+    svc.feed('response', frame(7, 0x03, [0x02, 0x01, 0xe6])) // 0 = 486 -> 48.6
+    const rows = svc.getRegisterHistoryConverted(1, 7, 0, 10)
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    // Condition 400==2 selects 'Temp type 2' -> converted 48.6 from raw 486.
+    expect(rows[0].convertedValue).toBe('48.6')
+    expect(rows[0].rawAddressWord).toBe(486)
+  } finally {
+    configBusModule.ConfigBus.getSlave = original
+  }
+  await svc.stop()
+})
+
 it('getRegisterHistorySummary aggregates distinct registers in the period', async () => {
   const { svc, store } = makeService()
   await svc.start()
