@@ -645,28 +645,53 @@ export class SnifferService implements SnifferTransport {
     }> = []
     for (const sid of slaveIds) {
       const rows = this.store.getTelegrams(busId, sid, per, from, to)
+      // Interpret against the current full register state of the slave so
+      // gating conditions (device-type select) resolve their entity. Pulled
+      // once per slave; also carries manual annotations (pencil) that must
+      // win over the template in the History view too.
+      const fullRows = this.store.getRegisters(busId, sid)
+      const valuesForCond = snifferValuesFromRows(fullRows.length > 0 ? fullRows : [])
       for (const t of rows) {
         if (t.direction !== 'response' || t.address === undefined || !t.values || t.values.length === 0) continue
-        if (address !== undefined && t.address !== address) continue
-        const row: SnifferRegisterRow = {
-          id: t.id, busId, slaveId: sid, address: t.address, quantity: t.length ?? 1,
-          functionCode: t.functionCode, words: t.values, rawValue: t.values.join(' '), lastSeen: t.timestamp,
+        // A read may span several registers at once (e.g. a block read of
+        // addr 0..7). The History view lists one row PER register address so
+        // each row shows exactly the word it owns - showing the whole word
+        // block against a single address would be misleading ("raw" would
+        // contain values of other registers).
+        const base = t.address
+        const length = t.length ?? t.values.length
+        const wordCount = Math.min(length, t.values.length)
+        for (let idx = 0; idx < wordCount; idx++) {
+          const addr = base + idx
+          if (address !== undefined && addr !== address) continue
+          const word = t.values[idx]
+          // Carry the manual annotation (converter/uom/description) stored for
+          // this address, so a pencil override is honoured in the History view
+          // exactly like in the Registers view.
+          const stored = fullRows.find((r) => r.address === addr)
+          const row: SnifferRegisterRow = {
+            id: t.id, busId, slaveId: sid, address: addr, quantity: 1,
+            functionCode: t.functionCode, words: [word], rawValue: String(word), lastSeen: t.timestamp,
+            converter: stored?.converter,
+            uom: stored?.uom,
+            description: stored?.description,
+            annotated: stored?.annotated,
+            specKey: stored?.specKey,
+          }
+          const enriched = this.enrichRegister(row, valuesForCond)
+          collected.push({
+            ...t,
+            address: addr,
+            rawValue: row.rawValue ?? '',
+            converter: enriched.converter,
+            value: enriched.value,
+            uom: enriched.uom,
+            description: enriched.description,
+            entityName: enriched.entityName,
+            entityId: enriched.entityId,
+            specKey: enriched.specKey,
+          })
         }
-        // Interpret against the current full register state of the slave so
-        // gating conditions (device-type select) resolve their entity.
-        const fullRows = this.store.getRegisters(busId, sid)
-        const enriched = this.enrichRegister(row, snifferValuesFromRows(fullRows.length > 0 ? fullRows : [row]))
-        collected.push({
-          ...t,
-          rawValue: row.rawValue ?? '',
-          converter: enriched.converter,
-          value: enriched.value,
-          uom: enriched.uom,
-          description: enriched.description,
-          entityName: enriched.entityName,
-          entityId: enriched.entityId,
-          specKey: enriched.specKey,
-        })
       }
     }
     // Newest first, then page (descending timestamp — the History view shows
@@ -701,16 +726,29 @@ export class SnifferService implements SnifferTransport {
    */
   private enrichRegister(row: SnifferRegisterRow, values: ImodbusValues = emptyValues): SnifferRegisterRow {
     // Manual annotation: the user typed a converter like "number * 0.1" into
-    // the register's pencil dialog. It applies only when no template entity
-    // owns the register (annotations never override a real template — the
-    // template is the source of truth when it exists). Evaluate the expression
-    // against the captured words and surface the result; an unparseable
-    // description keeps the raw words as the displayed value.
-    if (row.annotated && !row.specKey) {
+    // the register's pencil dialog. The annotation is the user's explicit
+    // choice and takes precedence over the template (the template only wins
+    // when no annotation exists). When a parseable formula is present it is
+    // applied directly; a bare UOM/description annotation falls through to
+    // the template interpretation but keeps the annotated unit/description.
+    if (row.annotated) {
       const manual = evaluateManualConverter(row.converter, row.words)
       if (manual !== undefined) return { ...row, value: String(manual), annotated: true }
-      return { ...row, value: row.rawValue, annotated: true }
+      const enriched = this.enrichFromTemplate(row, values)
+      return {
+        ...enriched,
+        // An annotation without a formula still wins on unit + description:
+        // the user explicitly labelled this register.
+        uom: row.uom ?? enriched.uom,
+        description: row.description ?? enriched.description,
+        annotated: true,
+      }
     }
+    return this.enrichFromTemplate(row, values)
+  }
+
+  /** Template (spec) interpretation of a register row. */
+  private enrichFromTemplate(row: SnifferRegisterRow, values: ImodbusValues): SnifferRegisterRow {
 
     const slave = ConfigBus.getSlave(row.busId, row.slaveId)
     // Sniffer-only slaves (seen on the wire but not configured in the bus)
