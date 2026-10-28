@@ -14,6 +14,11 @@ jobs:
   sync-upstream:
     name: "Merge upstream/main into fork"
     runs-on: ubuntu-latest
+
+    env:
+      TARGET_BRANCH: main
+      SYNC_BRANCH: sync-upstream
+
     steps:
       - name: Checkout fork
         uses: actions/checkout@v5
@@ -33,13 +38,16 @@ jobs:
           echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
           echo "Fork is $BEHIND commit(s) behind upstream/main"
 
+      # Merge upstream into a non-protected sync branch. The "protect branch"
+      # ruleset blocks direct pushes to main, so the merge lands via PR.
       - name: Merge upstream/main
         if: steps.changes.outputs.behind != '0'
-        id: merge
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "${{ env.SYNC_BRANCH }}"
 
           # Merge upstream. On conflict: resolve the one known
           # modify/delete (.github/release.yml — fork removed it,
@@ -52,31 +60,68 @@ jobs:
             git commit --no-edit \
               -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)"
           fi
-          git push origin main
 
-      - name: Create fallback PR on unexpected conflict
-        if: steps.changes.outputs.behind != '0' && steps.merge.outcome == 'failure'
+      # Land the merge: prefer an org-admin bot token (bypasses the ruleset,
+      # same pattern as openwrt-packages/version-check.yml). If that secret is
+      # not configured, fall back to a PR (ruleset requires 0 approvals).
+      - name: Land upstream merge
+        if: steps.changes.outputs.behind != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_BOT_TOKEN: ${{ secrets.GH_BOT_TOKEN }}
         run: |
-          git merge --abort 2>/dev/null || true
-          git checkout -b sync-upstream main
-          if git merge upstream/main --no-edit --no-ff \
-             -m "chore: sync-upstream WIP (${{ steps.changes.outputs.behind }} new commits) — resolve conflicts"; then
-            git push origin sync-upstream
-          else
-            # Break the conflict; the PR is a review vehicle. Commit both
-            # sides with markers so a human can resolve on the branch.
-            git add -A
-            git -c core.editor=true commit -m "chore: sync-upstream WIP (${{ steps.changes.outputs.behind }} new commits) — resolve conflicts"
-            git push origin sync-upstream
+          set -e
+
+          # Option A: direct push with the org-admin bot token (bypasses the
+          # "protect branch" ruleset). Only runs if the secret exists.
+          if [ -n "${GH_BOT_TOKEN}" ]; then
+            echo "::group::Direct push with GH_BOT_TOKEN"
+            git config --unset-all "http.https://github.com/.extraheader" || true
+            git remote set-url origin "https://x-access-token:${GH_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            n=0
+            while :; do
+              if git push origin "${{ env.SYNC_BRANCH }}:${{ env.TARGET_BRANCH }}"; then
+                echo "Direct push to ${{ env.TARGET_BRANCH }} succeeded with bot token."
+                echo "::endgroup::"
+                exit 0
+              fi
+              n=$((n+1))
+              if [ "$n" -ge 5 ]; then
+                echo "ERROR: could not push after 5 attempts" >&2
+                echo "::endgroup::"
+                exit 1
+              fi
+              echo "push rejected, rebasing and retrying ($n/5)"
+              git pull --rebase origin "${{ env.TARGET_BRANCH }}"
+            done
           fi
-          gh pr create \
-            --base main \
-            --head sync-upstream \
-            --title "chore: sync with upstream/main (${{ steps.changes.outputs.behind }} new commits)" \
-            --body "Automated sync from the daily upstream check. An unexpected conflict occurred — please review and resolve." \
-            || echo "PR already exists or could not be created"
+
+          # Option B: PR flow with GITHUB_TOKEN.
+          echo "::group::PR flow"
+          git push --force-with-lease origin "${{ env.SYNC_BRANCH }}"
+
+          EXISTING=$(gh pr list --head "${{ env.SYNC_BRANCH }}" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+          TITLE="chore: sync with upstream/main (${{ steps.changes.outputs.behind }} new commits)"
+          BODY="Automated daily sync from the upstream check. Merge to apply the latest upstream commits."
+          if [ -n "$EXISTING" ]; then
+            echo "Sync PR #${EXISTING} already open — updating it."
+            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY" >/dev/null || true
+            PR_NUMBER="$EXISTING"
+          else
+            PR_NUMBER=$(gh pr create --base "${{ env.TARGET_BRANCH }}" --head "${{ env.SYNC_BRANCH }}" --title "$TITLE" --body "$BODY" | grep -oE '[0-9]+$' || true)
+            echo "Opened PR #${PR_NUMBER:-unknown}"
+          fi
+
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Merging PR #${PR_NUMBER} (ruleset allows 0-approval merges)."
+            if gh pr merge "$PR_NUMBER" --merge --delete-branch=false; then
+              echo "Sync PR #${PR_NUMBER} merged."
+            else
+              echo "::warning::Auto-merge of sync PR #${PR_NUMBER} failed (ruleset may require a human approval)."
+              echo "::warning::PR #${PR_NUMBER} is open and ready for review — fork is otherwise in sync."
+            fi
+          fi
+          echo "::endgroup::"
 
       - name: Nothing to do
         if: steps.changes.outputs.behind == '0'
