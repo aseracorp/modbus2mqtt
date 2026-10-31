@@ -17,12 +17,14 @@ jobs:
         id: filter
         with:
           filters: |
+            # 'specifications/**' is device spec DATA (YAML + user manuals);
+            # pure spec merges must NOT trigger the full (slow, flaky) e2e
+            # suite. Only real code changes build & test.
             code:
               - 'backend/**'
               - 'frontend/**'
               - 'e2e/**'
               - 'specification/**'
-              - 'specifications/**'
               - 'scripts/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
