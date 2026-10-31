@@ -7,32 +7,22 @@ permissions:
   contents: write
   pull-requests: read
 jobs:
-  # Full CI (build+test+e2e) only for real feature PRs. Automated
-  # upstream-sync/merge PRs (branch sync-upstream or the sync/merge titles)
-  # carry upstream's flaky e2e and would block every nightly sync forever if
-  # we required them to pass — skip the heavy suite there.
   check-changes:
     name: Check for code changes
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
-      run-ci: ${{ steps.filter.outputs.code == 'true'
-        && github.head_ref != 'sync-upstream'
-        && !startsWith(github.event.pull_request.title, 'chore: merge upstream')
-        && !startsWith(github.event.pull_request.title, 'chore: sync with upstream') }}
     steps:
       - uses: dorny/paths-filter@v4.0.3
         id: filter
         with:
           filters: |
-            # 'specifications/**' is device spec DATA (YAML + user manuals);
-            # pure spec merges must NOT trigger the full (slow, flaky) e2e
-            # suite. Only real code changes build & test.
             code:
               - 'backend/**'
               - 'frontend/**'
               - 'e2e/**'
               - 'specification/**'
+              - 'specifications/**'
               - 'scripts/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -44,73 +34,69 @@ jobs:
     needs: check-changes
     runs-on: ubuntu-latest
     steps:
-      # Skip the heavy build+test on automated upstream-sync/merge PRs and
-      # on PRs without code changes: those carry upstream's flaky e2e suite
-      # (ingress/nav timeouts) which would block every nightly sync forever.
-      # Real feature PRs (any other branch, real code) always get full CI.
-      - name: Skip — no full CI needed (sync PR or no code changes)
-        if: needs.check-changes.outputs.run-ci != 'true'
-        run: echo "Skipping heavy build+test (automated sync/merge PR or no code changes)."
+      - name: Skip — no code changes
+        if: needs.check-changes.outputs.code != 'true'
+        run: echo "No relevant code changes detected. Skipping build and test."
 
       - name: Checkout repository
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Setup pnpm
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         uses: pnpm/action-setup@v6.1.0
       - name: Set up Node.js from .nvmrc
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - name: Install system dependencies (nginx, mosquitto, jq)
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: sudo apt-get update && sudo apt-get install -y nginx mosquitto mosquitto-clients jq
       - name: Install Node dependencies
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: |
           pnpm install --frozen-lockfile
           pushd backend && pnpm install --frozen-lockfile && popd
           pushd frontend && pnpm install --frozen-lockfile && popd
       - name: Run pre-commit checks (fast, no full mode)
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         env:
           GITHUB_ACTIONS: '1'
           GITHUB_BASE_REF: origin/${{ github.base_ref }}
         run: |
           bash scripts/pre-commit.sh
       - name: Build all
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: pnpm run build
       - name: Run backend unit tests
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: |
           pushd backend && pnpm run test && popd
       - name: Run MQTT/Modbus auto-discovery unit tests
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: |
           pushd backend && pnpm exec vitest run --config vitest.config.mts tests/server/MqttAutoDiscover_test.tsx tests/server/ModbusAutoDiscover_test.tsx && popd
       - name: Run specification smoke test
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: |
           pushd specification && pnpm run test && popd
       - name: Verify specification validator CLI (guards modbus2mqtt.config)
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: node dist/specification/validate.js --help
       - name: Install Playwright browsers
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: npx playwright install --with-deps chromium
       - name: Start local E2E servers
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: pnpm run e2e:start
       - name: Run Playwright E2E tests
-        if: needs.check-changes.outputs.run-ci == 'true'
+        if: needs.check-changes.outputs.code == 'true'
         run: npx playwright test
       - name: Upload Playwright test results
-        if: ${{ always() && needs.check-changes.outputs.run-ci == 'true' }}
+        if: ${{ always() && needs.check-changes.outputs.code == 'true' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: playwright-report
@@ -119,7 +105,7 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
       - name: Upload server logs
-        if: ${{ always() && needs.check-changes.outputs.run-ci == 'true' }}
+        if: ${{ always() && needs.check-changes.outputs.code == 'true' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: e2e-logs

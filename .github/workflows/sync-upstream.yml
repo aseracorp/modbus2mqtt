@@ -49,34 +49,14 @@ jobs:
 
           git checkout -b "${{ env.SYNC_BRANCH }}"
 
-          # Merge upstream. On conflict, resolve deterministically:
-          #   - add/add: keep OUR version for .github/workflows/* (so our sync
-          #     & CI tooling survives) and for files we already track;
-          #     otherwise take THEIRS (upstream's new content, e.g. specs).
-          #   - rename/delete + modify/delete: take THEIRS (upstream moved/
-          #     rewrote the file; keeping the old location would resurrect
-          #     deleted code).
-          # Then commit. This makes the merge always land; CI then decides
-          # whether the result is buildable.
+          # Merge upstream. On conflict: resolve the one known
+          # modify/delete (.github/release.yml — fork removed it,
+          # upstream keeps it), then commit.
           if ! git merge upstream/main --no-edit --no-ff \
                -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)"; then
-            echo "Merge had conflicts — resolving deterministically."
-
-            # resolve all unmerged paths to a definite version
-            unmerged=$(git diff --name-only --diff-filter=U)
-            for f in $unmerged; do
-              case "$f" in
-                .github/workflows/*)
-                  # keep our CI/sync workflows (theirs exists too, but our
-                  # auto-merge & sync logic must survive)
-                  git checkout --ours -- "$f" 2>/dev/null || git rm -f -- "$f" ;;
-                *)
-                  git checkout --theirs -- "$f" 2>/dev/null || git rm -f -- "$f" ;;
-              esac
-            done
-
-            # drop any other (rename/delete) left-overs generically
-            git add -A
+            echo "Merge had conflicts — resolving."
+            git checkout --theirs .github/release.yml 2>/dev/null || git rm -f .github/release.yml
+            git add .github/release.yml
             git commit --no-edit \
               -m "chore: merge upstream/main (${{ steps.changes.outputs.behind }} new commits)"
           fi
